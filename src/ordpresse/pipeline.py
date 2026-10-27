@@ -16,16 +16,11 @@ from ordpresse.config import (
 )
 from ordpresse.db import Database
 from ordpresse.epub_scanner import scan_epub_tokens
-from ordpresse.orthography import (
-    generate_orthographic_synonyms,
-    resolve_danish_stem_candidates,
-)
+from ordpresse.orthography import generate_orthographic_synonyms
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
-from ordpresse.scrapers import HistoricalScraper, SEED_HISTORICAL_ENTRIES
 from ordpresse.sources.nordic_1800s import (
     NORDIC_1800S_ENTRIES,
-    enrich_canonical_entry_with_historical,
     get_nordic_1800s_entry,
 )
 from ordpresse.stardict_writer import StarDictEntry, StarDictWriter
@@ -88,7 +83,6 @@ class Pipeline:
 
         emit("Initialiserer ordbogsbygger...", 5)
         db = self.get_db()
-        scraper = HistoricalScraper(db)
 
         resolved_entries: dict[str, StarDictEntry] = {}
         cor_count = 0
