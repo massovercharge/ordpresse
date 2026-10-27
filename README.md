@@ -74,13 +74,13 @@ Byg og start containeren:
 docker compose up -d --build
 ```
 
-Containeren kører på port `8088` med data gemt i `./data` (SQLite-databaser og output-ordbøger).
+Containeren kører internt på port `8088`, som via Docker Compose er mappet til værtsport `18088` (for at undgå portkollisioner på serveren). Data gemmes persistent i `./data`.
 
 ### Cloudflare Zero Trust Tunnel Setup
 
 I Cloudflare Zero Trust Dashboard oprettes en Public Hostname rute:
 - **Service:** `HTTP`
-- **URL:** `192.168.50.5:8088` (eller container-navn/intern IP)
+- **URL:** `192.168.50.5:18088` (eller container-navn/intern IP)
 
 ---
 

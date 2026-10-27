@@ -4,7 +4,7 @@ services:
     container_name: ordpresse
     restart: unless-stopped
     ports:
-      - "${HOST_PORT:-8089}:8088"
+      - "${HOST_PORT:-18088}:8088"
     environment:
       - PORT=8088
       - HOST=0.0.0.0
