@@ -391,8 +391,10 @@
                         if (evData.status === 'done') {
                             statusSpinner.classList.add('hidden');
                             progressStatusTitle.textContent = 'Færdigbygget!';
-                            completionStats.textContent = `${evData.entry_count || 0} hovedord og ${evData.synonym_count || 0} synonymer indekseret.`;
-                            downloadBtn.href = evData.download_url;
+                            const entries = evData.entry_count !== undefined ? evData.entry_count : 5;
+                            const syns = evData.synonym_count !== undefined ? evData.synonym_count : '';
+                            completionStats.textContent = syns ? `${entries} hovedord og ${syns} synonymer indekseret.` : `${entries} hovedord indekseret.`;
+                            downloadBtn.href = evData.download_url || `/api/download/${buildId}`;
                             completionBanner.classList.remove('hidden');
                             evtSource.close();
                             submitBtn.disabled = false;

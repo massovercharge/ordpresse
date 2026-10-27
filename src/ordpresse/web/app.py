@@ -206,15 +206,25 @@ async def build_events(build_id: str):
     job = ACTIVE_BUILDS[build_id]
 
     async def event_generator():
-        # First send initial status
-        initial_data = json.dumps(
-            {
-                "status": job.status,
-                "percent": job.progress,
-                "message": job.message,
-            }
-        )
-        yield f"data: {initial_data}\n\n"
+        # Send initial status
+        initial_payload = {
+            "status": job.status,
+            "percent": job.progress,
+            "message": job.message,
+        }
+        if job.status == "done":
+            initial_payload["download_url"] = f"/api/download/{job.build_id}"
+            if job.result:
+                initial_payload["entry_count"] = job.result.entry_count
+                initial_payload["synonym_count"] = job.result.synonym_count
+        elif job.status == "error":
+            initial_payload["error"] = job.error or "Byggefejl"
+
+        yield f"data: {json.dumps(initial_payload)}\n\n"
+
+        # If job already completed, finish stream immediately
+        if job.status in ("done", "error"):
+            return
 
         while True:
             try:
