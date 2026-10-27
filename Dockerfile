@@ -8,14 +8,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install Python dependencies first for caching
+# Copy project files and source code
 COPY pyproject.toml README.md ./
+COPY src/ ./src/
+
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
-
-# Copy application source code
-COPY src/ ./src/
-RUN pip install --no-cache-dir -e .
 
 # Create persistent data directories
 RUN mkdir -p /app/data/raw /app/data/output
