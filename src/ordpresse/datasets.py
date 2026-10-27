@@ -189,7 +189,7 @@ class DatasetImporter:
             (self.raw_dir / "corext1.0.tsv", COR_EXT_URL, None),
             (self.raw_dir / "cor.sem.1.0.tsv", COR_SEM_URL, None),
             (self.raw_dir / "cor.sem.ext.1.0.tsv", COR_SEM_EXT_URL, None),
-            (self.raw_dir / "ods-fullforms.zip", ODS_FULLFORMS_URL, None),
+            (self.raw_dir / "ods-fullform.zip", ODS_FULLFORMS_URL, None),
         ]
 
         for target_file, primary_url, fallback_url in files_to_download:
@@ -274,7 +274,9 @@ class DatasetImporter:
                     conn.commit()
 
             # 4. Import ODS Fullforms
-            ods_zip_path = self.raw_dir / "ods-fullforms.zip"
+            ods_zip_path = self.raw_dir / "ods-fullform.zip"
+            if not ods_zip_path.exists():
+                ods_zip_path = self.raw_dir / "ods-fullforms.zip"
             ods_tsv_path = self.raw_dir / "ods-fullforms.tsv"
 
             if ods_tsv_path.exists():
@@ -295,11 +297,15 @@ class DatasetImporter:
 
             elif ods_zip_path.exists():
                 if progress_cb:
-                    progress_cb("Åbner og streamer ods-fullforms.zip...")
+                    progress_cb(f"Åbner og streamer {ods_zip_path.name}...")
                 try:
                     with zipfile.ZipFile(ods_zip_path, "r") as zf:
-                        # Find tsv inside zip
-                        tsv_names = [n for n in zf.namelist() if n.endswith(".tsv") or "ods" in n.lower()]
+                        # Find tsv/csv inside zip (excluding macOS metadata)
+                        tsv_names = [
+                            n for n in zf.namelist()
+                            if (n.endswith(".tsv") or n.endswith(".csv") or "ods" in n.lower())
+                            and not n.startswith("__MACOSX")
+                        ]
                         if tsv_names:
                             with zf.open(tsv_names[0]) as zf_entry:
                                 stream = io.TextIOWrapper(zf_entry, encoding="utf-8", errors="replace")
@@ -315,7 +321,7 @@ class DatasetImporter:
                                     cursor.executemany("INSERT INTO ods_forms VALUES (?, ?, ?, ?, ?, ?)", batch)
                                     conn.commit()
                 except Exception as exc:
-                    logger.warning(f"Fejl ved streaming fra ods-fullforms.zip: {exc}")
+                    logger.warning(f"Fejl ved streaming fra {ods_zip_path.name}: {exc}")
 
             if progress_cb:
                 progress_cb("Færdiggør SQLite indeksering...")

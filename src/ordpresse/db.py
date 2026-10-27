@@ -256,3 +256,50 @@ class Database:
             (lemma,),
         )
         return [r[0] for r in cur.fetchall()]
+
+    def get_all_cor_lemmas_with_definitions(self, limit: Optional[int] = None) -> list[dict]:
+        """Fetch all lemmas that have definitions in COR, along with their inflections."""
+        if not self.datasets_path.exists():
+            return []
+        cur = self.datasets_conn.cursor()
+        limit_clause = f"LIMIT {limit}" if limit else ""
+        cur.execute(
+            f"""
+            SELECT cf.lemma, cf.pos, cd.definition, cd.examples
+            FROM cor_forms cf
+            JOIN cor_sem cs ON cs.lemma_id = cf.lemma_id
+            JOIN cor_definitions cd ON cd.sense_id = cs.sense_id
+            GROUP BY cf.lemma, cd.definition
+            {limit_clause}
+            """
+        )
+        rows = cur.fetchall()
+        lemma_map: dict[str, dict] = {}
+        for r in rows:
+            lemma = r["lemma"]
+            pos = r["pos"] or ""
+            definition = r["definition"]
+            examples = r["examples"] or ""
+            if lemma not in lemma_map:
+                lemma_map[lemma] = {"pos": pos, "defs": []}
+            lemma_map[lemma]["defs"].append((definition, examples))
+
+        results = []
+        for lemma, data in lemma_map.items():
+            def_items = "".join(
+                f"<li>{d}" + (f" <br/><em>{ex}</em>" if ex else "") + "</li>"
+                for d, ex in data["defs"]
+            )
+            html = (
+                f"<div class='ordpresse-article cor'>"
+                f"<h2>{lemma} <small>({data['pos']})</small></h2>"
+                f"<ol>{def_items}</ol>"
+                f"</div>"
+            )
+            inflections = self.lookup_cor_inflections(lemma)
+            results.append({
+                "headword": lemma,
+                "html_content": html,
+                "synonyms": inflections,
+            })
+        return results

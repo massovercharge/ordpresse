@@ -64,6 +64,7 @@ class Pipeline:
         epub_files: Optional[Sequence[Union[Path, str, bytes]]] = None,
         custom_words: Optional[Sequence[str]] = None,
         include_seeds: bool = True,
+        full_dictionary: bool = False,
         allow_network: bool = True,
         progress_cb: Optional[Callable[[str, int], None]] = None,
     ) -> BuildResult:
@@ -80,6 +81,22 @@ class Pipeline:
         emit("Initialiserer ordbogsbygger...", 5)
         db = self.get_db()
         scraper = HistoricalScraper(db)
+
+        resolved_entries: dict[str, StarDictEntry] = {}
+
+        # If full dictionary is requested, load all COR definitions
+        if full_dictionary:
+            emit("Henter alle definerede opslagsord fra det lokale COR-datasæt...", 15)
+            cor_entries = db.get_all_cor_lemmas_with_definitions()
+            for item in cor_entries:
+                hw = item["headword"]
+                syns = generate_orthographic_synonyms(hw, item["synonyms"])
+                resolved_entries[hw] = StarDictEntry(
+                    headword=hw,
+                    html_content=item["html_content"],
+                    synonyms=syns,
+                )
+            emit(f"Indlæst {len(resolved_entries)} hovedord fra COR.", 25)
 
         # 1. Collect tokens from EPUBs and custom words
         all_tokens: set[str] = set()
@@ -101,10 +118,9 @@ class Pipeline:
                 all_tokens.update(tokens)
                 emit(f"Scannet EPUB #{idx}: Fandt {len(tokens)} ord.", 10 + int(20 * (idx / len(epub_files))))
 
-        emit(f"Identificerede {len(all_tokens)} unikke ord. Starter opslag i COR & ODS...", 30)
+        emit(f"Identificerede {len(all_tokens)} ekstra opslagsord. Starter opslag i COR & ODS...", 30)
 
         # 2. Resolve entries
-        resolved_entries: dict[str, StarDictEntry] = {}
         processed = 0
         total = max(len(all_tokens), 1)
 

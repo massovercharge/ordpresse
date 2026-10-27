@@ -48,6 +48,7 @@ def build_cmd(args: argparse.Namespace) -> int:
         epub_files=epub_paths,
         custom_words=custom_words,
         include_seeds=True,
+        full_dictionary=args.full,
         allow_network=not args.no_network,
         progress_cb=on_progress,
     )
@@ -90,6 +91,7 @@ def main() -> None:
     sub_build = subparsers.add_parser("build", help="Byg en StarDict-ordbog (.idx, .ifo, .dict, .syn)")
     sub_build.add_argument("--epub", nargs="+", help="Sti til en eller flere .epub filer", default=[])
     sub_build.add_argument("--words", nargs="+", help="Ekstra specifikke ord til ordbogen", default=[])
+    sub_build.add_argument("--full", action="store_true", help="Byg komplet ordbog over alle indekserede ord fra COR og ODS")
     sub_build.add_argument("--output", help="Output mappe", default=str(OUTPUT_DIR))
     sub_build.add_argument("--bookname", help="Ordbogens titel i KOReader", default=DEFAULT_BOOKNAME)
     sub_build.add_argument("--no-network", action="store_true", help="Kør offline uden ekstern scraping")

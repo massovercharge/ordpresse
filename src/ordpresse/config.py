@@ -24,7 +24,7 @@ COR_BASE_FALLBACK_URL = "https://ordregister.dk/files/cor1.01b.tsv"
 COR_EXT_URL = os.getenv("COR_EXT_URL", "https://ordregister.dk/files/corext1.0.tsv")
 COR_SEM_URL = os.getenv("COR_SEM_URL", "https://ordregister.dk/files/cor.sem.1.0.tsv")
 COR_SEM_EXT_URL = os.getenv("COR_SEM_EXT_URL", "https://ordregister.dk/files/cor.sem.ext.1.0.tsv")
-ODS_FULLFORMS_URL = os.getenv("ODS_FULLFORMS_URL", "https://korpus.dsl.dk/resources/files/ods-fullforms.zip")
+ODS_FULLFORMS_URL = os.getenv("ODS_FULLFORMS_URL", "https://korpus.dsl.dk/download/ods-fullform.zip")
 
 # Scraper endpoints
 ODS_BASE_URL = "https://ordnet.dk/ods/ordbog?query="
@@ -35,10 +35,14 @@ USER_AGENT = "Ordpresse/0.2.0 (+https://github.com/massovercharge/ordpresse; pol
 REQUEST_TIMEOUT = 15
 REQUEST_DELAY_SECONDS = 0.5  # Polite crawl delay between external scraper requests
 
-# StarDict metadata defaults
+# StarDict metadata defaults with compliant DSL/CST attribution
 DEFAULT_BOOKNAME = "Den Danske Ordpresse (1700-nu)"
-DEFAULT_AUTHOR = "DSL / CST / Den Danske Ordpresse (ordpresse)"
-DEFAULT_DESCRIPTION = "Historisk og moderne dansk ordbog presset med ordpresse"
+DEFAULT_AUTHOR = "DSL / CST / Den Danske Ordpresse"
+DEFAULT_DESCRIPTION = (
+    "Historisk og moderne dansk ordbog til KOReader. Baseret på sprogressourcer fra "
+    "Det Danske Sprog- og Litteraturselskab (dsl.dk), COR (ordregister.dk, CC0) og ODS (ordnet.dk/ods). "
+    "Dette uafhængige open-source projekt er hverken støttet eller godkendt af DSL."
+)
 
 # Web server settings
 DEFAULT_PORT = int(os.getenv("PORT", "8088"))

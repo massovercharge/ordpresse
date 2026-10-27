@@ -92,6 +92,29 @@
         <div class="bg-slate-900/80 rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-xl">
             <form id="build-form" class="space-y-6">
 
+                <!-- Build Mode Selection -->
+                <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <label class="block text-sm font-semibold text-slate-200">
+                        Vælg ordbogens omfang
+                    </label>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-800 bg-slate-900/50 hover:bg-slate-900 cursor-pointer transition-colors">
+                            <input type="radio" name="full_dictionary" value="false" checked class="mt-1 text-amber-500 focus:ring-amber-500">
+                            <div>
+                                <span class="text-xs font-bold text-slate-200 block">Fokuseret / EPUB-uddrag</span>
+                                <span class="text-xs text-slate-400">Scanner dine uploadede EPUB-bøger og tilføjer de historiske benchmark-ord. Hurtig bygning og lille filstørrelse.</span>
+                            </div>
+                        </label>
+                        <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-800 bg-slate-900/50 hover:bg-slate-900 cursor-pointer transition-colors">
+                            <input type="radio" name="full_dictionary" value="true" class="mt-1 text-amber-500 focus:ring-amber-500">
+                            <div>
+                                <span class="text-xs font-bold text-amber-300 block">Komplet ordbog (generel brug)</span>
+                                <span class="text-xs text-slate-400">Bygger en samlet ordbog over alle indekserede ord fra COR og ODS. Kræver ingen EPUB og kan bruges til hele dit KOReader-bibliotek.</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
                 <!-- EPUB Upload Dropzone -->
                 <div>
                     <label class="block text-sm font-semibold text-slate-200 mb-2">
@@ -116,7 +139,7 @@
                 <div>
                     <div class="flex items-center justify-between mb-2">
                         <label for="custom_words" class="block text-sm font-semibold text-slate-200">
-                            2. Specifikke ord el. historiske prøveord
+                            2. Specifikke ord el. historiske prøveord (valgfrit)
                         </label>
                         <button type="button" id="load-moberg-btn" class="text-xs text-amber-400 hover:text-amber-300 underline">
                             Indsæt Moberg-benchmark (5 ord)
@@ -224,11 +247,38 @@
             </div>
         </div>
 
+        <!-- Attribution and Legal Box -->
+        <div class="bg-slate-900/60 rounded-2xl border border-slate-800 p-6 text-xs text-slate-400 space-y-3">
+            <h4 class="font-bold text-slate-300 flex items-center gap-2">
+                <span>📜</span> <span>Kreditering og kildelicenser</span>
+            </h4>
+            <p>
+                Dette open-source værktøj er udviklet til personlig, ikke-kommerciel læsning på e-bogslæsere og benytter åbne sprogressourcer fra følgende institutioner:
+            </p>
+            <ul class="list-disc list-inside space-y-1 text-slate-400 pl-2">
+                <li>
+                    <strong>Det Danske Sprog- og Litteraturselskab (DSL):</strong> 
+                    Data fra <a href="https://ordnet.dk/ods" target="_blank" class="text-amber-400 hover:underline">Ordbog over det danske Sprog (ODS)</a> og <em>ODS fuldformer</em> (udarbejdet af Thomas Troelsgård) anvendes i overensstemmelse med <a href="https://korpus.dsl.dk/resources/licences/dsl-open.html" target="_blank" class="text-amber-400 hover:underline">DSL's åbne sprogressourcer</a>. Besøg <a href="https://dsl.dk" target="_blank" class="text-amber-400 hover:underline">dsl.dk</a>.
+                </li>
+                <li>
+                    <strong>Det Centrale Ordregister (COR & COR-SEM):</strong> 
+                    Udgivet i samarbejde mellem DSL og Center for Sprogteknologi (CST, Københavns Universitet) og stillet til rådighed via <a href="https://ordregister.dk" target="_blank" class="text-amber-400 hover:underline">ordregister.dk</a> under <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" class="text-amber-400 hover:underline">Creative Commons CC0 1.0 (Public Domain)</a>.
+                </li>
+                <li>
+                    <strong>Det Norske Akademi for Språk og Litteratur (NAOB):</strong> 
+                    Opslag i <a href="https://naob.no" target="_blank" class="text-amber-400 hover:underline">naob.no</a> benyttes som supplerende reference for fælles 1800-tals dansk-norsk ordforråd.
+                </li>
+            </ul>
+            <p class="text-slate-500 italic pt-1">
+                Ansvarsfraskrivelse: Den Danske Ordpresse er et uafhængigt projekt og er hverken sponsoreret, støttet eller godkendt af Det Danske Sprog- og Litteraturselskab (DSL) eller Københavns Universitet.
+            </p>
+        </div>
+
     </main>
 
     <!-- Footer -->
     <footer class="border-t border-slate-800/80 bg-slate-950 py-6 text-center text-xs text-slate-500">
-        <p>Den Danske Ordpresse &bull; Bygget med FastAPI, StarDict v2.4.2 og GLib <code class="text-slate-400">g_ascii_strcasecmp</code> binær sortering.</p>
+        <p>Den Danske Ordpresse &bull; Bygget med FastAPI, StarDict v2.4.2 og GLib <code class="text-slate-400">g_ascii_strcasecmp</code> binær sortering &bull; Kilder: <a href="https://dsl.dk" class="text-slate-400 hover:underline">DSL</a> &bull; <a href="https://ordregister.dk" class="text-slate-400 hover:underline">COR (CC0)</a></p>
     </footer>
 
     <!-- Interactive Script -->

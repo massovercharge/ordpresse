@@ -99,6 +99,7 @@ def _run_background_build(
     saved_epub_paths: List[Path],
     custom_words: List[str],
     bookname: str,
+    full_dictionary: bool,
     allow_network: bool,
     temp_dir: Path,
     main_loop: asyncio.AbstractEventLoop,
@@ -121,6 +122,7 @@ def _run_background_build(
             epub_files=saved_epub_paths,
             custom_words=custom_words,
             include_seeds=True,
+            full_dictionary=full_dictionary,
             allow_network=allow_network,
             progress_cb=sync_progress,
         )
@@ -156,6 +158,7 @@ async def start_build(
     epub_files: List[UploadFile] = [],
     custom_words: str = Form(""),
     bookname: str = Form(DEFAULT_BOOKNAME),
+    full_dictionary: bool = Form(False),
     allow_network: bool = Form(True),
 ):
     """Trigger an async build job."""
@@ -185,6 +188,7 @@ async def start_build(
         saved_paths,
         parsed_words,
         bookname,
+        full_dictionary,
         allow_network,
         temp_upload_dir,
         loop,

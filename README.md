@@ -107,6 +107,25 @@ Inkluderer:
 
 ---
 
-## 📄 Licens
+## 📜 Kreditering og kildelicenser (Attribution & Licensing)
 
-MIT License.
+Den Danske Ordpresse er et uafhængigt open-source projekt udviklet til personlig, ikke-kommerciel læsning på e-bogslæsere. Ordbogsdata bygger på åbne sprogressourcer fra følgende institutioner og projekter:
+
+1. **Det Danske Sprog- og Litteraturselskab (DSL):**
+   - Data fra **Ordbog over det danske Sprog (ODS)** samt **ODS fuldformsleksikon** (udarbejdet af Thomas Troelsgård, DSL) benyttes i overensstemmelse med [DSL's åbne sprogressourcer](https://korpus.dsl.dk/resources/licences/dsl-open.html).
+   - Besøg [dsl.dk](https://dsl.dk) og [ordnet.dk/ods](https://ordnet.dk/ods).
+   - *Henstilling:* DSL krediteres i overensstemmelse med licensen. DSL støtter eller godkender ikke dette tredjepartsværktøj eller dets anvendelse.
+2. **Det Centrale Ordregister (COR & COR-SEM):**
+   - Udviklet og udgivet af **Det Danske Sprog- og Litteraturselskab (DSL)** og **Center for Sprogteknologi (CST, Københavns Universitet)**.
+   - Distribueret via [ordregister.dk](https://ordregister.dk) under **[Creative Commons CC0 1.0 Universal (Public Domain Dedication)](https://creativecommons.org/publicdomain/zero/1.0/)**.
+3. **Det Norske Akademi for Språk og Litteratur (NAOB):**
+   - Opslag fra [naob.no](https://naob.no) benyttes som supplerende reference for historiske 1800-tals termer af fælles dansk-norsk oprindelse.
+
+*Ansvarsfraskrivelse:* Den Danske Ordpresse udgives ikke i kommerciel konkurrence med DSL's egne digitale ordbøger (fx ordnet.dk) og er udelukkende beregnet til privat brug på personlige e-bogslæsere.
+
+---
+
+## 📄 Projektlicens
+
+Kildekoden til Den Danske Ordpresse er licenseret under MIT License.
+
