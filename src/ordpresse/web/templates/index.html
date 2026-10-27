@@ -262,7 +262,17 @@
                     <div id="status-spinner" class="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
                     <h3 id="progress-status-title" class="text-base font-semibold text-slate-200">Bygger ordbog...</h3>
                 </div>
-                <span id="progress-percent" class="font-mono text-sm font-bold text-amber-400">0%</span>
+                <div class="flex items-center gap-3">
+                    <button 
+                        id="cancel-build-btn" 
+                        type="button" 
+                        class="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+                        title="Afbryd igangværende byggeproces"
+                    >
+                        <span>⏹</span> Afbryd
+                    </button>
+                    <span id="progress-percent" class="font-mono text-sm font-bold text-amber-400">0%</span>
+                </div>
             </div>
 
             <!-- Progress Bar -->
@@ -277,6 +287,21 @@
             <!-- Live Streaming Log Box -->
             <div class="bg-slate-950 rounded-xl p-4 border border-slate-800/80 font-mono text-xs text-slate-300 max-h-48 overflow-y-auto space-y-1" id="log-box">
                 <div class="text-slate-500">[System] Venter på begivenhedsstrøm fra backend...</div>
+            </div>
+
+            <!-- Cancelled Banner -->
+            <div id="cancelled-banner" class="hidden pt-4 border-t border-slate-800 space-y-4">
+                <div class="bg-rose-950/40 border border-rose-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center text-xl font-bold">
+                            ⏹
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-rose-300 text-sm">Byggeprocessen blev afbrudt</h4>
+                            <p class="text-xs text-slate-400">Ingen fil blev genereret. Du kan tilpasse dine valg og starte et nyt byg.</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Completion Banner -->
@@ -363,11 +388,36 @@
         const progressStatusTitle = document.getElementById('progress-status-title');
         const statusSpinner = document.getElementById('status-spinner');
         const logBox = document.getElementById('log-box');
+        const cancelBuildBtn = document.getElementById('cancel-build-btn');
+        const cancelledBanner = document.getElementById('cancelled-banner');
         const completionBanner = document.getElementById('completion-banner');
         const completionStats = document.getElementById('completion-stats');
         const downloadBtn = document.getElementById('download-btn');
         const loadMobergBtn = document.getElementById('load-moberg-btn');
         const customWordsTextarea = document.getElementById('custom_words');
+
+        let currentBuildId = null;
+        let currentEvtSource = null;
+
+        // Cancel button click handler
+        if (cancelBuildBtn) {
+            cancelBuildBtn.addEventListener('click', async () => {
+                if (!currentBuildId) return;
+                cancelBuildBtn.disabled = true;
+                cancelBuildBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                progressStatusTitle.textContent = 'Afbryder byggeproces...';
+                const logEntry = document.createElement('div');
+                logEntry.className = 'text-rose-400 font-semibold';
+                logEntry.textContent = `[${new Date().toLocaleTimeString()}] Afbryder byggejob (${currentBuildId})...`;
+                logBox.appendChild(logEntry);
+                logBox.scrollTop = logBox.scrollHeight;
+                try {
+                    await fetch(`/api/build/cancel/${currentBuildId}`, { method: 'POST' });
+                } catch (err) {
+                    console.error("Kunne ikke sende afbrydelsesanmodning:", err);
+                }
+            });
+        }
 
         // File dropzone behavior
         dropzone.addEventListener('click', () => epubInput.click());
@@ -413,11 +463,20 @@
         buildForm.addEventListener('submit', async (e) => {
             e.preventDefault();
 
+            if (currentEvtSource) {
+                currentEvtSource.close();
+                currentEvtSource = null;
+            }
+
             // Prepare UI
             submitBtn.disabled = true;
             submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
             progressCard.classList.remove('hidden');
             completionBanner.classList.add('hidden');
+            cancelledBanner.classList.add('hidden');
+            cancelBuildBtn.classList.remove('hidden');
+            cancelBuildBtn.disabled = false;
+            cancelBuildBtn.classList.remove('opacity-50', 'cursor-not-allowed');
             statusSpinner.classList.remove('hidden');
             progressStatusTitle.textContent = 'Bygger ordbog...';
             progressBarFill.style.width = '5%';
@@ -437,9 +496,11 @@
                 }
                 const data = await res.json();
                 const buildId = data.build_id;
+                currentBuildId = buildId;
 
                 // Connect to SSE stream
                 const evtSource = new EventSource(`/api/build/events/${buildId}`);
+                currentEvtSource = evtSource;
 
                 evtSource.onmessage = (event) => {
                     try {
@@ -457,6 +518,7 @@
                         }
                         if (evData.status === 'done') {
                             statusSpinner.classList.add('hidden');
+                            cancelBuildBtn.classList.add('hidden');
                             progressStatusTitle.textContent = 'Færdigbygget!';
                             const entries = evData.entry_count !== undefined ? evData.entry_count : 5;
                             const syns = evData.synonym_count !== undefined ? evData.synonym_count : '';
@@ -466,8 +528,18 @@
                             evtSource.close();
                             submitBtn.disabled = false;
                             submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                        } else if (evData.status === 'cancelled') {
+                            statusSpinner.classList.add('hidden');
+                            cancelBuildBtn.classList.add('hidden');
+                            progressStatusTitle.textContent = 'Bygning afbrudt';
+                            progressMessage.textContent = 'Byggeprocessen blev afbrudt af brugeren.';
+                            cancelledBanner.classList.remove('hidden');
+                            evtSource.close();
+                            submitBtn.disabled = false;
+                            submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                         } else if (evData.status === 'error') {
                             statusSpinner.classList.add('hidden');
+                            cancelBuildBtn.classList.add('hidden');
                             progressStatusTitle.textContent = 'Fejl under bygning';
                             progressMessage.textContent = `Fejl: ${evData.error}`;
                             evtSource.close();
@@ -486,6 +558,7 @@
             } catch (err) {
                 progressMessage.textContent = `Kunne ikke starte byggejob: ${err.message}`;
                 statusSpinner.classList.add('hidden');
+                cancelBuildBtn.classList.add('hidden');
                 submitBtn.disabled = false;
                 submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
             }

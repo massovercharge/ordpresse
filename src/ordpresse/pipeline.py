@@ -69,6 +69,7 @@ class Pipeline:
         full_dictionary: bool = False,
         allow_network: bool = True,
         progress_cb: Optional[Callable[[str, int], None]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
         build_id: Optional[str] = None,
     ) -> BuildResult:
         """Execute the dictionary building process."""
@@ -77,6 +78,8 @@ class Pipeline:
         target_dir.mkdir(parents=True, exist_ok=True)
 
         def emit(msg: str, pct: int):
+            if is_cancelled and is_cancelled():
+                raise RuntimeError("Byggeprocessen blev afbrudt af brugeren.")
             if progress_cb:
                 progress_cb(msg, pct)
             logger.info(f"[{pct}%] {msg}")

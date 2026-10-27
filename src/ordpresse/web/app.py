@@ -40,11 +40,12 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 @dataclass
 class BuildJob:
     build_id: str
-    status: str = "queued"  # queued, building, done, error
+    status: str = "queued"  # queued, building, done, error, cancelled
     progress: int = 0
     message: str = "Venter i kø..."
     result: Optional[BuildResult] = None
     error: Optional[str] = None
+    cancelled: bool = False
     events: asyncio.Queue = field(default_factory=asyncio.Queue)
 
 
@@ -202,6 +203,7 @@ def _run_background_build(
             full_dictionary=full_dictionary,
             allow_network=allow_network,
             progress_cb=sync_progress,
+            is_cancelled=lambda: job.cancelled,
             build_id=job.build_id,
         )
         job.status = "done"
@@ -218,11 +220,22 @@ def _run_background_build(
         )
         main_loop.call_soon_threadsafe(job.events.put_nowait, data)
     except Exception as exc:
-        logger.exception("Build failed")
-        job.status = "error"
-        job.error = str(exc)
-        data = json.dumps({"status": "error", "error": str(exc)})
-        main_loop.call_soon_threadsafe(job.events.put_nowait, data)
+        if job.cancelled:
+            logger.info(f"Build {job.build_id} was cancelled by user")
+            job.status = "cancelled"
+            job.message = "Afbrudt af brugeren"
+            data = json.dumps({
+                "status": "cancelled",
+                "percent": job.progress,
+                "message": "Byggeprocessen blev afbrudt af brugeren.",
+            })
+            main_loop.call_soon_threadsafe(job.events.put_nowait, data)
+        else:
+            logger.exception("Build failed")
+            job.status = "error"
+            job.error = str(exc)
+            data = json.dumps({"status": "error", "error": str(exc)})
+            main_loop.call_soon_threadsafe(job.events.put_nowait, data)
     finally:
         # Cleanup temporary uploaded files
         try:
@@ -303,7 +316,7 @@ async def build_events(build_id: str):
         yield f"data: {json.dumps(initial_payload)}\n\n"
 
         # If job already completed, finish stream immediately
-        if job.status in ("done", "error"):
+        if job.status in ("done", "error", "cancelled"):
             return
 
         while True:
@@ -312,7 +325,7 @@ async def build_events(build_id: str):
                 msg = await asyncio.wait_for(job.events.get(), timeout=15.0)
                 yield f"data: {msg}\n\n"
                 parsed = json.loads(msg)
-                if parsed.get("status") in ("done", "error"):
+                if parsed.get("status") in ("done", "error", "cancelled"):
                     break
             except asyncio.TimeoutError:
                 # Cloudflare tunnel keepalive comment
@@ -327,6 +340,28 @@ async def build_events(build_id: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/api/build/cancel/{build_id}")
+async def cancel_build(build_id: str):
+    """Cancel an active build job."""
+    if build_id not in ACTIVE_BUILDS:
+        raise HTTPException(status_code=404, detail="Byggejob ikke fundet")
+
+    job = ACTIVE_BUILDS[build_id]
+    if job.status in ("done", "error", "cancelled"):
+        return {"status": job.status, "message": "Job er allerede afsluttet"}
+
+    job.cancelled = True
+    job.status = "cancelled"
+    job.message = "Afbrudt af brugeren"
+    data = json.dumps({
+        "status": "cancelled",
+        "percent": job.progress,
+        "message": "Byggeprocessen blev afbrudt af brugeren.",
+    })
+    job.events.put_nowait(data)
+    return {"status": "cancelled", "build_id": build_id}
 
 
 @app.api_route("/api/download/{build_id}", methods=["GET", "HEAD"])

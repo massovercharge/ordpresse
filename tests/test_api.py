@@ -53,3 +53,21 @@ def test_api_preview_endpoint(client):
     assert res_missing.status_code == 200
     data_missing = res_missing.json()
     assert data_missing["found"] is False
+
+
+def test_cancel_build_endpoint(client):
+    # Test cancelling non-existent job
+    res_404 = client.post("/api/build/cancel/nonexistent123")
+    assert res_404.status_code == 404
+
+    # Test cancelling an active job in ACTIVE_BUILDS
+    from ordpresse.web.app import ACTIVE_BUILDS, BuildJob
+    job = BuildJob(build_id="test_cancel_id", status="building")
+    ACTIVE_BUILDS["test_cancel_id"] = job
+
+    res_cancel = client.post("/api/build/cancel/test_cancel_id")
+    assert res_cancel.status_code == 200
+    assert res_cancel.json()["status"] == "cancelled"
+    assert job.cancelled is True
+    assert job.status == "cancelled"
+
