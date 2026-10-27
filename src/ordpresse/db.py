@@ -6,6 +6,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ordpresse.config import CACHE_DB_PATH, DATASETS_DB_PATH
+from ordpresse.formatter import normalize_pos, render_canonical_html
+from ordpresse.models import CanonicalEntry, SenseItem
+from ordpresse.sources.nordic_1800s import (
+    NORDIC_1800S_ENTRIES,
+    enrich_canonical_entry_with_historical,
+)
 
 
 def get_connection(db_path: Path, read_only: bool = False, synchronous_off: bool = False) -> sqlite3.Connection:
@@ -296,20 +302,42 @@ class Database:
 
         results = []
         for lemma, data in lemma_map.items():
-            def_items = "".join(
-                f"<li>{d}" + (f" <br/><em>{ex}</em>" if ex else "") + "</li>"
-                for d, ex in data["defs"]
+            pos_norm = normalize_pos(data["pos"])
+            modern_senses = [
+                SenseItem(
+                    definition=d,
+                    quote=ex or None,
+                    source_tag="COR-SEM",
+                )
+                for d, ex in data["defs"][:3]
+            ]
+            inflections = set(inflections_map.get(lemma, set()))
+            summary_hook = data["defs"][0][0][:160] if data["defs"] else ""
+            if len(summary_hook) > 165:
+                summary_hook = summary_hook[:162].rsplit(" ", 1)[0] + "..."
+
+            canonical = CanonicalEntry(
+                headword=lemma.lower(),
+                pos=pos_norm,
+                inflections=inflections,
+                summary_hook=summary_hook,
+                modern_senses=modern_senses,
+                sources_used=["COR-SEM"],
             )
-            html = (
-                f"<div class='ordpresse-article cor'>"
-                f"<h2>{lemma} <small>({data['pos']})</small></h2>"
-                f"<ol>{def_items}</ol>"
-                f"</div>"
-            )
-            inflections = list(inflections_map.get(lemma, set()))
+
+            # False-friend enrichment rule:
+            # If word is in curated 1800s vocabulary, enrich with historical senses and realia note
+            hw_lower = lemma.lower()
+            if hw_lower in NORDIC_1800S_ENTRIES:
+                canonical = enrich_canonical_entry_with_historical(
+                    canonical, NORDIC_1800S_ENTRIES[hw_lower]
+                )
+
+            html = render_canonical_html(canonical)
             results.append({
-                "headword": lemma,
+                "headword": canonical.headword,
                 "html_content": html,
-                "synonyms": inflections,
+                "synonyms": list(canonical.inflections),
+                "canonical_entry": canonical,
             })
         return results

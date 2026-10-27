@@ -106,3 +106,37 @@ def test_full_pipeline_moberg_words_regression(tmp_path: Path):
     def_banco = reader.lookup("banco")
     assert def_banco is not None, "Lookup for 'banco' failed!"
     assert any(term in def_banco.lower() for term in ["banco", "banko", "møntfod", "kurantbanken"])
+
+
+def test_all_nordic_1800s_vocabulary_binary_lookup(tmp_path: Path):
+    """Verify that all 35+ Nordic 1800s words and inflections resolve via pure binary search."""
+    from ordpresse.sources.nordic_1800s import NORDIC_1800S_ENTRIES
+    from ordpresse.stardict_reader import StarDictReader
+
+    output_dir = tmp_path / "output_all"
+    pipeline = Pipeline(output_dir=output_dir, bookname="Nordic 1800s Benchmark")
+
+    result = pipeline.run(
+        include_seeds=True,
+        allow_network=False,
+    )
+
+    assert result.entry_count >= 35
+    reader = StarDictReader(result.files["ifo"])
+
+    # Test all 35+ headwords and check 3-layer E-Ink rendering
+    for hw, entry in NORDIC_1800S_ENTRIES.items():
+        # 1. Lookup headword
+        res_hw = reader.lookup(hw)
+        assert res_hw is not None, f"Binary lookup for headword '{hw}' failed!"
+        assert f"<b>{hw}</b>" in res_hw
+        assert "▸" in res_hw, f"Layer 1 summary hook missing for '{hw}'"
+        assert "HISTORISK BETYDNING" in res_hw, f"Layer 2A historical senses missing for '{hw}'"
+        assert "[Historisk kontekst]:" in res_hw, f"Layer 3 realia note missing for '{hw}'"
+
+        # 2. Lookup inflected forms from .syn
+        for inf in entry.inflections:
+            if inf.lower() != hw:
+                res_inf = reader.lookup(inf)
+                assert res_inf is not None, f"Binary lookup for inflection '{inf}' of '{hw}' failed in .syn!"
+                assert f"<b>{hw}</b>" in res_inf

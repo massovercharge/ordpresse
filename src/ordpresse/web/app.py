@@ -94,6 +94,81 @@ def get_stats():
     }
 
 
+@app.get("/api/preview")
+def preview_lookup(request: Request, q: str, format: Optional[str] = None):
+    """Preview a dictionary lookup, returning rendered canonical E-Ink HTML."""
+    word = q.strip().lower()
+    if not word:
+        raise HTTPException(status_code=400, detail="Mangler søgeord 'q'")
+
+    # 1. Check curated Nordic 1800s vocabulary (35+ Moberg and 19th c. terms)
+    from ordpresse.sources.nordic_1800s import get_nordic_1800s_entry
+    nordic = get_nordic_1800s_entry(word)
+    if nordic:
+        from ordpresse.formatter import render_canonical_html
+        html = render_canonical_html(nordic)
+        if format == "html":
+            return HTMLResponse(content=html)
+        return {
+            "word": q,
+            "headword": nordic.headword,
+            "found": True,
+            "html": html,
+            "source": "nordic_1800s",
+        }
+
+    # 2. Try any existing compiled StarDict binary in data/output/ (newest first)
+    dict_dirs = sorted(OUTPUT_DIR.glob("build_*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for b_dir in dict_dirs:
+        ifo = b_dir / "ordpresse.ifo"
+        if ifo.exists():
+            try:
+                from ordpresse.stardict_reader import StarDictReader
+                reader = StarDictReader(ifo)
+                html = reader.lookup(word)
+                if html:
+                    if format == "html":
+                        return HTMLResponse(content=html)
+                    return {
+                        "word": q,
+                        "headword": word,
+                        "found": True,
+                        "html": html,
+                        "source": "stardict_binary",
+                    }
+            except Exception as e:
+                logger.debug(f"Reader failed on {ifo}: {e}")
+
+    # 3. Check Database and Scraper
+    from ordpresse.db import Database
+    from ordpresse.scrapers import HistoricalScraper
+    db = Database()
+    scraper = HistoricalScraper(db)
+    res = scraper.fetch_word_definition(word, allow_remote=True)
+    if res:
+        html = res["html_content"]
+        if format == "html":
+            return HTMLResponse(content=html)
+        return {
+            "word": q,
+            "headword": res["headword"],
+            "found": True,
+            "html": html,
+            "source": res.get("source", "scraper"),
+        }
+
+    fallback_html = f"<div style='color:#666;font-style:italic;'>Ingen definition fundet for »{q}«.</div>"
+    if format == "html":
+        return HTMLResponse(content=fallback_html)
+    return {
+        "word": q,
+        "headword": word,
+        "found": False,
+        "html": fallback_html,
+        "source": "none",
+    }
+
+
 def _run_background_build(
     job: BuildJob,
     saved_epub_paths: List[Path],
