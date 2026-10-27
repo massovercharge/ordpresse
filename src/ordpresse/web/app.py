@@ -121,10 +121,11 @@ def _run_background_build(
         result = pipeline.run(
             epub_files=saved_epub_paths,
             custom_words=custom_words,
-            include_seeds=True,
+            include_seeds=not full_dictionary,
             full_dictionary=full_dictionary,
             allow_network=allow_network,
             progress_cb=sync_progress,
+            build_id=job.build_id,
         )
         job.status = "done"
         job.result = result

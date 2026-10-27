@@ -67,10 +67,11 @@ class Pipeline:
         full_dictionary: bool = False,
         allow_network: bool = True,
         progress_cb: Optional[Callable[[str, int], None]] = None,
+        build_id: Optional[str] = None,
     ) -> BuildResult:
         """Execute the dictionary building process."""
-        build_id = uuid.uuid4().hex[:8]
-        target_dir = self.output_dir / f"build_{build_id}"
+        actual_build_id = build_id or uuid.uuid4().hex[:8]
+        target_dir = self.output_dir / f"build_{actual_build_id}"
         target_dir.mkdir(parents=True, exist_ok=True)
 
         def emit(msg: str, pct: int):
@@ -232,7 +233,7 @@ class Pipeline:
         emit("Ordbogen er færdigbygget og klar til download!", 100)
 
         return BuildResult(
-            build_id=build_id,
+            build_id=actual_build_id,
             bookname=self.bookname,
             entry_count=len(resolved_entries),
             synonym_count=total_synonyms,
