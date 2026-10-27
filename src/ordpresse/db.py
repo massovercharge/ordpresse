@@ -191,6 +191,27 @@ class Database:
                 ),
             )
 
+    def get_all_cached_definitions(self) -> list[dict]:
+        """Fetch all previously scraped or cached definitions from cache.sqlite3."""
+        if not self.cache_path.exists():
+            return []
+        cur = self.cache_conn.cursor()
+        cur.execute(
+            "SELECT word, source, headword, html_content, synonyms_json FROM definitions"
+        )
+        rows = cur.fetchall()
+        results = []
+        for r in rows:
+            synonyms = json.loads(r["synonyms_json"]) if r["synonyms_json"] else []
+            results.append({
+                "word": r["word"],
+                "source": r["source"],
+                "headword": r["headword"],
+                "html_content": r["html_content"],
+                "synonyms": synonyms,
+            })
+        return results
+
     # --- ODS Form queries ---
 
     def lookup_ods_inflection(self, lower_word: str) -> list[dict]:

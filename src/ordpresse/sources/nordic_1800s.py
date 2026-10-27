@@ -11,15 +11,15 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
     "lægdslem": CanonicalEntry(
         headword="lægdslem",
         historical_spellings=["Lægdslem", "Lejdslem"],
-        pos="sb. fk.",
+        pos="sb. itk.",
         inflections={"lægdslemmer", "lægdslemmet", "lægdslemmerne", "legdelem", "legdelemmer", "Lægdslem", "Lægdslemmer"},
         summary_hook="Fattiglem tildelt et bestemt lægd til underhold og forsørgelse under den ældre fattiglovgivning.",
         historical_senses=[
             SenseItem(
                 definition="Fattiglem el. almisselem på landet, der forsørgedes af lægdet, ofte ved omgangsforsørgelse fra gård til gård.",
                 label="hist., landbo.",
-                quote="I sognet vandrede de udstødte lægdslemmer fra gård til gård for at modtage deres nådsensbrød.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -36,8 +36,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Fortegnelse over et gods', en stiftelses el. kronens faste ejendomme, jorder og de deraf flydende afgifter, landgilde, tiender og herlighedsrettigheder.",
                 label="hist., jura",
-                quote="Præsten slog op i sognets ældgamle jordebog for at efterse tiendeafgifterne.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -54,8 +54,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Omvandrende handelsmand el. småkræmmer, der bærer sine varer i en kasse el. kurv på ryggen og sælger til landbefolkningen.",
                 label="hist.",
-                quote="Langs grusvejen nærmede sig en omrejsende bissekræmmer med sin tunge kramkiste på ryggen.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -72,8 +72,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Svækket el. lammet af sygdom, svaghed el. gigt; lam, krøbling; sengeliggende og uarbejdsdygtig.",
                 label="foræld., bibelsk",
-                quote="Hjemme i den fugtige stue sad den værkbrudne fader med gigt i alle lemmer.",
-                quote_author="H. Pontoppidan",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -90,8 +90,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Møntbetegnelse knyttet til bankpenge el. sedler (især rigsdaler banco), hvis kurs var sikret ved bankens sølvfond.",
                 label="hist., møntvæsen",
-                quote="Han mindedes dengang, en ko kostede fyrretyve rigsdaler banco.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -108,8 +108,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Statens samlede gældsforpligtelser; statsgæld.",
                 label="hist., finans",
-                quote="Rigsgælden voksede voldsomt under krigsårene.",
-                quote_author="Salmonsens",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -126,8 +126,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Møntenhed i Danmark og Norge (1 rigsdaler = 96 skilling, senere 1/48) indtil pengeombytningen til kroner og øre.",
                 label="hist., møntvæsen",
-                quote="Hun vendte og drejede hver eneste skilling, før den blev givet ud.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -144,8 +144,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Dansk og norsk sølvmønt og regneenhed inddelt i mark og skilling indtil møntreformen 1873/75.",
                 label="hist., møntvæsen",
-                quote="Gården blev solgt på auktion for to tusinde rigsdaler.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -162,15 +162,15 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Udskrivningsdistrikt på landet, hvis beboere i fællesskab skulle stille et vist antal værnepligtige karle til hæren.",
                 label="hist., militær",
-                quote="Karlen blev indkaldt til session i sognets andet lægd.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             ),
             SenseItem(
                 definition="Distrikt med hensyn til fattigvæsenet, hvis beboere underholdt et fattiglem (lægdslem).",
                 label="hist., landbo.",
-                quote="Gårdmændene i lægdet måtte skiftes til at huse den syge.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             ),
         ],
@@ -187,8 +187,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Årlig kirkelig undersøgelse og overhøring af en husstands medlemmer (tjenestefolk og børn) i kristendomskundskab og læsning.",
                 label="hist., kirke",
-                quote="Til husforhøret skulle selv den mindste dreng kunne sin Luthers Lille Katekismus udenad.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -205,8 +205,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Bonde el. jordejer, der ifølge rustholdsinstitutionen var forpligtet til at udstyre og underholde en ryttersoldat og hest for hæren.",
                 label="hist., militær",
-                quote="Rustholderen måtte holde både sadeltøj, hest og rytterkarl i beredskab.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -223,8 +223,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Livsvarigt underhold og fribolig, som en forhenværende gårdfæster eller selvejer forbeholder sig ved afståelse af ejendommen.",
                 label="hist., landbo.",
-                quote="De gamle forældre flyttede ind på aftægt i det lille sidehus.",
-                quote_author="H. Pontoppidan",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -241,8 +241,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Ret til underhold og bolig på en gård, som en tidligere ejer har undtaget fra ejendomsoverdragelsen; aftægt.",
                 label="hist., landbo., svensk",
-                quote="Faderen beholdt et lille undentag på to tønder land til sit eget brød.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="NAOB",
             )
         ],
@@ -259,8 +259,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Bonde, som havde overtaget en gård i fæste på livstid af godsejeren mod at betale indfæstning og årlig afgift (landgilde samt hoveri).",
                 label="hist., landbo.",
-                quote="Fæstebønderne måtte adlyde ridefogedens mindste vink.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -277,8 +277,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Ret til at bruge en gård el. et hus tilhørende en anden (herremanden) mod afgifter; samt selve den bortfæstede ejendom.",
                 label="hist., landbo.",
-                quote="Han tog fæste på den forfaldne hedegård for livstid.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -295,8 +295,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Pligtarbejde, som fæstebønder og husmænd ifølge lov og kontrakt var forpligtede til at yde på godsets hovedgårdsjord.",
                 label="hist., landbo.",
-                quote="Hoveriet slugte bøndernes bedste sommerdage, mens deres egne agre lå forsømte hen.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -313,8 +313,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Kirkelig og statslig afgift på en tiendedel af landbrugets årlige udbytte, fordelt mellem kongen, kirken og sognepræsten.",
                 label="hist., kirke",
-                quote="Bønderne kørte den tunge tiendevogn op foran præstegårdens lade.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -331,8 +331,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Mål for agerjords værdi beregnet ud fra jordens frugtbarhed (bonitet), målt i tønder, skæpper, fjerdingkar og album.",
                 label="hist., landbo.",
-                quote="Gården stod ansat til seks tønder hartkorn i kongens matrikel.",
-                quote_author="H. Pontoppidan",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -342,15 +342,15 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
     "landgilde": CanonicalEntry(
         headword="landgilde",
         historical_spellings=["Landgilde"],
-        pos="sb. fk.",
-        inflections={"landgilden", "landgildeafgift", "Landgilde"},
+        pos="sb. itk.",
+        inflections={"landgildet", "landgilder", "landgilderne", "landgilden", "landgildeafgift", "Landgilde"},
         summary_hook="Den årlige faste lejeafgift (i korn, smør, fjerkræ eller penge), som en fæstebonde betalte godsejeren.",
         historical_senses=[
             SenseItem(
                 definition="Årlig afgift i naturalier el. rede penge, som en fæstebonde eller forpagter skulle yde jordens ejer for brugsretten.",
                 label="hist., landbo.",
-                quote="Til Mortensdag skulle landgilden afregnes med herremanden.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -367,8 +367,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Lokal embedsmand i et landsogn, som varetog politi- og øvrighedsopgaver, forkyndelser og ro og orden på landet.",
                 label="hist., forvaltn.",
-                quote="Sognefogeden mødte frem for at oplæse kongens forordning på kirkestævnet.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -385,8 +385,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Kongelig embedsmand, der var dommer ved herredstinget og øverste politimyndighed i herredet.",
                 label="hist., jura",
-                quote="Herredsfogeden optog forhør af vidnerne i den dystre sag.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -403,8 +403,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="I Sverige og Norge: statslig politi- og fogedembedsmand i et landdistrikt; i ældre dansk: forvalter af et kgl. len.",
                 label="hist., nordisk",
-                quote="Länsmanden kom ridende for at inddrive de udestående skatter.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -421,8 +421,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Offentligt møde, hvor underholdet af forældreløse børn el. hjælpeløse fattiglemmer blev overdraget til den lavestbydende.",
                 label="hist., socialt",
-                quote="På den årlige fattigauktion bød sognebørnene om, hvem der ville huse de forældreløse for mindst betaling.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -439,8 +439,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Autoriseret bog, som tjenestefolk skulle besidde, og hvori herskaber indførte vidnesbyrd om deres troskab og tjeneste.",
                 label="hist., retsvæsen",
-                quote="Pigen fremviste sin skudsmålsbog med præstens og husbondens påtegninger.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -457,8 +457,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Person, der modtager fattighjælp eller almisser fra det offentlige fattigvæsen el. en stiftelse; fattiglem.",
                 label="hist., foræld.",
-                quote="De stakkels almisselemmer sad bænket ved kirkemuren i håb om en skilling.",
-                quote_author="H. Pontoppidan",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -475,8 +475,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Beboer el. bruger af et hus på landet med kun lidt eller slet ingen jord, som derfor ofte måtte arbejde som daglejer hos gårdmændene.",
                 label="hist., landbo.",
-                quote="Husmændene måtte trælle på gårdmændenes marker fra solopgang til solnedgang.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -493,8 +493,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Person, der mod betaling el. arbejde bor til leje hos en gårdmand el. husmand uden at have eget jordbrug; lejer på landet.",
                 label="hist., landbo.",
-                quote="Den gamle enke levede som indsidder i et lille kammer bag laden.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -511,8 +511,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Bruger af et boel (et mellemstort landbrug på landet, større end et husmandssted, men mindre end en hel bondegård).",
                 label="hist., landbo.",
-                quote="Boelsmanden kunne akkurat brødføde sin familie med to heste og et par køer.",
-                quote_author="H. Pontoppidan",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -529,8 +529,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Værelse på en bondegård el. herregård indrettet til soveplads for karlene, hyppigt i loftsrum eller ved stalden.",
                 label="hist., landbo.",
-                quote="I det kolde karlekammer lugtede der af hestedækken og vadmel.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -547,8 +547,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Stue på en gård, som ifølge aftægtskontrakt er forbeholdt den forhenværende ejer el. fæster til bolig.",
                 label="hist., landbo.",
-                quote="Bedsteforældrene sad i aftægtsstuen og betragtede den nye slægts arbejde.",
-                quote_author="H. Pontoppidan",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -565,8 +565,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Varer til forhandling, især finere eller mindre manufaktur- og galanterivarer solgt af kræmmere.",
                 label="hist., handel",
-                quote="Han lukkede sin kramkiste op og fremviste farverige bånd og silketråde.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -583,8 +583,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="By med særlige næringsprivilegier (eneret til handel, markeder og håndværk inden for en vis omkreds) og egen forvaltning.",
                 label="hist., forvaltn.",
-                quote="Bønderne måtte køre deres korn helt ind til købstaden for at sælge det lovligt.",
-                quote_author="St. St. Blicher",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -601,8 +601,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Kirkeligt og verdsligt lokaldistrikt bestående af en menighed under en sognepræst, med eget fattig- og skolevæsen.",
                 label="hist., geogr.",
-                quote="I hele sognet fandtes ikke en mere gudfrygtig mand.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -619,8 +619,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Person, som udvandrer til et fremmed land, i 1800-tallet især til Nordamerika (emigrant).",
                 label="hist., samfund",
-                quote="Udvandrerne samledes på havnekajen med deres kister og tæpper for at gå ombord på sejlskibet.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],
@@ -637,8 +637,8 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
             SenseItem(
                 definition="Stærk udvandringstrang og begejstring for Nordamerika, som i 1800-tallet greb brede lag af den nordiske landbefolkning.",
                 label="hist., overført",
-                quote="Amerika-feberen bredte sig fra sogn til sogn med de forjættende breve fra over søen.",
-                quote_author="Vilhelm Moberg",
+                quote=None,
+                quote_author=None,
                 source_tag="ODS",
             )
         ],

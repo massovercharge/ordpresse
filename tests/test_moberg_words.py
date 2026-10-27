@@ -140,3 +140,46 @@ def test_all_nordic_1800s_vocabulary_binary_lookup(tmp_path: Path):
                 res_inf = reader.lookup(inf)
                 assert res_inf is not None, f"Binary lookup for inflection '{inf}' of '{hw}' failed in .syn!"
                 assert f"<b>{hw}</b>" in res_inf
+
+
+def test_full_dictionary_build_without_epub_contains_historical_words(tmp_path: Path):
+    """Verify that a 'Komplet ordbog' build without EPUB contains all curated 1800s terms in binary StarDict."""
+    from ordpresse.stardict_reader import StarDictReader
+
+    output_dir = tmp_path / "output_full"
+    pipeline = Pipeline(output_dir=output_dir, bookname="Komplet Ordbog Test")
+
+    # Run full dictionary build without EPUB and without custom words
+    result = pipeline.run(
+        epub_files=None,
+        custom_words=None,
+        full_dictionary=True,
+        allow_network=False,
+    )
+
+    assert result.entry_count >= 35
+    assert result.zip_path.exists()
+    assert result.files["ifo"].exists()
+    assert result.files["idx"].exists()
+    assert result.files["syn"].exists()
+    assert result.files["dict"].exists()
+
+    reader = StarDictReader(result.files["ifo"])
+
+    # Required words to verify in the finished binary dictionary:
+    # 'lægdslemmer', 'jordebog', 'bissekræmmer', 'værkbrudne', 'banco', 'husforhør', 'rustholder'
+    required_words = [
+        ("lægdslemmer", "lægdslem"),
+        ("jordebog", "jordebog"),
+        ("bissekræmmer", "bissekræmmer"),
+        ("værkbrudne", "værkbrudden"),
+        ("banco", "banco"),
+        ("husforhør", "husforhør"),
+        ("rustholder", "rustholder"),
+    ]
+
+    for search_term, expected_headword in required_words:
+        html = reader.lookup(search_term)
+        assert html is not None, f"StarDictReader lookup for '{search_term}' failed in compiled binary!"
+        assert f"<b>{expected_headword}</b>" in html, f"Expected <b>{expected_headword}</b> in lookup for '{search_term}'"
+

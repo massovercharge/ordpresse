@@ -91,18 +91,13 @@ class Pipeline:
         scraper = HistoricalScraper(db)
 
         resolved_entries: dict[str, StarDictEntry] = {}
+        cor_count = 0
 
-        # If full dictionary is requested, load all COR definitions
-        if full_dictionary:
+        # a) Load all COR definitions from datasets SQLite
+        if db.datasets_path.exists() and db.datasets_path.stat().st_size > 1024:
             emit("Indlæser det komplette COR-datasæt...", 15)
-            # Auto-import if database is missing or empty
-            if not db.datasets_path.exists() or db.datasets_path.stat().st_size < 1024:
-                emit("SQLite datasæt mangler. Starter automatisk import fra rå filer...", 16)
-                from ordpresse.datasets import DatasetImporter
-                importer = DatasetImporter(db_path=db.datasets_path)
-                importer.import_all(progress_cb=lambda msg: emit(msg, 18))
-
             cor_entries = db.get_all_cor_lemmas_with_definitions()
+            cor_count = len(cor_entries)
             for item in cor_entries:
                 hw = item["headword"]
                 syns = generate_orthographic_synonyms(hw, item["synonyms"])
@@ -111,33 +106,86 @@ class Pipeline:
                     html_content=item["html_content"],
                     synonyms=syns,
                 )
-            emit(f"Indlæst {len(resolved_entries)} hovedord fra COR.", 35)
-
-        # 1. Collect tokens from seeds, EPUBs, and custom words
-        if include_seeds:
-            for seed_word, canonical_seed in NORDIC_1800S_ENTRIES.items():
-                hw = canonical_seed.headword.lower()
-                ods_infs = db.lookup_ods_headword_inflections(canonical_seed.headword) if db else []
-                all_inflections = set(canonical_seed.inflections) | set(ods_infs) | set(canonical_seed.historical_spellings)
-                canonical_seed.inflections = all_inflections
-
-                # If entry already exists from COR-SEM, enrich it
-                if hw in resolved_entries:
-                    existing_entry = resolved_entries[hw]
-                    canonical_seed.sources_used = list(dict.fromkeys(canonical_seed.sources_used + ["COR-SEM"]))
-                    merged_syns = generate_orthographic_synonyms(hw, list(all_inflections) + existing_entry.synonyms)
+        elif full_dictionary and (allow_network or any(db.datasets_path.parent.glob("raw/*.tsv"))):
+            emit("SQLite datasæt mangler. Starter automatisk import fra rå filer...", 16)
+            try:
+                from ordpresse.datasets import DatasetImporter
+                importer = DatasetImporter(db_path=db.datasets_path)
+                importer.import_all(progress_cb=lambda msg: emit(msg, 18))
+                cor_entries = db.get_all_cor_lemmas_with_definitions()
+                cor_count = len(cor_entries)
+                for item in cor_entries:
+                    hw = item["headword"]
+                    syns = generate_orthographic_synonyms(hw, item["synonyms"])
                     resolved_entries[hw] = StarDictEntry(
                         headword=hw,
-                        html_content=render_canonical_html(canonical_seed),
-                        synonyms=merged_syns,
-                    )
-                else:
-                    syns = generate_orthographic_synonyms(hw, list(all_inflections))
-                    resolved_entries[hw] = StarDictEntry(
-                        headword=hw,
-                        html_content=render_canonical_html(canonical_seed),
+                        html_content=item["html_content"],
                         synonyms=syns,
                     )
+            except Exception as e:
+                logger.warning(f"Kunne ikke auto-importere datasæt: {e}")
+
+        # Track distinct historical headwords from 1800s core & cache
+        historical_headwords: set[str] = set()
+
+        # b) Always merge all curated entries from nordic_1800s.py (enriching COR entries or adding new)
+        for seed_word, canonical_seed in NORDIC_1800S_ENTRIES.items():
+            hw = canonical_seed.headword.lower()
+            historical_headwords.add(hw)
+            ods_infs = db.lookup_ods_headword_inflections(canonical_seed.headword) if db else []
+            all_inflections = set(canonical_seed.inflections) | set(ods_infs) | set(canonical_seed.historical_spellings)
+            canonical_seed.inflections = all_inflections
+
+            # If entry already exists from COR-SEM, enrich it
+            if hw in resolved_entries:
+                existing_entry = resolved_entries[hw]
+                canonical_seed.sources_used = list(dict.fromkeys(canonical_seed.sources_used + ["COR-SEM"]))
+                merged_syns = generate_orthographic_synonyms(hw, list(all_inflections) + existing_entry.synonyms)
+                resolved_entries[hw] = StarDictEntry(
+                    headword=hw,
+                    html_content=render_canonical_html(canonical_seed),
+                    synonyms=merged_syns,
+                )
+            else:
+                syns = generate_orthographic_synonyms(hw, list(all_inflections))
+                resolved_entries[hw] = StarDictEntry(
+                    headword=hw,
+                    html_content=render_canonical_html(canonical_seed),
+                    synonyms=syns,
+                )
+
+        # c) Always merge all previously cached historical definitions from cache.sqlite3
+        cached_defs = db.get_all_cached_definitions() if db else []
+        for c_item in cached_defs:
+            c_hw = c_item["headword"].lower()
+            if c_item.get("source") == "seed" or c_hw in NORDIC_1800S_ENTRIES:
+                if c_hw in resolved_entries:
+                    existing_entry = resolved_entries[c_hw]
+                    existing_entry.synonyms = generate_orthographic_synonyms(
+                        c_hw, existing_entry.synonyms + c_item.get("synonyms", [])
+                    )
+                continue
+
+            historical_headwords.add(c_hw)
+            c_syns = c_item.get("synonyms", [])
+            if c_hw in resolved_entries:
+                existing_entry = resolved_entries[c_hw]
+                existing_entry.synonyms = generate_orthographic_synonyms(
+                    c_hw, existing_entry.synonyms + c_syns
+                )
+            else:
+                syns = generate_orthographic_synonyms(c_hw, c_syns)
+                resolved_entries[c_hw] = StarDictEntry(
+                    headword=c_hw,
+                    html_content=c_item["html_content"],
+                    synonyms=syns,
+                )
+
+        historical_count = len(historical_headwords)
+        emit(
+            f"Indlæst {cor_count} hovedord fra COR + {historical_count} historiske opslag fra 1800-talskernen & ODS-cache.",
+            35,
+        )
 
         all_tokens: set[str] = set()
         if custom_words:
