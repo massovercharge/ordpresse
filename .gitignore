@@ -1,0 +1,56 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Testing & linters
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases, raw downloads and generated StarDict dictionaries
+data/raw/
+data/*.sqlite3*
+data/output/
+*.dict
+*.dict.dz
+*.idx
+*.syn
+*.ifo
+*.zip
+
+# Keep data directories tracked if empty
+!data/
+!data/.gitkeep
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*~

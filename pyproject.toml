@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ordpresse"
+version = "0.2.0"
+description = "Den Danske Ordpresse — Historisk og moderne dansk StarDict-ordbogsbygger til KOReader"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+    "requests>=2.32.0",
+    "beautifulsoup4>=4.12.0",
+    "jinja2>=3.1.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+ordpresse = "ordpresse.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
