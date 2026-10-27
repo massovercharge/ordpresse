@@ -178,6 +178,8 @@ async def start_build(
             saved_paths.append(dest)
 
     parsed_words = [w.strip() for w in custom_words.replace("\n", ",").split(",") if w.strip()]
+    is_full = str(full_dictionary).strip().lower() in ("true", "1", "yes", "on")
+    is_network = str(allow_network).strip().lower() in ("true", "1", "yes", "on")
 
     # Run build in a background thread/task to avoid blocking FastAPI event loop
     loop = asyncio.get_running_loop()
@@ -188,8 +190,8 @@ async def start_build(
         saved_paths,
         parsed_words,
         bookname,
-        full_dictionary,
-        allow_network,
+        is_full,
+        is_network,
         temp_upload_dir,
         loop,
     )

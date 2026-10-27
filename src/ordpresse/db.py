@@ -226,17 +226,16 @@ class Database:
         if not self.datasets_path.exists():
             return []
         cur = self.datasets_conn.cursor()
-        # Find lemma IDs from fullform or lemma
         cur.execute(
             """
-            SELECT DISTINCT cf.lemma_id, cf.lemma, cf.pos, cd.definition, cd.examples
-            FROM cor_forms cf
-            JOIN cor_sem cs ON cs.lemma_id = cf.lemma_id
+            SELECT DISTINCT cs.lemma_id, cs.lemma, cs.pos, cd.definition, cd.examples
+            FROM cor_sem cs
             JOIN cor_definitions cd ON cd.sense_id = cs.sense_id
-            WHERE cf.fullform = ? OR cf.lemma = ?
+            LEFT JOIN cor_forms cf ON cf.lemma_id = cs.lemma_id
+            WHERE cs.lemma = ? OR cf.fullform = ? OR cf.lemma = ?
             LIMIT 30
             """,
-            (lemma_or_word, lemma_or_word),
+            (lemma_or_word, lemma_or_word, lemma_or_word),
         )
         rows = cur.fetchall()
         return [dict(r) for r in rows]
@@ -265,11 +264,11 @@ class Database:
         limit_clause = f"LIMIT {limit}" if limit else ""
         cur.execute(
             f"""
-            SELECT cf.lemma, cf.pos, cd.definition, cd.examples
-            FROM cor_forms cf
-            JOIN cor_sem cs ON cs.lemma_id = cf.lemma_id
+            SELECT cs.lemma, cs.pos, cd.definition, cd.examples
+            FROM cor_sem cs
             JOIN cor_definitions cd ON cd.sense_id = cs.sense_id
-            GROUP BY cf.lemma, cd.definition
+            WHERE cs.lemma != ''
+            GROUP BY cs.lemma, cd.definition
             {limit_clause}
             """
         )
@@ -284,6 +283,17 @@ class Database:
                 lemma_map[lemma] = {"pos": pos, "defs": []}
             lemma_map[lemma]["defs"].append((definition, examples))
 
+        # Bulk pre-populate inflections in a single fast sequential scan
+        inflections_map: dict[str, set[str]] = {}
+        cur.execute("SELECT lemma, fullform FROM cor_forms WHERE fullform != ''")
+        for row in cur.fetchall():
+            lem = row[0]
+            if lem in lemma_map:
+                if lem not in inflections_map:
+                    inflections_map[lem] = set()
+                if len(inflections_map[lem]) < 40:
+                    inflections_map[lem].add(row[1])
+
         results = []
         for lemma, data in lemma_map.items():
             def_items = "".join(
@@ -296,7 +306,7 @@ class Database:
                 f"<ol>{def_items}</ol>"
                 f"</div>"
             )
-            inflections = self.lookup_cor_inflections(lemma)
+            inflections = list(inflections_map.get(lemma, set()))
             results.append({
                 "headword": lemma,
                 "html_content": html,

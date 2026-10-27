@@ -55,12 +55,14 @@ def download_file_stream(url: str, dest_path: Path, progress_cb: Optional[Callab
 def extract_cor_lemma_id(cor_id: str) -> str:
     """CRITICAL: Extract lemma ID from COR or COR.EXT ID.
     
-    In COR: COR.68025.110.01 -> COR.68025
-    In COR.EXT: COR.EXT.142887.120.01 -> COR.EXT.142887
-    ALWAYS uses cor_id.rsplit('.', 2)[0] (NEVER split('.')[:2]).
+    In COR: COR.68025.110.01 (4 parts) -> COR.68025
+    In COR.EXT: COR.EXT.142887.120.01 (5 parts) -> COR.EXT.142887
+    If already a lemma id (e.g. COR.51220 or COR.EXT.137129): keep as is.
     """
-    parts = cor_id.strip().rsplit(".", 2)
-    return parts[0] if parts else cor_id.strip()
+    parts = cor_id.strip().split(".")
+    if len(parts) >= 4:
+        return cor_id.strip().rsplit(".", 2)[0]
+    return cor_id.strip()
 
 
 def extract_pos(gram: str) -> str:
@@ -72,59 +74,65 @@ def extract_pos(gram: str) -> str:
 
 
 def stream_cor_forms(file_path: Path) -> Generator[Tuple[str, str, str, str, str, str, str], None, None]:
-    """Stream cor1.5.1.0.tsv or corext1.0.tsv (6 columns) line-by-line."""
+    """Stream cor1.5.1.0.tsv (6 cols) or corext1.0.tsv (8 cols) line-by-line."""
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         reader = csv.reader(f, delimiter="\t", quoting=csv.QUOTE_NONE)
         for row in reader:
             if not row or len(row) < 5:
                 continue
             cor_id = row[0].strip()
-            if cor_id.startswith("#") or "cor_id" in cor_id.lower():
+            if cor_id.startswith("#") or "cor_id" in cor_id.lower() or "id" in cor_id.lower():
                 continue
             lemma_id = extract_cor_lemma_id(cor_id)
             lemma = row[1].strip()
-            gloss = row[2].strip() if len(row) > 2 else ""
-            gram = row[3].strip() if len(row) > 3 else ""
-            pos = extract_pos(gram)
-            fullform = row[4].strip() if len(row) > 4 else lemma
-            norm_status = row[5].strip() if len(row) > 5 else ""
+
+            if len(row) >= 8:
+                # corext1.0.tsv format (8 columns)
+                gloss = row[2].strip()
+                pos = row[3].strip()
+                gram = row[6].strip()
+                fullform = row[-1].strip() or lemma
+                norm_status = row[5].strip()
+            else:
+                # cor1.5.1.0.tsv format (6 columns)
+                gloss = row[2].strip() if len(row) > 2 else ""
+                gram = row[3].strip() if len(row) > 3 else ""
+                pos = extract_pos(gram)
+                fullform = row[4].strip() if len(row) > 4 else lemma
+                norm_status = row[5].strip() if len(row) > 5 else ""
+
             yield (lemma_id, lemma, gloss, gram, pos, fullform, norm_status)
 
 
 def stream_cor_sem(file_path: Path) -> Generator[Tuple[str, str, str, str], None, None]:
-    """Stream cor.sem.1.0.tsv line-by-line mapping sense_id to lemma_id, lemma, pos."""
+    """Stream cor.sem.1.0.tsv mapping sense_id to lemma_id, lemma, pos."""
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         reader = csv.reader(f, delimiter="\t", quoting=csv.QUOTE_NONE)
         first_row = True
-        sense_col = 0
-        lemma_id_col = 1
-        lemma_col = 2
-        pos_col = 3
         for row in reader:
-            if not row or len(row) < 2:
+            if not row or len(row) < 5:
                 continue
             if first_row:
                 first_row = False
-                header = [c.lower().strip() for c in row]
-                if any("sense" in c or "id" in c or "ddo" in c for c in header):
-                    # Header present, dynamically detect columns
-                    for idx, c in enumerate(header):
-                        if "sense" in c or "ddo_id" in c:
-                            sense_col = idx
-                        elif "lemma_id" in c or "cor_id" in c:
-                            lemma_id_col = idx
-                        elif "lemma" in c:
-                            lemma_col = idx
-                        elif "pos" in c:
-                            pos_col = idx
-                    continue
+                continue  # Skip header row
 
-            sense_id = row[sense_col].strip() if sense_col < len(row) else ""
-            raw_lid = row[lemma_id_col].strip() if lemma_id_col < len(row) else ""
-            lemma_id = extract_cor_lemma_id(raw_lid)
-            lemma = row[lemma_col].strip() if lemma_col < len(row) else ""
-            pos = row[pos_col].strip() if pos_col < len(row) else ""
-            yield (sense_id, lemma_id, lemma, pos)
+            sense_id = row[0].strip()
+            lemma = row[5].strip() if len(row) > 5 else ""
+            pos = row[6].strip() if len(row) > 6 else ""
+
+            lids = []
+            if len(row) > 1 and row[1].strip():
+                lids.extend(row[1].strip().split("|"))
+            if len(row) > 2 and row[2].strip():
+                lids.extend(row[2].strip().split("|"))
+
+            if not lids:
+                yield (sense_id, "", lemma, pos)
+            else:
+                for raw_lid in lids:
+                    raw_lid = raw_lid.strip()
+                    if raw_lid:
+                        yield (sense_id, extract_cor_lemma_id(raw_lid), lemma, pos)
 
 
 def stream_cor_sem_ext(file_path: Path) -> Generator[Tuple[str, str, str], None, None]:
@@ -132,28 +140,16 @@ def stream_cor_sem_ext(file_path: Path) -> Generator[Tuple[str, str, str], None,
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         reader = csv.reader(f, delimiter="\t", quoting=csv.QUOTE_NONE)
         first_row = True
-        sense_col = 0
-        def_col = 1
-        ex_col = 2
         for row in reader:
             if not row or len(row) < 2:
                 continue
             if first_row:
                 first_row = False
-                header = [c.lower().strip() for c in row]
-                if any("sense" in c or "betydning" in c or "def" in c for c in header):
-                    for idx, c in enumerate(header):
-                        if "sense" in c or "id" in c:
-                            sense_col = idx
-                        elif "def" in c or "betydning" in c:
-                            def_col = idx
-                        elif "ex" in c or "eksempel" in c:
-                            ex_col = idx
-                    continue
+                continue
 
-            sense_id = row[sense_col].strip() if sense_col < len(row) else ""
-            definition = row[def_col].strip() if def_col < len(row) else ""
-            examples = row[ex_col].strip() if ex_col < len(row) else ""
+            sense_id = row[0].strip()
+            definition = row[1].strip() if len(row) > 1 else ""
+            examples = row[2].strip() if len(row) > 2 else ""
             yield (sense_id, definition, examples)
 
 
