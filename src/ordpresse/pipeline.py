@@ -201,144 +201,112 @@ class Pipeline:
                 all_tokens.update(tokens)
                 emit(f"Scannet EPUB #{idx}: Fandt {len(tokens)} ord.", 38 + int(10 * (idx / len(epub_files))))
 
-        # If full dictionary or seeds already resolved lemmas, only query remaining unresolved tokens
-        unresolved_tokens = [t for t in all_tokens if t not in resolved_entries]
+        # Collect all existing headwords and synonyms
+        known_surface_strings: set[str] = set(resolved_entries.keys())
+        for entry in resolved_entries.values():
+            for s in entry.synonyms:
+                known_surface_strings.add(s.lower())
+
+        unresolved_tokens = [t for t in all_tokens if t not in known_surface_strings]
         if unresolved_tokens:
-            emit(f"Starter opslag for {len(unresolved_tokens)} ekstra ord i COR & ODS...", 50)
-            processed = 0
-            total = len(unresolved_tokens)
+            emit(f"Matcher {len(unresolved_tokens)} ord fra EPUBs mod COR & ODS...", 45)
 
-            for token in sorted(unresolved_tokens):
-                processed += 1
-                if processed % 50 == 0 or processed == total:
-                    pct = 50 + int(25 * (processed / total))
-                    emit(f"Behandler ord {processed}/{total} ({token})...", pct)
-
-                # Try step 0: Check curated Nordic 1800s vocabulary directly
-                nordic_match = get_nordic_1800s_entry(token)
+            # Step 1: Check curated Nordic 1800s vocabulary directly
+            still_unresolved: list[str] = []
+            for t in unresolved_tokens:
+                nordic_match = get_nordic_1800s_entry(t)
                 if nordic_match:
                     hw = nordic_match.headword.lower()
-                    ods_infs = db.lookup_ods_headword_inflections(nordic_match.headword) if db else []
-                    all_inflections = set(nordic_match.inflections) | set(ods_infs) | set(nordic_match.historical_spellings) | {token}
-                    nordic_match.inflections = all_inflections
+                    if hw in resolved_entries:
+                        resolved_entries[hw].synonyms.append(t)
+                    else:
+                        ods_infs = db.lookup_ods_headword_inflections(nordic_match.headword) if db else []
+                        all_inflections = set(nordic_match.inflections) | set(ods_infs) | {t}
+                        nordic_match.inflections = all_inflections
+                        resolved_entries[hw] = StarDictEntry(
+                            headword=hw,
+                            html_content=render_canonical_html(nordic_match),
+                            synonyms=generate_orthographic_synonyms(hw, list(all_inflections)),
+                        )
+                    known_surface_strings.add(t)
+                else:
+                    still_unresolved.append(t)
 
-                    # Check if COR also has modern definitions (false-friend enrichment)
-                    cor_defs = db.lookup_cor_lemma_definitions(hw)
-                    if cor_defs:
-                        modern_senses = [
-                            SenseItem(
-                                definition=d["definition"],
-                                quote=d.get("examples") or None,
-                                source_tag="COR-SEM",
-                            )
-                            for d in cor_defs[:3]
-                        ]
-                        nordic_match.modern_senses = modern_senses
-                        if "COR-SEM" not in nordic_match.sources_used:
-                            nordic_match.sources_used.append("COR-SEM")
+            # Step 2: Batch-lookup against COR forms (618,000+ inflections in SQLite)
+            cor_form_map = db.lookup_cor_forms_batch(still_unresolved) if db else {}
+            unresolved_after_cor: list[str] = []
+            cor_attached_count = 0
 
-                    syns = generate_orthographic_synonyms(hw, list(all_inflections))
+            for t in still_unresolved:
+                lem = cor_form_map.get(t)
+                if lem and lem in resolved_entries:
+                    resolved_entries[lem].synonyms.append(t)
+                    known_surface_strings.add(t)
+                    cor_attached_count += 1
+                else:
+                    unresolved_after_cor.append(t)
+
+            # Step 3: Batch-lookup against ODS forms (1,260,000+ historical inflections in SQLite)
+            ods_form_map = db.lookup_ods_forms_batch(unresolved_after_cor) if db else {}
+            new_ods_words: dict[str, dict] = {}
+            ods_attached_count = 0
+            non_danish_ignored = 0
+
+            for t in unresolved_after_cor:
+                if t in ods_form_map:
+                    hw, pos = ods_form_map[t]
+                    if hw in resolved_entries:
+                        resolved_entries[hw].synonyms.append(t)
+                        known_surface_strings.add(t)
+                        ods_attached_count += 1
+                    else:
+                        if hw not in new_ods_words:
+                            new_ods_words[hw] = {"pos": pos, "inflections": {t, hw}}
+                        else:
+                            new_ods_words[hw]["inflections"].add(t)
+                else:
+                    non_danish_ignored += 1
+
+            emit(
+                f"SQLite-matching fuldført: {cor_attached_count} knyttet til COR, {ods_attached_count} knyttet til ODS, "
+                f"{len(new_ods_words)} nye historiske opslag fundet ({non_danish_ignored} egennavne/uindekserede sprunget over).",
+                60,
+            )
+
+            # Step 4: Create canonical historical entries for new ODS headwords
+            cached_map = {c["headword"].lower(): c for c in db.get_all_cached_definitions()} if db else {}
+
+            for hw, data in new_ods_words.items():
+                if hw in cached_map:
+                    c_item = cached_map[hw]
+                    syns = generate_orthographic_synonyms(hw, list(data["inflections"]) + c_item.get("synonyms", []))
                     resolved_entries[hw] = StarDictEntry(
                         headword=hw,
-                        html_content=render_canonical_html(nordic_match),
+                        html_content=c_item["html_content"],
                         synonyms=syns,
                     )
-                    continue
-
-                # Try step 1: Check Modern COR in SQLite
-                cor_defs = db.lookup_cor_lemma_definitions(token)
-                if cor_defs:
-                    lemma = cor_defs[0]["lemma"].lower()
-                    pos = normalize_pos(cor_defs[0].get("pos", ""))
-                    modern_senses = [
-                        SenseItem(
-                            definition=d["definition"],
-                            quote=d.get("examples") or None,
-                            source_tag="COR-SEM",
-                        )
-                        for d in cor_defs[:3]
-                    ]
-                    cor_inflections = db.lookup_cor_inflections(lemma)
-                    ods_inflections = db.lookup_ods_headword_inflections(lemma)
-                    summary_hook = modern_senses[0].definition[:160] if modern_senses else ""
-
+                else:
                     canonical = CanonicalEntry(
-                        headword=lemma,
-                        pos=pos,
-                        inflections=set(cor_inflections + ods_inflections + [token]),
-                        summary_hook=summary_hook,
-                        modern_senses=modern_senses,
-                        sources_used=["COR-SEM"],
+                        headword=hw,
+                        pos=normalize_pos(data["pos"]),
+                        inflections=data["inflections"],
+                        summary_hook="Historisk opslag fra Ordbog over det danske Sprog (ODS).",
+                        historical_senses=[
+                            SenseItem(
+                                definition=f"Historisk opslag for »{hw}« i Ordbog over det danske Sprog.",
+                                label="hist.",
+                                source_tag="ODS",
+                            )
+                        ],
+                        sources_used=["ODS"],
                     )
-
-                    # Check false-friend enrichment from 1800s
-                    if lemma in NORDIC_1800S_ENTRIES:
-                        canonical = enrich_canonical_entry_with_historical(
-                            canonical, NORDIC_1800S_ENTRIES[lemma]
-                        )
-
                     html = render_canonical_html(canonical)
-                    synonyms = generate_orthographic_synonyms(lemma, list(canonical.inflections))
-                    resolved_entries[lemma] = StarDictEntry(headword=lemma, html_content=html, synonyms=synonyms)
-                    continue
-
-                # Try step 2: Check ODS SQLite forms using candidate stems
-                stem_candidates = resolve_danish_stem_candidates(token)
-                found_historical = False
-
-                for candidate in stem_candidates:
-                    # Check 1800s candidate
-                    nordic_cand = get_nordic_1800s_entry(candidate)
-                    if nordic_cand:
-                        hw = nordic_cand.headword.lower()
-                        ods_infs = db.lookup_ods_headword_inflections(nordic_cand.headword) if db else []
-                        all_inflections = set(nordic_cand.inflections) | set(ods_infs) | set(nordic_cand.historical_spellings) | {token, candidate}
-                        nordic_cand.inflections = all_inflections
-                        syns = generate_orthographic_synonyms(hw, list(all_inflections))
-                        resolved_entries[hw] = StarDictEntry(
-                            headword=hw,
-                            html_content=render_canonical_html(nordic_cand),
-                            synonyms=syns,
-                        )
-                        found_historical = True
-                        break
-
-                    ods_hits = db.lookup_ods_inflection(candidate)
-                    if ods_hits:
-                        hw = ods_hits[0]["headword"].lower()
-                        def_data = scraper.fetch_word_definition(hw, allow_remote=allow_network)
-                        if def_data:
-                            ods_inflections = db.lookup_ods_headword_inflections(hw)
-                            syns = generate_orthographic_synonyms(
-                                hw,
-                                def_data.get("synonyms", []) + ods_inflections + [token, candidate],
-                            )
-                            resolved_entries[hw] = StarDictEntry(
-                                headword=hw,
-                                html_content=def_data["html_content"],
-                                synonyms=syns,
-                            )
-                            found_historical = True
-                            break
-
-                if found_historical:
-                    continue
-
-                # Try step 3: Direct scraper fallback (checks cache & seed entries)
-                for candidate in stem_candidates:
-                    def_data = scraper.fetch_word_definition(candidate, allow_remote=allow_network)
-                    if def_data:
-                        hw = def_data["headword"].lower()
-                        syns = generate_orthographic_synonyms(
-                            hw,
-                            def_data.get("synonyms", []) + [token, candidate],
-                        )
-                        resolved_entries[hw] = StarDictEntry(
-                            headword=hw,
-                            html_content=def_data["html_content"],
-                            synonyms=syns,
-                        )
-                        break
+                    syns = generate_orthographic_synonyms(hw, list(data["inflections"]))
+                    resolved_entries[hw] = StarDictEntry(
+                        headword=hw,
+                        html_content=html,
+                        synonyms=syns,
+                    )
 
         emit(f"Opslag fuldført. Kompilerer {len(resolved_entries)} ordbogsartikler til StarDict v2.4.2...", 80)
 

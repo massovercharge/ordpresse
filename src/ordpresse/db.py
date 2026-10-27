@@ -246,6 +246,46 @@ class Database:
         )
         return [r[0] for r in cur.fetchall()]
 
+    def lookup_ods_forms_batch(self, words: list[str]) -> dict[str, tuple[str, str]]:
+        """Bulk-lookup inflected words to find their ODS headwords and POS in SQLite."""
+        if not self.datasets_path.exists() or not words:
+            return {}
+        cur = self.datasets_conn.cursor()
+        results: dict[str, tuple[str, str]] = {}
+        unique_words = list({w.lower() for w in words if w})
+        chunk_size = 500
+        for i in range(0, len(unique_words), chunk_size):
+            chunk = unique_words[i : i + chunk_size]
+            placeholders = ",".join(["?"] * len(chunk))
+            cur.execute(
+                f"SELECT lower(inflected_lower), lower(headword), pos FROM ods_forms WHERE inflected_lower IN ({placeholders})",
+                chunk,
+            )
+            for inf, hw, pos in cur.fetchall():
+                if inf not in results:
+                    results[inf] = (hw, pos or "")
+        return results
+
+    def lookup_cor_forms_batch(self, words: list[str]) -> dict[str, str]:
+        """Bulk-lookup inflected words to find their COR lemmas in SQLite."""
+        if not self.datasets_path.exists() or not words:
+            return {}
+        cur = self.datasets_conn.cursor()
+        results: dict[str, str] = {}
+        unique_words = list({w.lower() for w in words if w})
+        chunk_size = 500
+        for i in range(0, len(unique_words), chunk_size):
+            chunk = unique_words[i : i + chunk_size]
+            placeholders = ",".join(["?"] * len(chunk))
+            cur.execute(
+                f"SELECT lower(fullform), lower(lemma) FROM cor_forms WHERE fullform IN ({placeholders})",
+                chunk,
+            )
+            for ff, lem in cur.fetchall():
+                if ff not in results:
+                    results[ff] = lem
+        return results
+
     # --- COR queries ---
 
     def lookup_cor_lemma_definitions(self, lemma_or_word: str) -> list[dict]:
