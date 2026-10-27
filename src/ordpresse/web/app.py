@@ -101,15 +101,15 @@ def _run_background_build(
     bookname: str,
     allow_network: bool,
     temp_dir: Path,
+    main_loop: asyncio.AbstractEventLoop,
 ):
     """Worker function executed asynchronously to prevent Cloudflare 524 timeouts."""
-    loop = asyncio.get_event_loop()
 
     def sync_progress(msg: str, pct: int):
         job.progress = pct
         job.message = msg
         data = json.dumps({"status": "progress", "percent": pct, "message": msg})
-        job.events.put_nowait(data)
+        main_loop.call_soon_threadsafe(job.events.put_nowait, data)
 
     try:
         job.status = "building"
@@ -136,13 +136,13 @@ def _run_background_build(
                 "download_url": f"/api/download/{job.build_id}",
             }
         )
-        job.events.put_nowait(data)
+        main_loop.call_soon_threadsafe(job.events.put_nowait, data)
     except Exception as exc:
         logger.exception("Build failed")
         job.status = "error"
         job.error = str(exc)
         data = json.dumps({"status": "error", "error": str(exc)})
-        job.events.put_nowait(data)
+        main_loop.call_soon_threadsafe(job.events.put_nowait, data)
     finally:
         # Cleanup temporary uploaded files
         try:
@@ -187,6 +187,7 @@ async def start_build(
         bookname,
         allow_network,
         temp_upload_dir,
+        loop,
     )
 
     return {"build_id": build_id, "status": "started"}
@@ -234,7 +235,7 @@ async def build_events(build_id: str):
     )
 
 
-@app.get("/api/download/{build_id}")
+@app.api_route("/api/download/{build_id}", methods=["GET", "HEAD"])
 async def download_dict(build_id: str):
     """Download the generated StarDict zip archive."""
     target_dir = OUTPUT_DIR / f"build_{build_id}"
