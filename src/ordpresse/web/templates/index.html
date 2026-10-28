@@ -265,8 +265,31 @@
                         <label class="flex items-center gap-3 cursor-pointer">
                             <input type="checkbox" id="allow_network" name="allow_network" checked class="w-4 h-4 rounded bg-slate-950 border-slate-700 text-amber-500 focus:ring-amber-500">
                             <span class="text-xs text-slate-300">
-                                Tillad høflig live-scraping (ODS & NAOB) hvis ordet mangler i cachen
+                                Tillad live-opslag (ODS & NAOB) for ord, der mangler i cachen
                             </span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Scrape Mode Choice (Bookmarklet vs Server Queue) -->
+                <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <label class="block text-sm font-semibold text-slate-200">
+                        Metode for ukendte historiske ord
+                    </label>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <label class="flex items-start gap-2.5 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 cursor-pointer transition-colors">
+                            <input type="radio" name="scrape_mode" value="bookmarklet" checked class="mt-0.5 text-amber-500 focus:ring-amber-500">
+                            <div>
+                                <span class="font-bold text-amber-300 block">⚡ Vent på Bookmarklet (Anbefalet)</span>
+                                <span class="text-slate-400 text-[11px] leading-relaxed">Serveren pauser og slår IKKE ord op automatisk. Du vælger selv om du vil køre Lyn-Henteren via egen browser eller starte server-køen.</span>
+                            </div>
+                        </label>
+                        <label class="flex items-start gap-2.5 p-3 rounded-lg border border-slate-800 bg-slate-900/50 hover:bg-slate-900 cursor-pointer transition-colors">
+                            <input type="radio" name="scrape_mode" value="server" class="mt-0.5 text-amber-500 focus:ring-amber-500">
+                            <div>
+                                <span class="font-bold text-slate-200 block">🐢 Automatisk server-kø</span>
+                                <span class="text-slate-400 text-[11px] leading-relaxed">Serveren starter straks i baggrunden med 200 forespørgsler/time. Tager længere tid ved mange ord.</span>
+                            </div>
                         </label>
                     </div>
                 </div>
@@ -315,26 +338,29 @@
             </div>
 
             <!-- Peer Helper Panel during build -->
-            <div id="peer-helper-panel" class="hidden bg-slate-950/80 rounded-xl p-4 border border-amber-500/30 space-y-3">
-                <div class="flex items-center justify-between">
-                    <h4 class="font-bold text-amber-400 text-xs flex items-center gap-1.5">
-                        <span>⚡</span> <span>Spring server-køen over med Lyn-Henter</span>
+            <div id="peer-helper-panel" class="hidden bg-slate-950/90 rounded-2xl p-5 border-2 border-amber-500/40 space-y-4 shadow-xl">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <h4 class="font-bold text-amber-400 text-sm flex items-center gap-2">
+                        <span>⚡</span> <span>Vælg metode for manglende historiske ord</span>
                     </h4>
-                    <span id="missing-words-badge" class="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-[10px] font-mono">0 ord i kø</span>
+                    <span id="missing-words-badge" class="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-mono font-bold">0 ord mangler</span>
                 </div>
-                <p class="text-xs text-slate-300">
-                    Serveren overholder en høflig grænse på 200 forespørgsler/time. Du kan hente ordene lynhurtigt via din egen IP, eller afslutte ordbogen med det samme.
+                <p class="text-xs text-slate-300 leading-relaxed">
+                    Serveren venter på din instruks. Du kan hente ordene lynhurtigt med dit bogmærke, starte den høflige server-kø (200 ord/t), eller afslutte ordbogen med det samme:
                 </p>
-                <div class="flex flex-wrap items-center gap-2 pt-1">
-                    <a id="open-ordnet-link" target="_blank" href="#" class="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm">
-                        <span>1. Åbn ordnet.dk (med dit Job-ID) ↗</span>
+                <div class="flex flex-wrap items-center gap-2.5 pt-1">
+                    <a id="open-ordnet-link" target="_blank" href="#" class="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20">
+                        <span>⚡ 1. Åbn ordnet.dk (Lyn-Henter) ↗</span>
                     </a>
-                    <button id="skip-queue-btn" type="button" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer">
-                        <span>⏩ Afslut byg nu uden resterende kø</span>
+                    <button id="start-server-scrape-btn" type="button" class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer">
+                        <span>🐢 Start server-kø (200 ord/t)</span>
+                    </button>
+                    <button id="skip-queue-btn" type="button" class="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer">
+                        <span>⏩ Afslut byg med lokale ord nu</span>
                     </button>
                 </div>
                 <p class="text-[11px] text-slate-400 italic">
-                    Klik på knappen <em>1. Åbn ordnet.dk</em> ovenfor, og klik derefter på <strong>⚡ Ordpresse Lyn-Henter</strong> i din bogmærkelinje.
+                    Tip: Klik på <strong>⚡ 1. Åbn ordnet.dk</strong>, tryk derefter på <strong>⚡ Ordpresse Lyn-Henter</strong> i din bogmærkelinje. Serveren modtager ordene automatisk og bygger videre i realtid!
                 </p>
             </div>
 
@@ -470,6 +496,30 @@
             } catch (err) {
                 console.error("Kunne ikke springe kø over:", err);
             }
+        }
+
+        const startServerScrapeBtn = document.getElementById('start-server-scrape-btn');
+
+        async function startServerScrape(buildId) {
+            if (!buildId) return;
+            if (startServerScrapeBtn) {
+                startServerScrapeBtn.disabled = true;
+                startServerScrapeBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+            const logEntry = document.createElement('div');
+            logEntry.className = 'text-amber-400 font-semibold';
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] Skifter til automatisk server-kø (${buildId})...`;
+            logBox.appendChild(logEntry);
+            logBox.scrollTop = logBox.scrollHeight;
+            try {
+                await fetch(`/api/build/${buildId}/start-server-scrape`, { method: 'POST' });
+            } catch (err) {
+                console.error("Kunne ikke starte server-kø:", err);
+            }
+        }
+
+        if (startServerScrapeBtn) {
+            startServerScrapeBtn.addEventListener('click', () => startServerScrape(currentBuildId));
         }
 
         if (skipQueueBtn) {

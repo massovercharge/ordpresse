@@ -118,6 +118,7 @@ class Pipeline:
         is_cancelled: Optional[Callable[[], bool]] = None,
         build_id: Optional[str] = None,
         loop: Optional[asyncio.AbstractEventLoop] = None,
+        scrape_mode: str = "bookmarklet",
     ) -> BuildResult:
         """Execute the dictionary building process."""
         actual_build_id = build_id or uuid.uuid4().hex[:8]
@@ -464,12 +465,18 @@ class Pipeline:
 
             if words_to_scrape:
                 total_to_scrape = len(words_to_scrape)
-                coordinator.register_build(actual_build_id, words_to_scrape)
-                emit(
-                    f"Henter {total_to_scrape} prioriterede historiske ord over nettet "
-                    f"({len(cached_words)} genbrugt fra cache, {len(uncached_words) - total_to_scrape} afventer)...",
-                    60,
-                )
+                coordinator.register_build(actual_build_id, words_to_scrape, initial_mode=scrape_mode)
+                if scrape_mode in ("bookmarklet", "wait_choice"):
+                    emit(
+                        f"Fandt {total_to_scrape} ord, der mangler i cachen. Venter på valg: Kør Lyn-Henter eller start server-kø...",
+                        60,
+                    )
+                else:
+                    emit(
+                        f"Henter {total_to_scrape} prioriterede historiske ord over nettet "
+                        f"({len(cached_words)} genbrugt fra cache, {len(uncached_words) - total_to_scrape} afventer)...",
+                        60,
+                    )
 
                 completed = 0
                 last_emit_time = time.time()
@@ -502,10 +509,17 @@ class Pipeline:
                         # Rate-limit acquisition with peer-resolve wakeup
                         current_pct = 60 + int(20 * (idx / total_to_scrape))
                         def on_wait(wait_s: float, pending: int):
-                            emit(
-                                f"Venter på server-kvote ({wait_s:.0f}s, {pending} ord i kø) — brug Bookmarklet for lyn-hentning!",
-                                current_pct,
-                            )
+                            cur_mode = coordinator.get_build_mode(actual_build_id)
+                            if cur_mode in ("bookmarklet", "wait_choice"):
+                                emit(
+                                    f"Venter på Lyn-Henter ({pending} ord mangler) — kør Bookmarklet på ordnet.dk eller klik 'Start server-kø'!",
+                                    current_pct,
+                                )
+                            else:
+                                emit(
+                                    f"Venter på server-kvote ({wait_s:.0f}s, {pending} ord i kø) — brug Bookmarklet for lyn-hentning!",
+                                    current_pct,
+                                )
 
                         should_scrape = _acquire_token(
                             coordinator, actual_build_id, hw, on_wait_cb=on_wait, loop=loop

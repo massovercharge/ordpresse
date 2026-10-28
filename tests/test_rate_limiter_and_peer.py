@@ -160,3 +160,49 @@ def test_cors_preflight_and_headers():
     )
     assert resp.status_code == 200
     assert resp.headers.get("access-control-allow-origin") == "*"
+
+
+@pytest.mark.anyio
+async def test_bookmarklet_mode_does_not_consume_tokens():
+    """Verify that in bookmarklet mode the server does not consume scrape tokens and waits for peer/mode change."""
+    coord = ScrapeCoordinator()
+    coord.burst_capacity = 5
+    coord.tokens = 5.0
+    build_id = "test_bmark_mode_b"
+    word = "pauseord"
+
+    coord.register_build(build_id, [word], initial_mode="bookmarklet")
+
+    task = asyncio.create_task(
+        coord.acquire_token_or_peer_resolve(build_id, word)
+    )
+
+    # Let task run into bookmarklet wait loop
+    await asyncio.sleep(0.05)
+
+    # Tokens must remain completely untouched!
+    assert coord.tokens == 5.0
+
+    # Switch mode to server
+    coord.set_build_mode(build_id, "server")
+
+    # Now task should acquire 1 token and return True
+    result = await asyncio.wait_for(task, timeout=0.5)
+    assert result is True
+    assert coord.tokens == 4.0
+
+    coord.unregister_build(build_id)
+
+
+def test_start_server_scrape_endpoint():
+    """Verify POST /api/build/{build_id}/start-server-scrape switches mode to server."""
+    client = TestClient(app)
+    build_id = "test_switch_b"
+    coordinator.register_build(build_id, ["testord"], initial_mode="bookmarklet")
+
+    resp = client.post(f"/api/build/{build_id}/start-server-scrape")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "server_scraping"
+    assert coordinator.get_build_mode(build_id) == "server"
+
+    coordinator.unregister_build(build_id)

@@ -241,6 +241,7 @@ def _run_background_build(
     allow_network: bool,
     temp_dir: Path,
     main_loop: asyncio.AbstractEventLoop,
+    scrape_mode: str = "bookmarklet",
 ):
     """Worker function executed asynchronously to prevent Cloudflare 524 timeouts."""
 
@@ -266,6 +267,7 @@ def _run_background_build(
             is_cancelled=lambda: job.cancelled,
             build_id=job.build_id,
             loop=main_loop,
+            scrape_mode=scrape_mode,
         )
         job.status = "done"
         job.result = result
@@ -312,6 +314,7 @@ async def start_build(
     bookname: str = Form(DEFAULT_BOOKNAME),
     full_dictionary: bool = Form(False),
     allow_network: bool = Form(True),
+    scrape_mode: str = Form("bookmarklet"),
 ):
     """Trigger an async build job."""
     build_id = uuid.uuid4().hex[:8]
@@ -346,6 +349,7 @@ async def start_build(
         is_network,
         temp_upload_dir,
         loop,
+        scrape_mode,
     )
 
     return {"build_id": build_id, "status": "started"}
@@ -540,3 +544,29 @@ async def get_worker_js():
   box.innerHTML = "<b>✅ Færdig!</b> Alle " + words.length + " ord er sendt til Ordpresse.<br>Du kan lukke denne fane nu.";
 })();'''
     return Response(content=fallback, media_type="application/javascript")
+
+
+@app.post("/api/build/{build_id}/start-server-scrape")
+@app.post("/api/jobs/{build_id}/start-server-scrape")
+async def start_server_scrape(build_id: str):
+    """Explicitly switch build mode to server token-bucket scrape upon user request."""
+    coordinator.set_build_mode(build_id, "server")
+    return {"status": "server_scraping", "build_id": build_id}
+
+
+@app.post("/api/build/{build_id}/set-mode")
+@app.post("/api/jobs/{build_id}/set-mode")
+async def set_build_mode_endpoint(build_id: str, request: Request):
+    """Update build scraping mode dynamically (server, bookmarklet, skip)."""
+    content_type = request.headers.get("content-type", "")
+    mode = "bookmarklet"
+    if "application/json" in content_type:
+        data = await request.json()
+        mode = data.get("mode", "bookmarklet")
+    else:
+        form = await request.form()
+        mode = form.get("mode", "bookmarklet")
+    if mode not in ("server", "bookmarklet", "skip"):
+        raise HTTPException(status_code=400, detail="Ugyldig mode. Tilladte: server, bookmarklet, skip")
+    coordinator.set_build_mode(build_id, mode)
+    return {"status": "ok", "build_id": build_id, "mode": mode}

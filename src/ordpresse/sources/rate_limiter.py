@@ -25,6 +25,10 @@ class ScrapeCoordinator:
         self.skip_remaining_flags: Set[str] = set()
         self.word_resolved_events: Dict[str, asyncio.Event] = {}
 
+        # Build mode tracking: "server", "bookmarklet", "wait_choice", "skip"
+        self.build_modes: Dict[str, str] = {}
+        self.mode_events: Dict[str, asyncio.Event] = {}
+
         # Round-robin queue of build_ids waiting for a server scrape token
         self._rr_queue: deque[str] = deque()
 
@@ -38,14 +42,30 @@ class ScrapeCoordinator:
     def _lock(self, val: Optional[asyncio.Lock]) -> None:
         self.__lock = val
 
-    def register_build(self, build_id: str, missing_words: List[str]) -> None:
-        """Register a build with its list of missing words requiring ODS resolution."""
+    def register_build(self, build_id: str, missing_words: List[str], initial_mode: str = "server") -> None:
+        """Register a build with its list of missing words and execution mode."""
         unique_words = list(dict.fromkeys(w.strip() for w in missing_words if w.strip()))
         self.missing_by_build[build_id] = unique_words
         self.resolved_words[build_id] = set()
         self.word_resolved_events[build_id] = asyncio.Event()
+        self.build_modes[build_id] = initial_mode
+        self.mode_events[build_id] = asyncio.Event()
         if build_id not in self._rr_queue:
             self._rr_queue.append(build_id)
+
+    def set_build_mode(self, build_id: str, mode: str) -> None:
+        """Update scrape mode for a build (e.g. switch from 'bookmarklet' to 'server')."""
+        self.build_modes[build_id] = mode
+        if mode == "skip":
+            self.skip_remaining_flags.add(build_id)
+        if build_id in self.mode_events:
+            self.mode_events[build_id].set()
+        if build_id in self.word_resolved_events:
+            self.word_resolved_events[build_id].set()
+
+    def get_build_mode(self, build_id: str) -> str:
+        """Get current scrape mode for build."""
+        return self.build_modes.get(build_id, "server")
 
     def unregister_build(self, build_id: str) -> None:
         """Clean up all tracking structures for a completed/cancelled build."""
@@ -53,6 +73,8 @@ class ScrapeCoordinator:
         self.resolved_words.pop(build_id, None)
         self.skip_remaining_flags.discard(build_id)
         self.word_resolved_events.pop(build_id, None)
+        self.build_modes.pop(build_id, None)
+        self.mode_events.pop(build_id, None)
         self._rr_queue = deque(b for b in self._rr_queue if b != build_id)
 
     def get_pending_words(self, build_id: str) -> List[str]:
@@ -90,6 +112,9 @@ class ScrapeCoordinator:
     def trigger_skip_remaining(self, build_id: str) -> None:
         """Signal that a build should skip any remaining scrape queue and proceed directly to compilation."""
         self.skip_remaining_flags.add(build_id)
+        self.build_modes[build_id] = "skip"
+        if build_id in self.mode_events:
+            self.mode_events[build_id].set()
         if build_id in self.word_resolved_events:
             self.word_resolved_events[build_id].set()
 
@@ -124,13 +149,51 @@ class ScrapeCoordinator:
             if word in resolved or any(r.lower() == w_low for r in resolved):
                 return False
 
+            mode = self.get_build_mode(build_id)
+
+            # If mode is bookmarklet or wait_choice, DO NOT scrape from server!
+            if mode in ("bookmarklet", "wait_choice"):
+                pending_count = len(self.get_pending_words(build_id))
+                if on_wait_callback:
+                    try:
+                        res = on_wait_callback(0.0, pending_count)
+                        if asyncio.iscoroutine(res):
+                            await res
+                    except Exception as cb_err:
+                        logger.debug(f"on_wait_callback exception: {cb_err}")
+
+                evt = self.word_resolved_events.get(build_id)
+                mode_evt = self.mode_events.get(build_id)
+                if evt:
+                    evt.clear()
+                if mode_evt:
+                    mode_evt.clear()
+
+                waiters = []
+                if evt:
+                    waiters.append(asyncio.create_task(evt.wait()))
+                if mode_evt:
+                    waiters.append(asyncio.create_task(mode_evt.wait()))
+
+                if waiters:
+                    done, pending = await asyncio.wait(
+                        waiters,
+                        timeout=1.5,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for t in pending:
+                        t.cancel()
+                else:
+                    await asyncio.sleep(1.0)
+                continue
+
+            # mode == "server": acquire token via polite token bucket
             wait_seconds = 0.0
             can_scrape = False
 
             async with self._lock:
                 self._refill()
                 if self.tokens >= 1.0:
-                    # Fair-share check: if multiple builds waiting, respect order
                     if not self._rr_queue or self._rr_queue[0] == build_id:
                         if self._rr_queue and self._rr_queue[0] == build_id:
                             self._rr_queue.popleft()
@@ -155,14 +218,28 @@ class ScrapeCoordinator:
                 except Exception as cb_err:
                     logger.debug(f"on_wait_callback exception: {cb_err}")
 
-            # Wait up to min(wait_seconds, 2.0s) OR wake up immediately if peer bookmarklet submits a word!
+            # Wait up to min(wait_seconds, 2.0s) OR wake up immediately if peer bookmarklet submits a word
             evt = self.word_resolved_events.get(build_id)
+            mode_evt = self.mode_events.get(build_id)
             if evt:
                 evt.clear()
-                try:
-                    await asyncio.wait_for(evt.wait(), timeout=min(wait_seconds, 2.0))
-                except asyncio.TimeoutError:
-                    pass
+            if mode_evt:
+                mode_evt.clear()
+
+            waiters = []
+            if evt:
+                waiters.append(asyncio.create_task(evt.wait()))
+            if mode_evt:
+                waiters.append(asyncio.create_task(mode_evt.wait()))
+
+            if waiters:
+                done, pending = await asyncio.wait(
+                    waiters,
+                    timeout=min(wait_seconds, 2.0),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for t in pending:
+                    t.cancel()
             else:
                 await asyncio.sleep(min(wait_seconds, 2.0))
 
