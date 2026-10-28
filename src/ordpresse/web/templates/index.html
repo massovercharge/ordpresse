@@ -164,7 +164,7 @@
                 </div>
                 <div class="shrink-0 flex items-center gap-3">
                     <a id="bookmarklet-btn" 
-                       href='javascript:(async function(){const m=location.hash.match(/ordpresse_id=([^&]+)/);const o=location.hash.match(/ordpresse_origin=([^&]+)/);const bid=m?m[1]:prompt("Indtast Ordpresse Build-ID:");const host=o?decodeURIComponent(o[1]):(window.location.origin||"https://ordpresse.seame.click");if(!bid)return;if(!location.hostname.includes("ordnet.dk")){location.href="https://ordnet.dk/ods/ordbog?query=ordbog#ordpresse_id="+bid+"&ordpresse_origin="+encodeURIComponent(location.origin);return;}const box=document.createElement("div");box.style="position:fixed;bottom:20px;right:20px;z-index:999999;background:#111827;color:#fef3c7;padding:16px 20px;border:2px solid #f59e0b;border-radius:10px;font-family:sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.5);min-width:280px;";document.body.appendChild(box);const res=await fetch(host+"/api/build/"+bid+"/missing-words");const data=await res.json();const words=data.words||[];for(let i=0;i<words.length;i++){const w=words[i];box.innerHTML="<b>⚡ Ordpresse Lyn-Henter</b><br>Henter "+(i+1)+" / "+words.length+": <b>"+w+"</b>";try{const r=await fetch("https://ordnet.dk/ods/ordbog?query="+encodeURIComponent(w));const html=await r.text();await fetch(host+"/api/cache/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({word:w,html:html,build_id:bid})});}catch(e){console.error(e);}await new Promise(r=>setTimeout(r,350));}box.innerHTML="<b>✅ Færdig!</b> Alle "+words.length+" ord er sendt til Ordpresse.<br>Du kan lukke denne fane nu.";})();'
+                       href='javascript:(async function(){const m=location.hash.match(/ordpresse_id=([^&]+)/);const o=location.hash.match(/ordpresse_origin=([^&]+)/);const l=location.hash.match(/limit=(\\d+)/);const bid=m?m[1]:prompt(\"Indtast Ordpresse Build-ID:\");const host=o?decodeURIComponent(o[1]):(window.location.origin||\"https://ordpresse.seame.click\");if(!bid)return;if(!location.hostname.includes(\"ordnet.dk\")){location.href=\"https://ordnet.dk/ods/ordbog?query=ordbog#ordpresse_id=\"+bid+\"&ordpresse_origin=\"+encodeURIComponent(location.origin)+(l?\"&limit=\"+l[1]:\"\");return;}const box=document.createElement(\"div\");box.style=\"position:fixed;bottom:20px;right:20px;z-index:999999;background:#111827;color:#fef3c7;padding:16px 20px;border:2px solid #f59e0b;border-radius:12px;font-family:sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.5);min-width:300px;max-width:400px;\";document.body.appendChild(box);let stopped=false;const stopBtn=document.createElement(\"button\");stopBtn.innerText=\"⏹ Stop & afslut ordbog nu\";stopBtn.style=\"margin-top:10px;padding:6px 12px;background:#b91c1c;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;font-size:12px;display:block;width:100%;\";stopBtn.onclick=async()=>{stopped=true;box.innerHTML=\"<b>⏹ Stopper...</b> Sender afslutning til serveren...\";try{await fetch(host+\"/api/build/\"+bid+\"/skip-queue\",{method:\"POST\"});}catch(e){}box.innerHTML=\"<b>✅ Stoppet!</b> Ordbogen færdiggøres nu med de hentede ord.<br>Du kan lukke denne fane.\";};const url=host+\"/api/build/\"+bid+\"/missing-words\"+(l?\"?limit=\"+l[1]:\"\");const res=await fetch(url);const data=await res.json();const words=data.words||[];if(words.length===0){box.innerHTML=\"<b>✅ Ingen ord mangler!</b> Alle ord er allerede fundet.\";return;}const contentDiv=document.createElement(\"div\");box.appendChild(contentDiv);box.appendChild(stopBtn);for(let i=0;i<words.length;i++){if(stopped)break;const w=words[i];contentDiv.innerHTML=\"<b>⚡ Ordpresse Lyn-Henter</b><br>Henter <b>\"+(i+1)+\" / \"+words.length+\"</b>: <code style='color:#f59e0b;font-size:14px;'>\"+w+\"</code>\";try{const r=await fetch(\"https://ordnet.dk/ods/ordbog?query=\"+encodeURIComponent(w));const html=await r.text();await fetch(host+\"/api/cache/submit\",{method:\"POST\",headers:{\"Content-Type\":\"application/json\"},body:JSON.stringify({word:w,html:html,build_id:bid})});}catch(e){console.error(e);}await new Promise(r=>setTimeout(r,350));}if(!stopped){box.innerHTML=\"<b>✅ Færdig!</b> Alle \"+words.length+\" ord er sendt til Ordpresse.<br>Serveren kompilerer nu din ordbog færdig.\";}})();'
                        class="px-5 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm rounded-xl flex items-center gap-2 shadow-lg shadow-amber-500/25 cursor-grab active:cursor-grabbing border-2 border-amber-300 transition-transform hover:scale-105 select-none"
                        title="Træk dette link op i din bogmærkelinje"
                        onclick="event.preventDefault(); alert('Træk denne knap direkte op i din browsers bogmærkelinje (eller højreklik og vælg Gem som bogmærke).');">
@@ -341,16 +341,32 @@
             <div id="peer-helper-panel" class="hidden bg-slate-950/90 rounded-2xl p-5 border-2 border-amber-500/40 space-y-4 shadow-xl">
                 <div class="flex items-center justify-between border-b border-slate-800 pb-2">
                     <h4 class="font-bold text-amber-400 text-sm flex items-center gap-2">
-                        <span>⚡</span> <span>Vælg metode for manglende historiske ord</span>
+                        <span>⚡</span> <span>Vælg metode og mængde for manglende ord</span>
                     </h4>
                     <span id="missing-words-badge" class="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-mono font-bold">0 ord mangler</span>
                 </div>
                 <p class="text-xs text-slate-300 leading-relaxed">
-                    Serveren venter på din instruks. Du kan hente ordene lynhurtigt med dit bogmærke, starte den høflige server-kø (200 ord/t), eller afslutte ordbogen med det samme:
+                    Serveren venter på din instruks. Du kan hente alle eller kun et udvalg af de hyppigste ord med dit bogmærke, starte server-køen, eller afslutte med det samme:
                 </p>
+
+                <!-- Word batch count selection chips -->
+                <div class="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="font-semibold text-slate-300">Hvor mange ord vil du hente med Lyn-Henter?</span>
+                        <span id="batch-selection-label" class="font-bold text-amber-400">Alle ord</span>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" class="batch-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer" data-batch="10">Top 10</button>
+                        <button type="button" class="batch-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer" data-batch="25">Top 25</button>
+                        <button type="button" class="batch-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer" data-batch="50">Top 50</button>
+                        <button type="button" class="batch-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer" data-batch="100">Top 100</button>
+                        <button type="button" id="batch-all-btn" class="batch-chip active px-3 py-1 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/50 transition-all cursor-pointer" data-batch="all">Alle</button>
+                    </div>
+                </div>
+
                 <div class="flex flex-wrap items-center gap-2.5 pt-1">
                     <a id="open-ordnet-link" target="_blank" href="#" class="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20">
-                        <span>⚡ 1. Åbn ordnet.dk (Lyn-Henter) ↗</span>
+                        <span id="open-ordnet-btn-label">⚡ 1. Åbn ordnet.dk (Lyn-Henter) ↗</span>
                     </a>
                     <button id="start-server-scrape-btn" type="button" class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer">
                         <span>🐢 Start server-kø (200 ord/t)</span>
@@ -360,7 +376,7 @@
                     </button>
                 </div>
                 <p class="text-[11px] text-slate-400 italic">
-                    Tip: Klik på <strong>⚡ 1. Åbn ordnet.dk</strong>, tryk derefter på <strong>⚡ Ordpresse Lyn-Henter</strong> i din bogmærkelinje. Serveren modtager ordene automatisk og bygger videre i realtid!
+                    Tip: Du kan også stoppe når som helst undervejs ved at trykke på den røde <strong>[⏹ Stop & afslut]</strong> knap direkte i bogmærke-boksen på ordnet.dk.
                 </p>
             </div>
 
@@ -544,6 +560,36 @@
 
         let currentBuildId = null;
         let currentEvtSource = null;
+        let selectedBatchLimit = null; // null means 'all'
+
+        function updateOpenOrdnetLinkHref() {
+            if (!openOrdnetLink || !currentBuildId) return;
+            const limitParam = selectedBatchLimit ? `&limit=${selectedBatchLimit}` : '';
+            openOrdnetLink.href = `https://ordnet.dk/ods/ordbog?query=ordbog#ordpresse_id=${encodeURIComponent(currentBuildId)}&ordpresse_origin=${encodeURIComponent(window.location.origin)}${limitParam}`;
+            const btnLabel = document.getElementById('open-ordnet-btn-label');
+            if (btnLabel) {
+                btnLabel.textContent = selectedBatchLimit ? `⚡ 1. Åbn ordnet.dk (Hent top ${selectedBatchLimit} ord) ↗` : `⚡ 1. Åbn ordnet.dk (Hent alle ord) ↗`;
+            }
+        }
+
+        document.querySelectorAll('.batch-chip').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.batch-chip').forEach(b => {
+                    b.classList.remove('bg-amber-500/20', 'text-amber-300', 'border-amber-500/50', 'active');
+                    b.classList.add('bg-slate-800', 'text-slate-300', 'border-slate-700');
+                });
+                btn.classList.remove('bg-slate-800', 'text-slate-300', 'border-slate-700');
+                btn.classList.add('bg-amber-500/20', 'text-amber-300', 'border-amber-500/50', 'active');
+
+                const val = btn.dataset.batch;
+                selectedBatchLimit = (val === 'all') ? null : parseInt(val, 10);
+                const selLabel = document.getElementById('batch-selection-label');
+                if (selLabel) {
+                    selLabel.textContent = selectedBatchLimit ? `Top ${selectedBatchLimit} ord` : 'Alle ord';
+                }
+                updateOpenOrdnetLinkHref();
+            });
+        });
 
         // Cancel button click handler
         if (cancelBuildBtn) {

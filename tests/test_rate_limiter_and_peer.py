@@ -206,3 +206,25 @@ def test_start_server_scrape_endpoint():
     assert coordinator.get_build_mode(build_id) == "server"
 
     coordinator.unregister_build(build_id)
+
+
+def test_missing_words_endpoint_with_limit():
+    """Verify GET /api/build/{build_id}/missing-words honors limit parameter."""
+    client = TestClient(app)
+    build_id = "test_limit_b"
+    words = [f"word_{i}" for i in range(50)]
+    coordinator.register_build(build_id, words)
+
+    resp_all = client.get(f"/api/build/{build_id}/missing-words")
+    assert resp_all.status_code == 200
+    assert resp_all.json()["missing_count"] == 50
+    assert resp_all.json()["total_pending"] == 50
+
+    resp_10 = client.get(f"/api/build/{build_id}/missing-words?limit=10")
+    assert resp_10.status_code == 200
+    assert resp_10.json()["missing_count"] == 10
+    assert resp_10.json()["total_pending"] == 50
+    assert len(resp_10.json()["words"]) == 10
+    assert resp_10.json()["words"] == words[:10]
+
+    coordinator.unregister_build(build_id)
