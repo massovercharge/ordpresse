@@ -1,8 +1,9 @@
 """SQLite database manager for streaming datasets and scraper caching."""
 
 import json
-import sqlite3
 from pathlib import Path
+import sqlite3
+import threading
 from typing import Any, Optional
 
 from ordpresse.config import CACHE_DB_PATH, DATASETS_DB_PATH
@@ -19,9 +20,9 @@ def get_connection(db_path: Path, read_only: bool = False, synchronous_off: bool
     db_path.parent.mkdir(parents=True, exist_ok=True)
     if read_only and db_path.exists():
         uri = f"file:{db_path.resolve()}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True, timeout=30.0)
+        conn = sqlite3.connect(uri, uri=True, timeout=30.0, check_same_thread=False)
     else:
-        conn = sqlite3.connect(str(db_path), timeout=30.0)
+        conn = sqlite3.connect(str(db_path), timeout=30.0, check_same_thread=False)
 
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -114,6 +115,7 @@ class Database:
         self.datasets_path = datasets_path
         self.cache_path = cache_path
         self.bulk_mode = bulk_mode
+        self._write_lock = threading.Lock()
         self._datasets_conn: Optional[sqlite3.Connection] = None
         self._cache_conn: Optional[sqlite3.Connection] = None
 
@@ -154,34 +156,36 @@ class Database:
         """Purge any legacy placeholder dummy definitions from cache."""
         if not self.cache_path.exists():
             return 0
-        with self.cache_conn:
-            cur = self.cache_conn.execute(
-                "DELETE FROM definitions WHERE html_content LIKE '%Historisk opslag for »%'"
-            )
-            return cur.rowcount
+        with self._write_lock:
+            with self.cache_conn:
+                cur = self.cache_conn.execute(
+                    "DELETE FROM definitions WHERE html_content LIKE '%Historisk opslag for »%'"
+                )
+                return cur.rowcount
 
     def get_cached(self, word: str) -> Optional[dict]:
-        cur = self.cache_conn.cursor()
-        cur.execute(
-            "SELECT word, source, headword, html_content, synonyms_json FROM definitions WHERE word = ?",
-            (word.lower(),),
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-        html_content = row["html_content"] or ""
-        if "Historisk opslag for »" in html_content:
-            with self.cache_conn:
-                self.cache_conn.execute("DELETE FROM definitions WHERE word = ?", (word.lower(),))
-            return None
-        synonyms = json.loads(row["synonyms_json"]) if row["synonyms_json"] else []
-        return {
-            "word": row["word"],
-            "source": row["source"],
-            "headword": row["headword"],
-            "html_content": html_content,
-            "synonyms": synonyms,
-        }
+        with self._write_lock:
+            cur = self.cache_conn.cursor()
+            cur.execute(
+                "SELECT word, source, headword, html_content, synonyms_json FROM definitions WHERE word = ?",
+                (word.lower(),),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            html_content = row["html_content"] or ""
+            if "Historisk opslag for »" in html_content:
+                with self.cache_conn:
+                    self.cache_conn.execute("DELETE FROM definitions WHERE word = ?", (word.lower(),))
+                return None
+            synonyms = json.loads(row["synonyms_json"]) if row["synonyms_json"] else []
+            return {
+                "word": row["word"],
+                "source": row["source"],
+                "headword": row["headword"],
+                "html_content": html_content,
+                "synonyms": synonyms,
+            }
 
     def set_cached(
         self,
@@ -191,20 +195,21 @@ class Database:
         html_content: str,
         synonyms: list[str],
     ) -> None:
-        with self.cache_conn:
-            self.cache_conn.execute(
-                """
-                INSERT OR REPLACE INTO definitions (word, source, headword, html_content, synonyms_json)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    word.lower(),
-                    source,
-                    headword,
-                    html_content,
-                    json.dumps(synonyms, ensure_ascii=False),
-                ),
-            )
+        with self._write_lock:
+            with self.cache_conn:
+                self.cache_conn.execute(
+                    """
+                    INSERT OR REPLACE INTO definitions (word, source, headword, html_content, synonyms_json)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        word.lower(),
+                        source,
+                        headword,
+                        html_content,
+                        json.dumps(synonyms, ensure_ascii=False),
+                    ),
+                )
 
     def get_all_cached_definitions(self) -> list[dict]:
         """Fetch all previously scraped or cached definitions from cache.sqlite3."""

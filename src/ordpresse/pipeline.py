@@ -288,30 +288,98 @@ class Pipeline:
             from ordpresse.scrapers import HistoricalScraper
             scraper = HistoricalScraper(db) if db else None
 
-            for hw, data in new_ods_words.items():
-                if hw in cached_map:
-                    c_item = cached_map[hw]
-                    syns = generate_orthographic_synonyms(hw, list(data["inflections"]) + c_item.get("synonyms", []))
-                    resolved_entries[hw] = StarDictEntry(
-                        headword=hw,
-                        html_content=c_item["html_content"],
-                        synonyms=syns,
-                    )
+            total_ods = len(new_ods_words)
+            uncached_words = [hw for hw in new_ods_words if hw not in cached_map]
+            cached_words = [hw for hw in new_ods_words if hw in cached_map]
+
+            # 1. Instantly resolve all already-cached words
+            for hw in cached_words:
+                c_item = cached_map[hw]
+                syns = generate_orthographic_synonyms(
+                    hw, list(new_ods_words[hw]["inflections"]) + c_item.get("synonyms", [])
+                )
+                resolved_entries[hw] = StarDictEntry(
+                    headword=hw,
+                    html_content=c_item["html_content"],
+                    synonyms=syns,
+                )
+
+            # 2. Fetch uncached words with live progress updates and concurrency
+            if uncached_words:
+                total_uncached = len(uncached_words)
+                emit(
+                    f"Henter definitioner for {total_uncached} nye historiske ODS-opslag ({len(cached_words)} genbrugt fra cache)...",
+                    60,
+                )
+
+                if allow_network and total_uncached > 5:
+                    from concurrent.futures import ThreadPoolExecutor, as_completed
+                    import time
+
+                    workers = min(8, total_uncached)
+                    completed = 0
+                    last_emit_time = time.time()
+
+                    with ThreadPoolExecutor(max_workers=workers) as executor:
+                        future_to_hw = {
+                            executor.submit(scraper.fetch_word_definition, hw, allow_remote=True): hw
+                            for hw in uncached_words
+                        }
+                        for future in as_completed(future_to_hw):
+                            if is_cancelled and is_cancelled():
+                                executor.shutdown(wait=False, cancel_futures=True)
+                                raise RuntimeError("Byggeprocessen blev afbrudt af brugeren.")
+
+                            hw = future_to_hw[future]
+                            completed += 1
+                            try:
+                                def_data = future.result()
+                            except Exception as e:
+                                logger.debug(f"Error fetching {hw}: {e}")
+                                def_data = None
+
+                            if def_data:
+                                actual_hw = def_data["headword"].lower()
+                                syns = generate_orthographic_synonyms(
+                                    actual_hw,
+                                    list(new_ods_words[hw]["inflections"]) + def_data.get("synonyms", []) + [hw],
+                                )
+                                resolved_entries[actual_hw] = StarDictEntry(
+                                    headword=actual_hw,
+                                    html_content=def_data["html_content"],
+                                    synonyms=syns,
+                                )
+
+                            now = time.time()
+                            if completed % 15 == 0 or completed == total_uncached or (now - last_emit_time) >= 1.5:
+                                pct = 60 + int(20 * (completed / total_uncached))
+                                emit(
+                                    f"Henter historiske ODS-opslag: {completed}/{total_uncached} ({pct}%) — seneste: »{hw}«",
+                                    pct,
+                                )
+                                last_emit_time = now
                 else:
-                    def_data = scraper.fetch_word_definition(hw, allow_remote=allow_network) if scraper else None
-                    if def_data:
-                        actual_hw = def_data["headword"].lower()
-                        syns = generate_orthographic_synonyms(
-                            actual_hw,
-                            list(data["inflections"]) + def_data.get("synonyms", []) + [hw],
-                        )
-                        resolved_entries[actual_hw] = StarDictEntry(
-                            headword=actual_hw,
-                            html_content=def_data["html_content"],
-                            synonyms=syns,
-                        )
-                    else:
-                        logger.warning(f"No definition found for historical lemma '{hw}'; skipping placeholder.")
+                    for idx, hw in enumerate(uncached_words, start=1):
+                        if is_cancelled and is_cancelled():
+                            raise RuntimeError("Byggeprocessen blev afbrudt af brugeren.")
+                        pct = 60 + int(20 * (idx / total_uncached))
+                        if idx % 10 == 0 or idx == total_uncached:
+                            emit(
+                                f"Henter historiske opslag: {idx}/{total_uncached} ({pct}%) — »{hw}«",
+                                pct,
+                            )
+                        def_data = scraper.fetch_word_definition(hw, allow_remote=allow_network) if scraper else None
+                        if def_data:
+                            actual_hw = def_data["headword"].lower()
+                            syns = generate_orthographic_synonyms(
+                                actual_hw,
+                                list(new_ods_words[hw]["inflections"]) + def_data.get("synonyms", []) + [hw],
+                            )
+                            resolved_entries[actual_hw] = StarDictEntry(
+                                headword=actual_hw,
+                                html_content=def_data["html_content"],
+                                synonyms=syns,
+                            )
 
         emit(f"Opslag fuldført. Kompilerer {len(resolved_entries)} ordbogsartikler til StarDict v2.4.2...", 80)
 
