@@ -31,4 +31,4 @@ ordpresse = "ordpresse.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"ordpresse.web" = ["templates/*"]
+"ordpresse.web" = ["templates/*", "static/*"]
