@@ -13,7 +13,13 @@ import uuid
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
+
+from ordpresse.db import Database
+from ordpresse.sources.rate_limiter import coordinator
+from ordpresse.sources.ods_scraper import parse_ods_html
 
 from ordpresse import __version__
 from ordpresse.config import (
@@ -34,7 +40,25 @@ app = FastAPI(
     version=__version__,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+static_path = Path(__file__).parent / "static"
+static_path.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+
+class CacheSubmitPayload(BaseModel):
+    word: str = Field(..., min_length=1, max_length=80)
+    html: str = Field(..., min_length=1, max_length=500_000)
+    build_id: Optional[str] = None
 
 # In-memory build state manager for SSE streams
 @dataclass
@@ -241,6 +265,7 @@ def _run_background_build(
             progress_cb=sync_progress,
             is_cancelled=lambda: job.cancelled,
             build_id=job.build_id,
+            loop=main_loop,
         )
         job.status = "done"
         job.result = result
@@ -418,3 +443,58 @@ async def download_dict(build_id: str):
         filename="ordpresse.zip",
         media_type="application/zip",
     )
+
+
+@app.get("/api/build/{build_id}/missing-words")
+@app.get("/api/jobs/{build_id}/missing-words")
+async def get_missing_words(build_id: str):
+    """Get currently pending words for a specific build awaiting resolution."""
+    words = coordinator.get_pending_words(build_id)
+    return {
+        "build_id": build_id,
+        "missing_count": len(words),
+        "words": words,
+    }
+
+
+@app.post("/api/cache/submit")
+async def submit_cache(payload: CacheSubmitPayload):
+    """Receive scraped HTML from peer bookmarklet, parse, store in cache, and wake waiting builds."""
+    word = payload.word.strip()
+    html = payload.html.strip()
+    build_id = payload.build_id.strip() if payload.build_id else None
+
+    if not word or len(word) > 80:
+        raise HTTPException(status_code=400, detail="Ugyldigt 'word'")
+    if not html or len(html) > 500_000:
+        raise HTTPException(status_code=400, detail="Ugyldigt 'html'")
+
+    parsed = parse_ods_html(word, html)
+    if parsed:
+        db = Database()
+        db.set_cached(
+            word=word.lower(),
+            source="ods",
+            headword=parsed["headword"],
+            html_content=parsed["html_content"],
+            synonyms=parsed.get("synonyms", []),
+        )
+
+    coordinator.mark_word_resolved(word, build_id)
+    remaining = len(coordinator.get_pending_words(build_id)) if build_id else 0
+    return {
+        "status": "ok",
+        "word": word,
+        "remaining": remaining,
+    }
+
+
+@app.post("/api/build/{build_id}/skip-queue")
+@app.post("/api/jobs/{build_id}/skip-queue")
+async def skip_queue(build_id: str):
+    """Signal active build to skip remaining queue and finish compiling StarDict immediately."""
+    coordinator.trigger_skip_remaining(build_id)
+    return {
+        "status": "skipping",
+        "build_id": build_id,
+    }

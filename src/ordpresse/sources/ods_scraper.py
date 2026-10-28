@@ -96,12 +96,31 @@ class ODSScraper:
         if not w_clean:
             return None
 
-        # Fetch initial page (trying direct path first to avoid URL-encoding redirect bugs)
         soup = self._fetch_ods_soup(w_clean)
         if not soup:
             return None
 
+        return self._parse_soup_into_entry(w_clean, soup)
+
+    def parse_ods_html(self, word: str, html: str) -> Optional[dict]:
+        """Parse raw ODS HTML (e.g. from bookmarklet or external submission) into a canonical entry."""
+        w_clean = word.strip().lower()
+        if not w_clean or not html:
+            return None
+
+        soup = BeautifulSoup(html, "html.parser")
+        return self._parse_soup_into_entry(w_clean, soup)
+
+    def _parse_soup_into_entry(self, w_clean: str, soup: BeautifulSoup) -> Optional[dict]:
         articles = soup.find_all("div", class_="artikel")
+        if not articles:
+            if soup.name == "div" and "artikel" in soup.get("class", []):
+                articles = [soup]
+            else:
+                art = soup.find(class_=re.compile(r"\bartikel\b"))
+                if art:
+                    articles = [art]
+
         if not articles:
             # Check searchResultBox for redirection link
             res_box = soup.find("div", class_="searchResultBox")
@@ -181,7 +200,7 @@ class ODSScraper:
 
         # Clean headword (remove hyphens like 'u-efterrettelig' -> 'uefterrettelig' if user searched without hyphen)
         headword_norm = headword.lower()
-        all_synonyms = {word, headword_norm, headword_norm.replace("-", "")}
+        all_synonyms = {w_clean, headword_norm, headword_norm.replace("-", "")}
 
         if len(historical_senses) > 1:
             summary_hook = truncate_summary_hook(historical_senses[0].definition, max_chars=165)
@@ -412,3 +431,9 @@ class ODSScraper:
         if m:
             return m.group(1).rstrip(".")
         return None
+
+
+def parse_ods_html(word: str, html: str) -> Optional[dict]:
+    """Top-level helper to parse ODS HTML identically to the live scraper."""
+    scraper = ODSScraper()
+    return scraper.parse_ods_html(word, html)

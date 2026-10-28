@@ -1,3 +1,5 @@
+import asyncio
+from ordpresse.sources.rate_limiter import coordinator, ScrapeCoordinator
 """Pipeline orchestrator linking SQLite datasets, EPUB scanners, scrapers, and StarDict compiler."""
 
 from dataclasses import dataclass
@@ -49,6 +51,40 @@ class BuildResult:
     files: dict[str, Path]
 
 
+
+def _acquire_token(
+    coord: ScrapeCoordinator,
+    build_id: str,
+    word: str,
+    on_wait_cb: Optional[Callable[[float, int], None]] = None,
+    loop: Optional[asyncio.AbstractEventLoop] = None,
+) -> bool:
+    """Run coordinator.acquire_token_or_peer_resolve safely across threads and event loops."""
+    async def async_wait_cb(wait_s: float, pending: int):
+        if on_wait_cb:
+            on_wait_cb(wait_s, pending)
+
+    coro = coord.acquire_token_or_peer_resolve(
+        build_id, word, on_wait_callback=async_wait_cb
+    )
+
+    if loop is not None and loop.is_running():
+        fut = asyncio.run_coroutine_threadsafe(coro, loop)
+        return fut.result()
+
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    if current_loop and current_loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+    else:
+        return asyncio.run(coro)
+
+
 class Pipeline:
     """End-to-end dictionary build pipeline."""
 
@@ -81,6 +117,7 @@ class Pipeline:
         progress_cb: Optional[Callable[[str, int], None]] = None,
         is_cancelled: Optional[Callable[[], bool]] = None,
         build_id: Optional[str] = None,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> BuildResult:
         """Execute the dictionary building process."""
         actual_build_id = build_id or uuid.uuid4().hex[:8]
@@ -427,6 +464,7 @@ class Pipeline:
 
             if words_to_scrape:
                 total_to_scrape = len(words_to_scrape)
+                coordinator.register_build(actual_build_id, words_to_scrape)
                 emit(
                     f"Henter {total_to_scrape} prioriterede historiske ord over nettet "
                     f"({len(cached_words)} genbrugt fra cache, {len(uncached_words) - total_to_scrape} afventer)...",
@@ -435,47 +473,104 @@ class Pipeline:
 
                 completed = 0
                 last_emit_time = time.time()
-                for idx, hw in enumerate(words_to_scrape, start=1):
-                    if is_cancelled and is_cancelled():
-                        raise RuntimeError("Byggeprocessen blev afbrudt af brugeren.")
+                try:
+                    for idx, hw in enumerate(words_to_scrape, start=1):
+                        if is_cancelled and is_cancelled():
+                            raise RuntimeError("Byggeprocessen blev afbrudt af brugeren.")
 
-                    def_data = None
-                    try:
-                        def_data = scraper.fetch_word_definition(hw, allow_remote=True) if scraper else None
-                    except ODSScraperRateLimitError as rle:
-                        pct = 60 + int(20 * (idx / total_to_scrape))
-                        emit(
-                            f"Advarsel: ordnet.dk anmodede om pause ({rle}). Online-hentning afbrudt pænt; "
-                            f"ordbogen færdiggøres med de indhentede ord.",
-                            pct,
-                        )
-                        logger.warning(f"Rate limit reached on {hw}: {rle}. Halting online scraping.")
-                        break
-                    except Exception as e:
-                        logger.debug(f"Error fetching {hw}: {e}")
+                        if coordinator.should_skip_remaining(actual_build_id):
+                            emit("Bruger valgte at afslutte byg og springe resterende kø over.", 79)
+                            break
 
-                    if def_data:
-                        actual_hw = def_data["headword"].lower()
-                        syns = generate_orthographic_synonyms(
-                            actual_hw,
-                            list(new_ods_words[hw]["inflections"]) + def_data.get("synonyms", []) + [hw],
-                        )
-                        resolved_entries[actual_hw] = StarDictEntry(
-                            headword=actual_hw,
-                            html_content=def_data["html_content"],
-                            synonyms=syns,
+                        # Check if peer bookmarklet already submitted it
+                        cached_entry = db.get_cached_definition(hw) if db else None
+                        if cached_entry:
+                            coordinator.mark_word_resolved(hw, actual_build_id)
+                            actual_hw = cached_entry["headword"].lower()
+                            syns = generate_orthographic_synonyms(
+                                actual_hw,
+                                list(new_ods_words[hw]["inflections"]) + cached_entry.get("synonyms", []) + [hw],
+                            )
+                            resolved_entries[actual_hw] = StarDictEntry(
+                                headword=actual_hw,
+                                html_content=cached_entry["html_content"],
+                                synonyms=syns,
+                            )
+                            completed += 1
+                            continue
+
+                        # Rate-limit acquisition with peer-resolve wakeup
+                        current_pct = 60 + int(20 * (idx / total_to_scrape))
+                        def on_wait(wait_s: float, pending: int):
+                            emit(
+                                f"Venter på server-kvote ({wait_s:.0f}s, {pending} ord i kø) — brug Bookmarklet for lyn-hentning!",
+                                current_pct,
+                            )
+
+                        should_scrape = _acquire_token(
+                            coordinator, actual_build_id, hw, on_wait_cb=on_wait, loop=loop
                         )
 
-                    completed += 1
-                    now = time.time()
-                    if completed % 5 == 0 or completed == total_to_scrape or (now - last_emit_time) >= 1.5:
-                        pct = 60 + int(20 * (completed / total_to_scrape))
-                        freq = new_ods_words[hw].get("frequency", 1)
-                        emit(
-                            f"Henter historiske ODS-opslag: {completed}/{total_to_scrape} ({pct}%) — »{hw}« (frekvens: {freq})",
-                            pct,
-                        )
-                        last_emit_time = now
+                        if not should_scrape:
+                            # Resolved by peer or skipped
+                            cached_entry = db.get_cached_definition(hw) if db else None
+                            if cached_entry:
+                                actual_hw = cached_entry["headword"].lower()
+                                syns = generate_orthographic_synonyms(
+                                    actual_hw,
+                                    list(new_ods_words[hw]["inflections"]) + cached_entry.get("synonyms", []) + [hw],
+                                )
+                                resolved_entries[actual_hw] = StarDictEntry(
+                                    headword=actual_hw,
+                                    html_content=cached_entry["html_content"],
+                                    synonyms=syns,
+                                )
+                            if coordinator.should_skip_remaining(actual_build_id):
+                                emit("Afslutter online-kø efter brugeranmodning...", 79)
+                                break
+                            completed += 1
+                            continue
+
+                        def_data = None
+                        try:
+                            def_data = scraper.fetch_word_definition(hw, allow_remote=True) if scraper else None
+                        except ODSScraperRateLimitError as rle:
+                            pct = 60 + int(20 * (idx / total_to_scrape))
+                            emit(
+                                f"Advarsel: ordnet.dk anmodede om pause ({rle}). Online-hentning afbrudt pænt; "
+                                f"ordbogen færdiggøres med de indhentede ord.",
+                                pct,
+                            )
+                            logger.warning(f"Rate limit reached on {hw}: {rle}. Halting online scraping.")
+                            break
+                        except Exception as e:
+                            logger.debug(f"Error fetching {hw}: {e}")
+
+                        if def_data:
+                            coordinator.mark_word_resolved(hw, actual_build_id)
+                            actual_hw = def_data["headword"].lower()
+                            syns = generate_orthographic_synonyms(
+                                actual_hw,
+                                list(new_ods_words[hw]["inflections"]) + def_data.get("synonyms", []) + [hw],
+                            )
+                            resolved_entries[actual_hw] = StarDictEntry(
+                                headword=actual_hw,
+                                html_content=def_data["html_content"],
+                                synonyms=syns,
+                            )
+
+                        completed += 1
+                        now = time.time()
+                        if completed % 5 == 0 or completed == total_to_scrape or (now - last_emit_time) >= 1.5:
+                            pct = 60 + int(20 * (completed / total_to_scrape))
+                            freq = new_ods_words[hw].get("frequency", 1)
+                            emit(
+                                f"Henter historiske ODS-opslag: {completed}/{total_to_scrape} ({pct}%) — »{hw}« (frekvens: {freq})",
+                                pct,
+                            )
+                            last_emit_time = now
+                finally:
+                    coordinator.unregister_build(actual_build_id)
 
         emit(f"Opslag fuldført. Kompilerer {len(resolved_entries)} ordbogsartikler til StarDict v2.4.2...", 80)
 

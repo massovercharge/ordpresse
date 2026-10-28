@@ -284,6 +284,30 @@
                 Forbereder proces...
             </div>
 
+            <!-- Peer Helper Panel during build -->
+            <div id="peer-helper-panel" class="hidden bg-slate-950/80 rounded-xl p-4 border border-amber-500/30 space-y-3">
+                <div class="flex items-center justify-between">
+                    <h4 class="font-bold text-amber-400 text-xs flex items-center gap-1.5">
+                        <span>⚡</span> <span>Spring server-køen over med Lyn-Henter</span>
+                    </h4>
+                    <span id="missing-words-badge" class="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-[10px] font-mono">0 ord i kø</span>
+                </div>
+                <p class="text-xs text-slate-300">
+                    Serveren overholder en høflig grænse på 200 forespørgsler/time. Du kan hente ordene lynhurtigt via din egen IP, eller afslutte ordbogen med det samme.
+                </p>
+                <div class="flex flex-wrap items-center gap-2 pt-1">
+                    <a id="open-ordnet-link" target="_blank" href="#" class="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm">
+                        <span>1. Åbn ordnet.dk (med dit Job-ID) ↗</span>
+                    </a>
+                    <button id="skip-queue-btn" type="button" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer">
+                        <span>⏩ Afslut byg nu uden resterende kø</span>
+                    </button>
+                </div>
+                <p class="text-[11px] text-slate-400 italic">
+                    Klik på knappen <em>1. Åbn ordnet.dk</em> ovenfor, og klik derefter på <strong>⚡ Ordpresse Lyn-Henter</strong> i din bogmærkelinje.
+                </p>
+            </div>
+
             <!-- Live Streaming Log Box -->
             <div class="bg-slate-950 rounded-xl p-4 border border-slate-800/80 font-mono text-xs text-slate-300 max-h-48 overflow-y-auto space-y-1" id="log-box">
                 <div class="text-slate-500">[System] Venter på begivenhedsstrøm fra backend...</div>
@@ -395,6 +419,48 @@
         const downloadBtn = document.getElementById('download-btn');
         const loadMobergBtn = document.getElementById('load-moberg-btn');
         const customWordsTextarea = document.getElementById('custom_words');
+        const peerHelperPanel = document.getElementById('peer-helper-panel');
+        const openOrdnetLink = document.getElementById('open-ordnet-link');
+        const skipQueueBtn = document.getElementById('skip-queue-btn');
+        const missingWordsBadge = document.getElementById('missing-words-badge');
+
+        async function skipQueue(buildId) {
+            if (!buildId) return;
+            if (skipQueueBtn) {
+                skipQueueBtn.disabled = true;
+                skipQueueBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+            const logEntry = document.createElement('div');
+            logEntry.className = 'text-amber-400 font-semibold';
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] Springer resterende kø over (${buildId})...`;
+            logBox.appendChild(logEntry);
+            logBox.scrollTop = logBox.scrollHeight;
+            try {
+                await fetch(`/api/build/${buildId}/skip-queue`, { method: 'POST' });
+            } catch (err) {
+                console.error("Kunne ikke springe kø over:", err);
+            }
+        }
+
+        if (skipQueueBtn) {
+            skipQueueBtn.addEventListener('click', () => skipQueue(currentBuildId));
+        }
+
+        async function updateMissingWordsCount(bid) {
+            if (!bid) return;
+            try {
+                const res = await fetch(`/api/build/${bid}/missing-words`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (missingWordsBadge && data.missing_count !== undefined) {
+                        missingWordsBadge.textContent = `${data.missing_count} ord i kø`;
+                        if (data.missing_count > 0 && peerHelperPanel) {
+                            peerHelperPanel.classList.remove('hidden');
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
 
         let currentBuildId = null;
         let currentEvtSource = null;
@@ -498,6 +564,18 @@
                 const buildId = data.build_id;
                 currentBuildId = buildId;
 
+                if (openOrdnetLink) {
+                    openOrdnetLink.href = `https://ordnet.dk/ods/ordbog?query=ordbog#ordpresse_id=${encodeURIComponent(buildId)}&ordpresse_origin=${encodeURIComponent(window.location.origin)}`;
+                }
+                if (peerHelperPanel) {
+                    peerHelperPanel.classList.remove('hidden');
+                }
+                if (skipQueueBtn) {
+                    skipQueueBtn.disabled = false;
+                    skipQueueBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+                updateMissingWordsCount(buildId);
+
                 // Connect to SSE stream
                 const evtSource = new EventSource(`/api/build/events/${buildId}`);
                 currentEvtSource = evtSource;
@@ -524,6 +602,7 @@
                             const syns = evData.synonym_count !== undefined ? evData.synonym_count : '';
                             completionStats.textContent = syns ? `${entries} hovedord og ${syns} synonymer indekseret.` : `${entries} hovedord indekseret.`;
                             downloadBtn.href = evData.download_url || `/api/download/${buildId}`;
+                            if (peerHelperPanel) peerHelperPanel.classList.add('hidden');
                             completionBanner.classList.remove('hidden');
                             evtSource.close();
                             submitBtn.disabled = false;

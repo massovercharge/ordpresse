@@ -167,6 +167,10 @@ class Database:
                 )
                 return cur.rowcount
 
+    def get_cached_definition(self, word: str) -> Optional[dict]:
+        """Alias for get_cached to match v3 spec."""
+        return self.get_cached(word)
+
     def get_cached(self, word: str) -> Optional[dict]:
         with self._write_lock:
             cur = self.cache_conn.cursor()
