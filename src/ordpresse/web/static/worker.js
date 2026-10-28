@@ -58,6 +58,9 @@
   }
 
   if (!stopped) {
+    try {
+      await fetch(host + "/api/build/" + bid + "/skip-queue", { method: "POST" });
+    } catch(e) {}
     box.innerHTML = "<b>✅ Færdig!</b> Alle " + words.length + " ord er sendt til Ordpresse.<br>Serveren kompilerer nu din ordbog færdig.";
   }
 })();

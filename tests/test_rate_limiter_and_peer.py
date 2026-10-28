@@ -228,3 +228,21 @@ def test_missing_words_endpoint_with_limit():
     assert resp_10.json()["words"] == words[:10]
 
     coordinator.unregister_build(build_id)
+
+def test_missing_words_endpoint_top_500():
+    """Verify GET /api/build/{build_id}/missing-words correctly returns 500 words when requested."""
+    client = TestClient(app)
+    build_id = "test_500_build"
+    words = [f"testword_{i}" for i in range(750)]
+    coordinator.register_build(build_id, words)
+
+    resp = client.get(f"/api/build/{build_id}/missing-words?limit=500")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["missing_count"] == 500
+    assert data["total_pending"] == 750
+    assert len(data["words"]) == 500
+    assert data["words"][0] == "testword_0"
+    assert data["words"][499] == "testword_499"
+
+    coordinator.unregister_build(build_id)

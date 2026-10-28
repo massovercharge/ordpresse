@@ -18,6 +18,7 @@ from ordpresse.config import (
     DEFAULT_BOOKNAME,
     DEFAULT_DESCRIPTION,
     MAX_ONLINE_SCRAPE_BATCH,
+    MAX_SERVER_SCRAPE_BATCH,
     MIN_EPUB_WORD_FREQUENCY_FOR_SCRAPING,
     OUTPUT_DIR,
 )
@@ -512,6 +513,7 @@ class Pipeline:
                     )
 
                 completed = 0
+                server_scraped_count = 0
                 last_emit_time = time.time()
                 try:
                     for idx, hw in enumerate(words_to_scrape, start=1):
@@ -577,6 +579,15 @@ class Pipeline:
                                 break
                             completed += 1
                             continue
+
+                        server_scraped_count += 1
+                        if server_scraped_count > MAX_SERVER_SCRAPE_BATCH:
+                            emit(
+                                f"Server-kvoten på {MAX_SERVER_SCRAPE_BATCH} ord er nået for dette job. "
+                                f"Afslutter server-kø og færdiggør ordbog...",
+                                79,
+                            )
+                            break
 
                         def_data = None
                         try:

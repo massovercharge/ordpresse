@@ -34,7 +34,8 @@ NAOB_BASE_URL = "https://naob.no/ordbok/"
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 15
 REQUEST_DELAY_SECONDS = float(os.getenv("ORDPRESSE_REQUEST_DELAY", "0.5"))  # Polite crawl delay between requests
-MAX_ONLINE_SCRAPE_BATCH = int(os.getenv("ORDPRESSE_MAX_ONLINE_BATCH", "200"))  # Max new words fetched online per build
+MAX_ONLINE_SCRAPE_BATCH = int(os.getenv("ORDPRESSE_MAX_ONLINE_BATCH", "1000"))  # Max new words registered/fetched per build
+MAX_SERVER_SCRAPE_BATCH = int(os.getenv("ORDPRESSE_MAX_SERVER_BATCH", "200"))  # Max live requests executed by server IP
 MIN_EPUB_WORD_FREQUENCY_FOR_SCRAPING = int(os.getenv("ORDPRESSE_MIN_WORD_FREQ", "2"))  # Min occurrences to auto-scrape
 
 # StarDict metadata defaults with compliant DSL/CST attribution
