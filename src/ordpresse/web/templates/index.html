@@ -149,6 +149,36 @@
             </div>
         </div>
 
+        <!-- Bookmarklet Card (⚡ Spring køen over) -->
+        <div class="bg-gradient-to-r from-amber-500/15 via-slate-900 to-slate-900 rounded-2xl border-2 border-amber-500/40 p-6 shadow-xl space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div class="space-y-1">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xl">⚡</span>
+                        <h3 class="text-base font-bold text-amber-400">Spring køen over: Ordpresse Lyn-Henter</h3>
+                        <span class="px-2 py-0.5 rounded text-[10px] bg-amber-400/20 text-amber-300 font-semibold uppercase tracking-wider">Klient-accelerator</span>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed max-w-2xl">
+                        Træk knappen nedenfor op i din browsers bogmærkelinje én gang. Når du bygger en ordbog, kan du hente alle manglende historiske ord direkte via din egen IP (350 ms/ord) uden at vente på serverens 200 req/t kvote!
+                    </p>
+                </div>
+                <div class="shrink-0 flex items-center gap-3">
+                    <a id="bookmarklet-btn" 
+                       href='javascript:(async function(){const m=location.hash.match(/ordpresse_id=([^&]+)/);const o=location.hash.match(/ordpresse_origin=([^&]+)/);const bid=m?m[1]:prompt("Indtast Ordpresse Build-ID:");const host=o?decodeURIComponent(o[1]):(window.location.origin||"https://ordpresse.seame.click");if(!bid)return;if(!location.hostname.includes("ordnet.dk")){location.href="https://ordnet.dk/ods/ordbog?query=ordbog#ordpresse_id="+bid+"&ordpresse_origin="+encodeURIComponent(location.origin);return;}const box=document.createElement("div");box.style="position:fixed;bottom:20px;right:20px;z-index:999999;background:#111827;color:#fef3c7;padding:16px 20px;border:2px solid #f59e0b;border-radius:10px;font-family:sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.5);min-width:280px;";document.body.appendChild(box);const res=await fetch(host+"/api/build/"+bid+"/missing-words");const data=await res.json();const words=data.words||[];for(let i=0;i<words.length;i++){const w=words[i];box.innerHTML="<b>⚡ Ordpresse Lyn-Henter</b><br>Henter "+(i+1)+" / "+words.length+": <b>"+w+"</b>";try{const r=await fetch("https://ordnet.dk/ods/ordbog?query="+encodeURIComponent(w));const html=await r.text();await fetch(host+"/api/cache/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({word:w,html:html,build_id:bid})});}catch(e){console.error(e);}await new Promise(r=>setTimeout(r,350));}box.innerHTML="<b>✅ Færdig!</b> Alle "+words.length+" ord er sendt til Ordpresse.<br>Du kan lukke denne fane nu.";})();'
+                       class="px-5 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm rounded-xl flex items-center gap-2 shadow-lg shadow-amber-500/25 cursor-grab active:cursor-grabbing border-2 border-amber-300 transition-transform hover:scale-105 select-none"
+                       title="Træk dette link op i din bogmærkelinje"
+                       onclick="event.preventDefault(); alert('Træk denne knap direkte op i din browsers bogmærkelinje (eller højreklik og vælg Gem som bogmærke).');">
+                        <span>⚡ Ordpresse Lyn-Henter</span>
+                    </a>
+                </div>
+            </div>
+            <div class="pt-2 border-t border-slate-800 flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px] text-slate-400">
+                <span class="flex items-center gap-1.5"><span class="text-amber-400">1.</span> Træk knappen op i bogmærkelinjen (eller bogmærk den).</span>
+                <span class="flex items-center gap-1.5"><span class="text-amber-400">2.</span> Start et byg med dine EPUB'er el. ord.</span>
+                <span class="flex items-center gap-1.5"><span class="text-amber-400">3.</span> Klik på det fremhævede link til <em>ordnet.dk</em> og tryk på bogmærket.</span>
+            </div>
+        </div>
+
         <!-- Build Form Card -->
         <div class="bg-slate-900/80 rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-xl">
             <form id="build-form" class="space-y-6">
