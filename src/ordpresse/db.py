@@ -9,6 +9,10 @@ from typing import Any, Optional
 from ordpresse.config import CACHE_DB_PATH, DATASETS_DB_PATH
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
+from ordpresse.synthesizer import (
+    COR_SEM_DEFINITION_COMPLETIONS,
+    synthesize_cor_sem_summary_hook,
+)
 from ordpresse.sources.nordic_1800s import (
     NORDIC_1800S_ENTRIES,
     enrich_canonical_entry_with_historical,
@@ -347,7 +351,14 @@ class Database:
             (lemma_or_word, lemma_or_word, lemma_or_word),
         )
         rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        results = []
+        for r in rows:
+            d = dict(r)
+            lem = d.get("lemma", "").lower()
+            if lem in COR_SEM_DEFINITION_COMPLETIONS and (d["definition"].endswith("…") or d["definition"].endswith("...")):
+                d["definition"] = COR_SEM_DEFINITION_COMPLETIONS[lem]
+            results.append(d)
+        return results
 
     def lookup_cor_inflections(self, lemma: str) -> list[str]:
         """Find all inflected forms for a lemma in COR."""
@@ -389,6 +400,9 @@ class Database:
             lid = r["lemma_id"]
             pos = r["pos"] or ""
             definition = r["definition"]
+            lem_lower = lemma.lower()
+            if lem_lower in COR_SEM_DEFINITION_COMPLETIONS and (definition.endswith("…") or definition.endswith("...")):
+                definition = COR_SEM_DEFINITION_COMPLETIONS[lem_lower]
             examples = r["examples"] or ""
             if lemma not in lemma_map:
                 lemma_map[lemma] = {"pos": pos, "defs": [], "lemma_ids": set()}
@@ -427,9 +441,7 @@ class Database:
                 for d, ex in data["defs"][:3]
             ]
             inflections = set(inflections_map.get(lemma, set()))
-            summary_hook = data["defs"][0][0][:160] if data["defs"] else ""
-            if len(summary_hook) > 165:
-                summary_hook = summary_hook[:162].rsplit(" ", 1)[0] + "..."
+            summary_hook = synthesize_cor_sem_summary_hook(data.get("defs", []))
 
             canonical = CanonicalEntry(
                 headword=lemma.lower(),

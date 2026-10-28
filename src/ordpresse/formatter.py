@@ -2,6 +2,7 @@
 
 import re
 from ordpresse.models import CanonicalEntry
+from ordpresse.synthesizer import should_render_summary_hook, truncate_summary_hook
 
 
 def normalize_pos(pos: str) -> str:
@@ -80,7 +81,8 @@ def render_canonical_html(entry: CanonicalEntry) -> str:
     parts = [f"<div><b>{entry.headword}</b>{pos_str}{meta_str}</div>"]
 
     # Layer 1: Immediate 2-second TL;DR Hook (<= 165 chars)
-    if entry.summary_hook:
+    # Smart handling: Omit if single definition or identical to first definition
+    if should_render_summary_hook(entry):
         parts.append(
             f'<div style="margin:3px 0;padding:2px 6px;border-left:2px solid #555;">'
             f"<b>▸</b> {entry.summary_hook}</div>"

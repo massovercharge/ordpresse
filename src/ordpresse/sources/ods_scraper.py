@@ -24,6 +24,7 @@ from ordpresse.config import (
 )
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
+from ordpresse.synthesizer import truncate_summary_hook
 
 logger = logging.getLogger(__name__)
 
@@ -182,9 +183,10 @@ class ODSScraper:
         headword_norm = headword.lower()
         all_synonyms = {word, headword_norm, headword_norm.replace("-", "")}
 
-        summary_hook = historical_senses[0].definition[:160] if historical_senses else ""
-        if len(summary_hook) > 165:
-            summary_hook = summary_hook[:162].rsplit(" ", 1)[0] + "..."
+        if len(historical_senses) > 1:
+            summary_hook = truncate_summary_hook(historical_senses[0].definition, max_chars=165)
+        else:
+            summary_hook = ""
 
         canonical = CanonicalEntry(
             headword=headword_norm,
@@ -336,7 +338,7 @@ class ODSScraper:
                 if not def_text:
                     full_s = sanitize_ods_text(s.get_text(" ", strip=True))
                     full_s = re.sub(r"^[0-9]+[.)]\s*", "", full_s)
-                    def_text = full_s[:180]
+                    def_text = full_s
 
                 if def_text and len(def_text) > 8 and not def_text.lower().startswith("se "):
                     label = self._extract_label(def_text)
@@ -373,8 +375,7 @@ class ODSScraper:
                     label = self._extract_label(art_text)
                     if label:
                         art_text = re.sub(r"^\([^)]+\)\s*", "", art_text).strip()
-                    snippet = art_text[:200]
-                    senses.append(SenseItem(definition=snippet, label=label or "hist.", source_tag="ODS"))
+                    senses.append(SenseItem(definition=art_text, label=label or "hist.", source_tag="ODS"))
 
         # 7. Follow cross-reference articles (e.g. 'I. Lægd, en. se I. Lejd.')
         is_pure_ref = (not senses) or (

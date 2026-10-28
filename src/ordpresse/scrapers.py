@@ -17,6 +17,7 @@ from ordpresse.config import (
 from ordpresse.db import Database
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
+from ordpresse.synthesizer import truncate_summary_hook
 from ordpresse.orthography import generate_orthographic_synonyms
 from ordpresse.sources.nordic_1800s import (
     NORDIC_1800S_ENTRIES,
@@ -255,13 +256,13 @@ class HistoricalScraper:
             if not senses:
                 senses.append(
                     SenseItem(
-                        definition=sanitize_ods_text(article.get_text(strip=True))[:180],
+                        definition=sanitize_ods_text(article.get_text(strip=True)),
                         label="nordisk",
                         source_tag="NAOB",
                     )
                 )
 
-            summary_hook = senses[0].definition[:160]
+            summary_hook = truncate_summary_hook(senses[0].definition, max_chars=165) if len(senses) > 1 else ""
 
             canonical = CanonicalEntry(
                 headword=headword_clean,

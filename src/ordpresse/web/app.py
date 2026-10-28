@@ -142,10 +142,46 @@ def preview_lookup(request: Request, q: str, format: Optional[str] = None):
             "source": "nordic_1800s",
         }
 
-    # 3. Fallback to Database and Scraper
+    # 3. Fallback to Modern COR-SEM in Database
     from ordpresse.db import Database
-    from ordpresse.scrapers import HistoricalScraper
+    from ordpresse.models import CanonicalEntry, SenseItem
+    from ordpresse.formatter import render_canonical_html, normalize_pos
     db = Database()
+    if db.datasets_path.exists():
+        cor_defs = db.lookup_cor_lemma_definitions(word)
+        if cor_defs:
+            lemma = cor_defs[0]["lemma"].lower()
+            pos = normalize_pos(cor_defs[0].get("pos", ""))
+            modern_senses = [
+                SenseItem(
+                    definition=d["definition"],
+                    quote=d.get("examples") or None,
+                    source_tag="COR-SEM",
+                )
+                for d in cor_defs[:3]
+            ]
+            cor_infs = db.lookup_cor_inflections(lemma)
+            canonical = CanonicalEntry(
+                headword=lemma,
+                pos=pos,
+                inflections=set(cor_infs + [word]),
+                summary_hook="",
+                modern_senses=modern_senses,
+                sources_used=["COR-SEM"],
+            )
+            html = render_canonical_html(canonical)
+            if format == "html":
+                return HTMLResponse(content=html)
+            return {
+                "word": q,
+                "headword": lemma,
+                "found": True,
+                "html": html,
+                "source": "cor_sem",
+            }
+
+    # 4. Fallback to Scraper
+    from ordpresse.scrapers import HistoricalScraper
     scraper = HistoricalScraper(db)
     res = scraper.fetch_word_definition(word, allow_remote=True)
     if res:

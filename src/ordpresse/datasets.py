@@ -26,6 +26,7 @@ from ordpresse.config import (
     USER_AGENT,
 )
 from ordpresse.db import Database
+from ordpresse.synthesizer import COR_SEM_ID_COMPLETIONS
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,8 @@ def stream_cor_sem_ext(file_path: Path) -> Generator[Tuple[str, str, str], None,
 
             sense_id = row[0].strip()
             definition = row[1].strip() if len(row) > 1 else ""
+            if sense_id in COR_SEM_ID_COMPLETIONS and (definition.endswith("…") or definition.endswith("...")):
+                definition = COR_SEM_ID_COMPLETIONS[sense_id]
             examples = row[2].strip() if len(row) > 2 else ""
             yield (sense_id, definition, examples)
 
