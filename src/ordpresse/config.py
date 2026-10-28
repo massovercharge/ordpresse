@@ -30,10 +30,12 @@ ODS_FULLFORMS_URL = os.getenv("ODS_FULLFORMS_URL", "https://korpus.dsl.dk/downlo
 ODS_BASE_URL = "https://ordnet.dk/ods/ordbog?query="
 NAOB_BASE_URL = "https://naob.no/ordbok/"
 
-# HTTP client parameters
+# HTTP client parameters and scraping limits
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 15
-REQUEST_DELAY_SECONDS = 0.5  # Polite crawl delay between external scraper requests
+REQUEST_DELAY_SECONDS = float(os.getenv("ORDPRESSE_REQUEST_DELAY", "0.5"))  # Polite crawl delay between requests
+MAX_ONLINE_SCRAPE_BATCH = int(os.getenv("ORDPRESSE_MAX_ONLINE_BATCH", "200"))  # Max new words fetched online per build
+MIN_EPUB_WORD_FREQUENCY_FOR_SCRAPING = int(os.getenv("ORDPRESSE_MIN_WORD_FREQ", "2"))  # Min occurrences to auto-scrape
 
 # StarDict metadata defaults with compliant DSL/CST attribution
 DEFAULT_BOOKNAME = "Den Danske Ordpresse (1700-nu)"

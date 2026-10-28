@@ -8,14 +8,19 @@ import uuid
 import zipfile
 from typing import Callable, List, Optional, Sequence, Union
 
+from collections import Counter
+import time
+
 from ordpresse.config import (
     DEFAULT_AUTHOR,
     DEFAULT_BOOKNAME,
     DEFAULT_DESCRIPTION,
+    MAX_ONLINE_SCRAPE_BATCH,
+    MIN_EPUB_WORD_FREQUENCY_FOR_SCRAPING,
     OUTPUT_DIR,
 )
 from ordpresse.db import Database
-from ordpresse.epub_scanner import scan_epub_tokens
+from ordpresse.epub_scanner import scan_epub_token_counts, scan_epub_tokens
 from ordpresse.orthography import generate_orthographic_synonyms
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
@@ -27,6 +32,7 @@ from ordpresse.sources.nordic_1800s import (
     NORDIC_1800S_ENTRIES,
     get_nordic_1800s_entry,
 )
+from ordpresse.sources.ods_scraper import ODSScraperRateLimitError
 from ordpresse.stardict_writer import StarDictEntry, StarDictWriter
 
 logger = logging.getLogger(__name__)
@@ -190,18 +196,23 @@ class Pipeline:
         )
 
         all_tokens: set[str] = set()
+        token_counts: Counter = Counter()
+        custom_tokens_set: set[str] = set()
         if custom_words:
             for cw in custom_words:
                 w = cw.strip().lower()
                 if w:
                     all_tokens.add(w)
+                    custom_tokens_set.add(w)
+                    token_counts[w] += 999999
 
         if epub_files:
             emit(f"Scanner {len(epub_files)} EPUB fil(er)...", 38)
             for idx, epub in enumerate(epub_files, start=1):
-                tokens = scan_epub_tokens(epub)
-                all_tokens.update(tokens)
-                emit(f"Scannet EPUB #{idx}: Fandt {len(tokens)} ord.", 38 + int(10 * (idx / len(epub_files))))
+                counts = scan_epub_token_counts(epub)
+                token_counts.update(counts)
+                all_tokens.update(counts.keys())
+                emit(f"Scannet EPUB #{idx}: Fandt {len(counts)} ord.", 38 + int(10 * (idx / len(epub_files))))
 
         # Collect all existing headwords and synonyms
         known_surface_strings: set[str] = set(resolved_entries.keys())
@@ -262,10 +273,20 @@ class Pipeline:
                         known_surface_strings.add(t)
                         ods_attached_count += 1
                     else:
+                        cnt = token_counts.get(t, 1)
+                        is_cust = t in custom_tokens_set or hw.lower() in custom_tokens_set
                         if hw not in new_ods_words:
-                            new_ods_words[hw] = {"pos": pos, "inflections": {t, hw}}
+                            new_ods_words[hw] = {
+                                "pos": pos,
+                                "inflections": {t, hw},
+                                "frequency": cnt,
+                                "is_custom": is_cust,
+                            }
                         else:
                             new_ods_words[hw]["inflections"].add(t)
+                            new_ods_words[hw]["frequency"] += cnt
+                            if is_cust:
+                                new_ods_words[hw]["is_custom"] = True
                 else:
                     non_danish_ignored += 1
 
@@ -304,82 +325,88 @@ class Pipeline:
                     synonyms=syns,
                 )
 
-            # 2. Fetch uncached words with live progress updates and concurrency
-            if uncached_words:
-                total_uncached = len(uncached_words)
+            # 2. Sort uncached words: custom words first, then by frequency descending
+            uncached_words.sort(
+                key=lambda hw: (
+                    1 if new_ods_words[hw].get("is_custom") else 0,
+                    new_ods_words[hw].get("frequency", 1),
+                    hw,
+                ),
+                reverse=True,
+            )
+
+            # Filter eligible words to scrape online (custom words or words appearing >= threshold)
+            frequent_uncached = [
+                hw for hw in uncached_words
+                if new_ods_words[hw].get("is_custom")
+                or new_ods_words[hw].get("frequency", 1) >= MIN_EPUB_WORD_FREQUENCY_FOR_SCRAPING
+            ]
+
+            words_to_scrape = []
+            if allow_network and uncached_words:
+                if frequent_uncached:
+                    words_to_scrape = frequent_uncached[:MAX_ONLINE_SCRAPE_BATCH]
+                elif all(new_ods_words[hw].get("frequency", 1) == 1 for hw in new_ods_words):
+                    # Corpus has only single-occurrence words (e.g. short sample / wordlist)
+                    words_to_scrape = uncached_words[:MAX_ONLINE_SCRAPE_BATCH]
+                else:
+                    emit(
+                        f"Alle hyppige historiske ord fra bøgerne (frekvens ≥ {MIN_EPUB_WORD_FREQUENCY_FOR_SCRAPING}) "
+                        f"er allerede i cachen ({len(cached_words)} genbrugt).",
+                        75,
+                    )
+
+            if words_to_scrape:
+                total_to_scrape = len(words_to_scrape)
                 emit(
-                    f"Henter definitioner for {total_uncached} nye historiske ODS-opslag ({len(cached_words)} genbrugt fra cache)...",
+                    f"Henter {total_to_scrape} prioriterede historiske ord over nettet "
+                    f"({len(cached_words)} genbrugt fra cache, {len(uncached_words) - total_to_scrape} afventer)...",
                     60,
                 )
 
-                if allow_network and total_uncached > 5:
-                    from concurrent.futures import ThreadPoolExecutor, as_completed
-                    import time
+                completed = 0
+                last_emit_time = time.time()
+                for idx, hw in enumerate(words_to_scrape, start=1):
+                    if is_cancelled and is_cancelled():
+                        raise RuntimeError("Byggeprocessen blev afbrudt af brugeren.")
 
-                    workers = min(8, total_uncached)
-                    completed = 0
-                    last_emit_time = time.time()
+                    def_data = None
+                    try:
+                        def_data = scraper.fetch_word_definition(hw, allow_remote=True) if scraper else None
+                    except ODSScraperRateLimitError as rle:
+                        pct = 60 + int(20 * (idx / total_to_scrape))
+                        emit(
+                            f"Advarsel: ordnet.dk anmodede om pause ({rle}). Online-hentning afbrudt pænt; "
+                            f"ordbogen færdiggøres med de indhentede ord.",
+                            pct,
+                        )
+                        logger.warning(f"Rate limit reached on {hw}: {rle}. Halting online scraping.")
+                        break
+                    except Exception as e:
+                        logger.debug(f"Error fetching {hw}: {e}")
 
-                    with ThreadPoolExecutor(max_workers=workers) as executor:
-                        future_to_hw = {
-                            executor.submit(scraper.fetch_word_definition, hw, allow_remote=True): hw
-                            for hw in uncached_words
-                        }
-                        for future in as_completed(future_to_hw):
-                            if is_cancelled and is_cancelled():
-                                executor.shutdown(wait=False, cancel_futures=True)
-                                raise RuntimeError("Byggeprocessen blev afbrudt af brugeren.")
+                    if def_data:
+                        actual_hw = def_data["headword"].lower()
+                        syns = generate_orthographic_synonyms(
+                            actual_hw,
+                            list(new_ods_words[hw]["inflections"]) + def_data.get("synonyms", []) + [hw],
+                        )
+                        resolved_entries[actual_hw] = StarDictEntry(
+                            headword=actual_hw,
+                            html_content=def_data["html_content"],
+                            synonyms=syns,
+                        )
 
-                            hw = future_to_hw[future]
-                            completed += 1
-                            try:
-                                def_data = future.result()
-                            except Exception as e:
-                                logger.debug(f"Error fetching {hw}: {e}")
-                                def_data = None
-
-                            if def_data:
-                                actual_hw = def_data["headword"].lower()
-                                syns = generate_orthographic_synonyms(
-                                    actual_hw,
-                                    list(new_ods_words[hw]["inflections"]) + def_data.get("synonyms", []) + [hw],
-                                )
-                                resolved_entries[actual_hw] = StarDictEntry(
-                                    headword=actual_hw,
-                                    html_content=def_data["html_content"],
-                                    synonyms=syns,
-                                )
-
-                            now = time.time()
-                            if completed % 15 == 0 or completed == total_uncached or (now - last_emit_time) >= 1.5:
-                                pct = 60 + int(20 * (completed / total_uncached))
-                                emit(
-                                    f"Henter historiske ODS-opslag: {completed}/{total_uncached} ({pct}%) — seneste: »{hw}«",
-                                    pct,
-                                )
-                                last_emit_time = now
-                else:
-                    for idx, hw in enumerate(uncached_words, start=1):
-                        if is_cancelled and is_cancelled():
-                            raise RuntimeError("Byggeprocessen blev afbrudt af brugeren.")
-                        pct = 60 + int(20 * (idx / total_uncached))
-                        if idx % 10 == 0 or idx == total_uncached:
-                            emit(
-                                f"Henter historiske opslag: {idx}/{total_uncached} ({pct}%) — »{hw}«",
-                                pct,
-                            )
-                        def_data = scraper.fetch_word_definition(hw, allow_remote=allow_network) if scraper else None
-                        if def_data:
-                            actual_hw = def_data["headword"].lower()
-                            syns = generate_orthographic_synonyms(
-                                actual_hw,
-                                list(new_ods_words[hw]["inflections"]) + def_data.get("synonyms", []) + [hw],
-                            )
-                            resolved_entries[actual_hw] = StarDictEntry(
-                                headword=actual_hw,
-                                html_content=def_data["html_content"],
-                                synonyms=syns,
-                            )
+                    completed += 1
+                    now = time.time()
+                    if completed % 5 == 0 or completed == total_to_scrape or (now - last_emit_time) >= 1.5:
+                        pct = 60 + int(20 * (completed / total_to_scrape))
+                        freq = new_ods_words[hw].get("frequency", 1)
+                        emit(
+                            f"Henter historiske ODS-opslag: {completed}/{total_to_scrape} ({pct}%) — »{hw}« (frekvens: {freq})",
+                            pct,
+                        )
+                        last_emit_time = now
 
         emit(f"Opslag fuldført. Kompilerer {len(resolved_entries)} ordbogsartikler til StarDict v2.4.2...", 80)
 

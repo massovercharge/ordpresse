@@ -74,6 +74,11 @@ def sanitize_ods_text(text: str) -> str:
     return text
 
 
+class ODSScraperRateLimitError(Exception):
+    """Raised when ordnet.dk returns HTTP 429 or a Cloudflare challenge."""
+    pass
+
+
 class ODSScraper:
     """Robust scraper for Ordbog over det danske Sprog (ordnet.dk/ods)."""
 
@@ -210,10 +215,18 @@ class ODSScraper:
             try:
                 time.sleep(REQUEST_DELAY_SECONDS)
                 resp = self.session.get(url, timeout=REQUEST_TIMEOUT)
+                if resp.status_code == 429:
+                    logger.warning(f"ODS scraper received HTTP 429 Too Many Requests for {url}")
+                    raise ODSScraperRateLimitError(f"HTTP 429 Too Many Requests for {url}")
+                if resp.status_code == 403 and ("cloudflare" in resp.text.lower() or "just a moment" in resp.text.lower()):
+                    logger.warning(f"ODS scraper hit Cloudflare challenge for {url}")
+                    raise ODSScraperRateLimitError(f"Cloudflare challenge encountered for {url}")
                 if resp.status_code == 200:
                     soup = BeautifulSoup(resp.text, "html.parser")
                     if soup.find("div", class_="artikel") or soup.find("div", class_="searchResultBox"):
                         return soup
+            except ODSScraperRateLimitError:
+                raise
             except Exception as e:
                 logger.debug(f"Failed to fetch {url}: {e}")
         return None

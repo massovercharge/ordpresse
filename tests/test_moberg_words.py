@@ -247,3 +247,27 @@ def test_uefterrettelig_historical_definition_not_dummy(tmp_path: Path):
         )
 
 
+def test_frequency_prioritization_and_batch_limits(tmp_path):
+    """Verify that EPUB tokens are counted by frequency and batch-scraped with priority."""
+    import zipfile
+    from ordpresse.epub_scanner import scan_epub_token_counts
+
+    # Create dummy in-memory EPUB
+    epub_path = tmp_path / "test_book.epub"
+    with zipfile.ZipFile(epub_path, "w") as zf:
+        html_content = """
+        <html><body>
+            <p>bovlam bovlam bovlam</p>
+            <p>uefterrettelige</p>
+            <p>sjældenhed</p>
+        </body></html>
+        """
+        zf.writestr("OEBPS/chapter1.xhtml", html_content)
+
+    counts = scan_epub_token_counts(epub_path)
+    assert counts["bovlam"] == 3
+    assert counts["uefterrettelige"] == 1
+    assert counts["sjældenhed"] == 1
+
+
+

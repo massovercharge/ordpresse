@@ -16,8 +16,8 @@ class EpubScanner:
     def __init__(self, count_frequencies: bool = True):
         self.count_frequencies = count_frequencies
 
-    def scan_file(self, epub_source: Union[Path, str, BinaryIO, bytes]) -> List[str]:
-        """Scan EPUB and return unique lowercased word tokens."""
+    def scan_file_counts(self, epub_source: Union[Path, str, BinaryIO, bytes]) -> Counter:
+        """Scan EPUB and return a Counter of lowercased word tokens with frequencies."""
         if isinstance(epub_source, (str, Path)):
             zf = zipfile.ZipFile(str(epub_source), "r")
         elif isinstance(epub_source, bytes):
@@ -55,9 +55,18 @@ class EpubScanner:
         finally:
             zf.close()
 
-        # Sort tokens alphabetically (or by frequency if needed)
-        unique_tokens = sorted(tokens_counter.keys())
-        return unique_tokens
+        return tokens_counter
+
+    def scan_file(self, epub_source: Union[Path, str, BinaryIO, bytes]) -> List[str]:
+        """Scan EPUB and return unique lowercased word tokens."""
+        counts = self.scan_file_counts(epub_source)
+        return sorted(counts.keys())
+
+
+def scan_epub_token_counts(epub_source: Union[Path, str, BinaryIO, bytes]) -> Counter:
+    """Helper function to extract token frequency Counter from an EPUB."""
+    scanner = EpubScanner()
+    return scanner.scan_file_counts(epub_source)
 
 
 def scan_epub_tokens(epub_source: Union[Path, str, BinaryIO, bytes]) -> List[str]:
