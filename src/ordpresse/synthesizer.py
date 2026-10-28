@@ -117,3 +117,23 @@ def synthesize_cor_sem_summary_hook(definitions: list[tuple[str, str]]) -> str:
     if len(hook) > 165:
         hook = truncate_summary_hook(hook, max_chars=165)
     return hook
+
+
+def is_valid_canonical_entry(entry: CanonicalEntry) -> bool:
+    """Return True only if the entry has at least one authentic definition or genuine summary hook.
+
+    Enforces the strict rule: No CanonicalEntry may be written to .idx/.dict.dz if modern_senses,
+    historical_senses, and summary_hook are all empty, or if summary_hook is merely an echo of headword + pos.
+    """
+    if entry.modern_senses:
+        return True
+    if entry.historical_senses:
+        return True
+    hook = (entry.summary_hook or "").strip()
+    if not hook:
+        return False
+    # If summary_hook is merely "headword" or "headword (pos)", it is a skeleton dummy
+    clean_hook = re.sub(r"\s*\([^)]*\)$", "", hook).strip().lower()
+    if clean_hook == entry.headword.strip().lower():
+        return False
+    return True

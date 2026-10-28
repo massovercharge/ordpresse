@@ -89,8 +89,42 @@ def init_datasets_db(conn: sqlite3.Connection) -> None:
         )
 
 
+def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
+    """Purge corrupted scraper entries, SITATER/adjektiv leaks, and empty skeleton definitions."""
+    with conn:
+        cur = conn.execute(
+            """
+            DELETE FROM definitions
+            WHERE html_content LIKE '%SITATER%'
+               OR html_content LIKE '%adjektiv%'
+               OR html_content LIKE '%substantiv%'
+               OR html_content LIKE '%Historisk opslag for »%'
+               OR html_content IS NULL
+               OR trim(html_content) = ''
+            """
+        )
+        deleted = cur.rowcount
+
+        cur = conn.execute("SELECT word, html_content FROM definitions")
+        to_delete = []
+        for row in cur.fetchall():
+            word = row[0]
+            html = (row[1] or "").strip()
+            if not html:
+                to_delete.append(word)
+                continue
+            if not any(marker in html for marker in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"]):
+                to_delete.append(word)
+
+        if to_delete:
+            conn.executemany("DELETE FROM definitions WHERE word = ?", [(w,) for w in to_delete])
+            deleted += len(to_delete)
+
+        return deleted
+
+
 def init_cache_db(conn: sqlite3.Connection) -> None:
-    """Create schema for scraped article cache."""
+    """Create schema for scraped article cache and clean legacy corrupted rows."""
     with conn:
         conn.executescript(
             """
@@ -105,6 +139,7 @@ def init_cache_db(conn: sqlite3.Connection) -> None:
             CREATE INDEX IF NOT EXISTS idx_cache_headword ON definitions(headword);
             """
         )
+    clean_corrupted_cached_definitions(conn)
 
 
 class Database:
@@ -156,16 +191,16 @@ class Database:
 
     # --- Cache queries ---
 
-    def clean_dummy_cached_definitions(self) -> int:
-        """Purge any legacy placeholder dummy definitions from cache."""
+    def clean_corrupted_cached_definitions(self) -> int:
+        """Purge corrupted scraper entries, SITATER/adjektiv leaks, and empty skeleton definitions."""
         if not self.cache_path.exists():
             return 0
         with self._write_lock:
-            with self.cache_conn:
-                cur = self.cache_conn.execute(
-                    "DELETE FROM definitions WHERE html_content LIKE '%Historisk opslag for »%'"
-                )
-                return cur.rowcount
+            return clean_corrupted_cached_definitions(self.cache_conn)
+
+    def clean_dummy_cached_definitions(self) -> int:
+        """Alias for clean_corrupted_cached_definitions."""
+        return self.clean_corrupted_cached_definitions()
 
     def get_cached_definition(self, word: str) -> Optional[dict]:
         """Alias for get_cached to match v3 spec."""
@@ -182,7 +217,10 @@ class Database:
             if not row:
                 return None
             html_content = row["html_content"] or ""
-            if "Historisk opslag for »" in html_content:
+            if ("Historisk opslag for »" in html_content or
+                "SITATER" in html_content or
+                "adjektiv" in html_content or
+                not any(m in html_content for m in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"])):
                 with self.cache_conn:
                     self.cache_conn.execute("DELETE FROM definitions WHERE word = ?", (word.lower(),))
                 return None

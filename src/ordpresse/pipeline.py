@@ -290,6 +290,8 @@ class Pipeline:
             cor_form_map = db.lookup_cor_forms_batch(still_unresolved) if db else {}
             unresolved_after_cor: list[str] = []
             cor_attached_count = 0
+            cor_pending_metadata: dict[str, dict] = {}
+            token_to_cor_lemma: dict[str, str] = {}
 
             GRAMMATICAL_POS = {
                 "art.", "art",
@@ -312,7 +314,7 @@ class Pipeline:
                 # 1. Match against existing entry by lemma
                 attached = False
                 for m in matches:
-                    lem = m["lemma"]
+                    lem = m["lemma"].lower()
                     if lem in resolved_entries:
                         resolved_entries[lem].synonyms.append(t)
                         known_surface_strings.add(t)
@@ -326,7 +328,7 @@ class Pipeline:
                 for m in matches:
                     lid = m.get("lemma_id")
                     if lid and lid in cor_id_to_headword:
-                        target_hw = cor_id_to_headword[lid]
+                        target_hw = cor_id_to_headword[lid].lower()
                         if target_hw in resolved_entries:
                             resolved_entries[target_hw].synonyms.append(t)
                             known_surface_strings.add(t)
@@ -336,8 +338,10 @@ class Pipeline:
                 if attached:
                     continue
 
-                # 3. Known modern COR word without definitions (grammatical word or modern lemma)
-                # Create clean lightweight entry so it is never treated as an unknown historical word
+                # 3. Known COR word with 0 definitions in COR-SEM:
+                # Rule: A word without definitions must NEVER be treated as finished!
+                # COR delivers lemma, POS, and inflections to .syn, but the word must be
+                # forwarded to ODS lookup / nordic_1800s.py / scraper.
                 best_match = matches[0]
                 for m in matches:
                     if m.get("pos") in GRAMMATICAL_POS:
@@ -347,53 +351,82 @@ class Pipeline:
                 lem = best_match["lemma"].lower()
                 pos_raw = best_match.get("pos", "")
                 pos_norm = normalize_pos(pos_raw)
+                cor_infs = db.lookup_cor_inflections(lem) if db else []
 
-                if lem in resolved_entries:
-                    resolved_entries[lem].synonyms.append(t)
+                if lem not in cor_pending_metadata:
+                    cor_pending_metadata[lem] = {
+                        "pos": pos_norm,
+                        "inflections": set(cor_infs) | {t, lem},
+                    }
                 else:
-                    canonical = CanonicalEntry(
-                        headword=lem,
-                        pos=pos_norm,
-                        inflections={t, lem},
-                        summary_hook=f"{lem} ({pos_norm})" if pos_norm else lem,
-                        sources_used=["COR"],
-                    )
-                    resolved_entries[lem] = StarDictEntry(
-                        headword=lem,
-                        html_content=render_canonical_html(canonical),
-                        synonyms=generate_orthographic_synonyms(lem, [t, lem]),
-                    )
-                known_surface_strings.add(t)
-                cor_attached_count += 1
+                    cor_pending_metadata[lem]["inflections"].add(t)
+
+                token_to_cor_lemma[t] = lem
+                unresolved_after_cor.append(t)
 
             # Step 3: Batch-lookup against ODS forms (1,260,000+ historical inflections in SQLite)
-            ods_form_map = db.lookup_ods_forms_batch(unresolved_after_cor) if db else {}
+            query_tokens = list(set(unresolved_after_cor) | {token_to_cor_lemma[t] for t in unresolved_after_cor if t in token_to_cor_lemma})
+            ods_form_map = db.lookup_ods_forms_batch(query_tokens) if db else {}
             new_ods_words: dict[str, dict] = {}
             ods_attached_count = 0
             non_danish_ignored = 0
 
             for t in unresolved_after_cor:
-                if t in ods_form_map:
-                    hw, pos = ods_form_map[t]
+                cor_lem = token_to_cor_lemma.get(t)
+                match_hw_pos = ods_form_map.get(t) or (ods_form_map.get(cor_lem) if cor_lem else None)
+                if match_hw_pos:
+                    hw, pos = match_hw_pos
+                    hw = hw.lower()
                     if hw in resolved_entries:
                         resolved_entries[hw].synonyms.append(t)
+                        if cor_lem and cor_lem in cor_pending_metadata:
+                            resolved_entries[hw].synonyms.extend(cor_pending_metadata[cor_lem]["inflections"])
                         known_surface_strings.add(t)
                         ods_attached_count += 1
                     else:
                         cnt = token_counts.get(t, 1)
-                        is_cust = t in custom_tokens_set or hw.lower() in custom_tokens_set
+                        is_cust = t in custom_tokens_set or hw in custom_tokens_set or (cor_lem in custom_tokens_set if cor_lem else False)
+                        infs = {t, hw}
+                        if cor_lem and cor_lem in cor_pending_metadata:
+                            infs.update(cor_pending_metadata[cor_lem]["inflections"])
+                            if not pos and cor_pending_metadata[cor_lem]["pos"]:
+                                pos = cor_pending_metadata[cor_lem]["pos"]
                         if hw not in new_ods_words:
                             new_ods_words[hw] = {
                                 "pos": pos,
-                                "inflections": {t, hw},
+                                "inflections": infs,
                                 "frequency": cnt,
                                 "is_custom": is_cust,
                             }
                         else:
-                            new_ods_words[hw]["inflections"].add(t)
+                            new_ods_words[hw]["inflections"].update(infs)
                             new_ods_words[hw]["frequency"] += cnt
                             if is_cust:
                                 new_ods_words[hw]["is_custom"] = True
+                elif cor_lem:
+                    # Not found in ODS fullforms, but we have the COR lemma:
+                    # Pass the COR lemma on to ODS scraping / Nordic 1800s / cache lookup!
+                    cnt = token_counts.get(t, 1)
+                    is_cust = t in custom_tokens_set or cor_lem in custom_tokens_set
+                    cor_meta = cor_pending_metadata.get(cor_lem, {})
+                    infs = set(cor_meta.get("inflections", {t, cor_lem})) | {t, cor_lem}
+                    if cor_lem in resolved_entries:
+                        resolved_entries[cor_lem].synonyms.extend(infs)
+                        known_surface_strings.add(t)
+                        cor_attached_count += 1
+                    else:
+                        if cor_lem not in new_ods_words:
+                            new_ods_words[cor_lem] = {
+                                "pos": cor_meta.get("pos", ""),
+                                "inflections": infs,
+                                "frequency": cnt,
+                                "is_custom": is_cust,
+                            }
+                        else:
+                            new_ods_words[cor_lem]["inflections"].update(infs)
+                            new_ods_words[cor_lem]["frequency"] += cnt
+                            if is_cust:
+                                new_ods_words[cor_lem]["is_custom"] = True
                 else:
                     non_danish_ignored += 1
 
@@ -405,7 +438,7 @@ class Pipeline:
 
             # Step 4: Create canonical historical entries for new ODS headwords
             if db:
-                db.clean_dummy_cached_definitions()
+                db.clean_corrupted_cached_definitions()
 
             cached_map = {
                 c["headword"].lower(): c

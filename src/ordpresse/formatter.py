@@ -39,19 +39,19 @@ def normalize_pos(pos: str) -> str:
     if p.startswith("sb.") or p.startswith("sb "):
         return "sb."
 
-    if p in ("adj", "adj.", "adject.", "tillægsord", "tillaegsord", "ubøjel. adj.", "uboejel. adj."):
+    if p in ("adj", "adj.", "adject.", "adjektiv", "adjektiv.", "tillægsord", "tillaegsord", "ubøjel. adj.", "uboejel. adj."):
         return "adj."
-    if p.startswith("adj.") or p.startswith("adj "):
+    if p.startswith("adj.") or p.startswith("adj ") or p.startswith("adjektiv"):
         return "adj."
 
-    if p in ("vb", "vb.", "v.", "verb.", "udsagnsord"):
+    if p in ("vb", "vb.", "v.", "verb.", "verbum", "verbum.", "udsagnsord"):
         return "vb."
-    if p.startswith("vb.") or p.startswith("vb ") or p.startswith("v."):
+    if p.startswith("vb.") or p.startswith("vb ") or p.startswith("v.") or p.startswith("verbum"):
         return "vb."
 
-    if p in ("adv", "adv.", "biord"):
+    if p in ("adv", "adv.", "adverbium", "adverbium.", "biord"):
         return "adv."
-    if p.startswith("adv.") or p.startswith("adv "):
+    if p.startswith("adv.") or p.startswith("adv ") or p.startswith("adverbium"):
         return "adv."
 
     # Fallback to normalized prefix if starts with sb/adj/vb/adv

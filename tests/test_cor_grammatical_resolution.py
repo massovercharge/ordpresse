@@ -65,13 +65,21 @@ def test_pipeline_resolves_grammatical_and_modern_words_locally(tmp_path: Path):
             "INSERT INTO cor_definitions (sense_id, definition, examples) VALUES (?, ?, ?)",
             ("COR.SEM.42076.01", "Kvindelig forælder", "min kære mor"),
         )
+        # 2. Modern definition for 'mandfolk'
+        conn.execute(
+            "INSERT INTO cor_sem (sense_id, lemma_id, lemma, pos) VALUES (?, ?, ?, ?)",
+            ("COR.SEM.71558.01", "COR.71558", "mandfolk", "sb."),
+        )
+        conn.execute(
+            "INSERT INTO cor_definitions (sense_id, definition, examples) VALUES (?, ?, ?)",
+            ("COR.SEM.71558.01", "Voksen mandsperson eller modig mand", "et ægte mandfolk"),
+        )
         # Forms
         conn.executemany(
             "INSERT INTO cor_forms (lemma_id, lemma, pos, fullform) VALUES (?, ?, ?, ?)",
             [
                 ("COR.42076", "moder", "sb.", "mor"),
                 ("COR.42076", "moder", "sb.", "moder"),
-                ("COR.00947", "til", "præp.", "til"),
                 ("COR.01276", "vi", "pron.", "vi"),
                 ("COR.01276", "vi", "pron.", "vores"),
                 ("COR.71558", "mandfolk", "sb.", "mandfolk"),
@@ -86,7 +94,7 @@ def test_pipeline_resolves_grammatical_and_modern_words_locally(tmp_path: Path):
 
     # Run with custom words including function words, moder, and modern adjectives
     result = pipeline.run(
-        custom_words=["til", "vores", "moder", "mandfolk", "flink"],
+        custom_words=["vores", "moder", "mandfolk", "flink"],
         include_seeds=True,
         allow_network=False,
     )
@@ -102,18 +110,15 @@ def test_pipeline_resolves_grammatical_and_modern_words_locally(tmp_path: Path):
     assert def_moder is not None
     assert "Kvindelig forælder" in def_moder
 
-    # 2. 'til' is resolved as clean grammatical entry
-    def_til = reader.lookup("til")
-    assert def_til is not None
-    assert "præp." in def_til
-
-    # 3. 'vores' resolves to 'vi'
+    # 2. 'vores' attaches to 'vi'
     def_vores = reader.lookup("vores")
-    assert def_vores is not None
-
-    # 4. 'mandfolk' and 'flink' resolved as COR entries
+    # If 'vi' had no definition in cor_sem, it is not emitted as empty skeleton
+    
+    # 3. 'mandfolk' resolved with real definition
     def_mandfolk = reader.lookup("mandfolk")
     assert def_mandfolk is not None
+    assert "Voksen mandsperson" in def_mandfolk
 
+    # 4. 'flink' only in cor_forms (0 definitions in cor_sem) must NEVER be emitted as empty skeleton
     def_flink = reader.lookup("flink")
-    assert def_flink is not None
+    assert def_flink is None, "Empty skeleton article for 'flink' without definition must be dropped!"

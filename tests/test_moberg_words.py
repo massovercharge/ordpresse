@@ -269,5 +269,107 @@ def test_frequency_prioritization_and_batch_limits(tmp_path):
     assert counts["uefterrettelige"] == 1
     assert counts["sjældenhed"] == 1
 
+def test_alderstegen_and_taellelyset_resolution(tmp_path: Path):
+    """Verify that 'tællelyset' resolves to 'tællelys' with animal fat/tallow definition,
+    and 'alderstegen' resolves with pos 'adj.' and clean spacing without 'adjektiv' or 'SITATER'."""
+    output_dir = tmp_path / "output_alder_lys"
+    pipeline = Pipeline(output_dir=output_dir, bookname="Test Alder og Lys")
+
+    result = pipeline.run(
+        custom_words=["tællelyset", "alderstegen"],
+        include_seeds=True,
+        allow_network=False,
+    )
+
+    reader = StarDictReader(result.files["ifo"])
+
+    # 1. Test "tællelyset" resolves to "tællelys"
+    def_taellelyset = reader.lookup("tællelyset")
+    assert def_taellelyset is not None, "Lookup for 'tællelyset' failed in .syn!"
+    assert "<b>tællelys</b>" in def_taellelyset
+    assert "sb. itk." in def_taellelyset
+    assert any(term in def_taellelyset.lower() for term in ["dyrefedt", "tælle", "talg"])
+    assert "Kilde: ODS" in def_taellelyset or "ODS" in def_taellelyset
+
+    def_taellelys = reader.lookup("tællelys")
+    assert def_taellelys is not None, "Lookup for headword 'tællelys' failed in .idx!"
+    assert any(term in def_taellelys.lower() for term in ["dyrefedt", "tælle", "talg"])
+
+    # 2. Test "alderstegen"
+    def_alder = reader.lookup("alderstegen")
+    assert def_alder is not None, "Lookup for 'alderstegen' failed!"
+    assert "<b>alderstegen</b>" in def_alder
+    assert "<i>adj.</i>" in def_alder
+    # Strictly forbid stuck text or unnormalized 'adjektiv' or 'SITATER'
+    assert "alderstegenadjektiv" not in def_alder
+    assert "<i>adjektiv</i>" not in def_alder
+    assert "litterærtsvært" not in def_alder
+    assert "SITATER" not in def_alder
+    assert any(term in def_alder.lower() for term in ["alder", "ældgammel", "højt oppe i årene"])
 
 
+def test_naob_parser_spacing_and_citation_stripping():
+    """Verify NAOB parser decomposes SITATER, handles get_text spacing, and strips headword from POS."""
+    from ordpresse.scrapers import HistoricalScraper
+
+    raw_html = """
+    <article>
+        <h1>alderstegen</h1>
+        <div class="ordklasse">alderstegenadjektiv</div>
+        <div class="definition">
+            <span class="label">litterært</span>svært gammel; tilårskommen
+            <div class="sitater">
+                SITATER
+                <p>derinde sidder kæmpen (Elisabe</p>
+            </div>
+        </div>
+    </article>
+    """
+    parsed = HistoricalScraper.parse_naob_html("alderstegen", raw_html)
+    assert parsed is not None
+    assert parsed["headword"] == "alderstegen"
+    canonical = parsed["canonical_entry"]
+    assert canonical.pos == "adj."
+    assert len(canonical.historical_senses) >= 1
+    first_def = canonical.historical_senses[0].definition
+    # Space between label and definition
+    assert "litterært svært gammel; tilårskommen" in first_def
+    assert "SITATER" not in first_def
+    assert "(Elisabe" not in first_def
+    assert "adjektiv" not in canonical.pos or canonical.pos == "adj."
+
+
+def test_corrupted_cache_cleanup_migration(tmp_path: Path):
+    """Verify migration function purges rows with SITATER, adjektiv, or empty definitions."""
+    import sqlite3
+    from ordpresse.db import Database, clean_corrupted_cached_definitions
+
+    cache_path = tmp_path / "cache.sqlite3"
+    conn = sqlite3.connect(str(cache_path))
+    conn.execute("""
+        CREATE TABLE definitions (
+            word TEXT PRIMARY KEY,
+            source TEXT,
+            headword TEXT,
+            html_content TEXT,
+            synonyms_json TEXT
+        )
+    """)
+    conn.executemany("""
+        INSERT INTO definitions (word, source, headword, html_content, synonyms_json)
+        VALUES (?, ?, ?, ?, ?)
+    """, [
+        ("bad1", "naob", "bad1", "<div><b>bad1</b> <i>adjektiv</i></div><ol><li>def SITATER quote</li></ol>", "[]"),
+        ("bad2", "naob", "bad2", "<div><b>bad2</b> <i>bad2adjektiv</i></div><ol><li>alderstegenadjektiv</li></ol>", "[]"),
+        ("bad3", "cor", "bad3", "<div><b>bad3</b> <i>sb.</i></div><div><small>Kilde: COR</small></div>", "[]"),
+        ("good", "ods", "good", "<div><b>good</b> <i>sb. fk.</i></div><ol><li>En gyldig definition.</li></ol>", "[]"),
+    ])
+    conn.commit()
+
+    deleted = clean_corrupted_cached_definitions(conn)
+    assert deleted >= 3
+
+    cur = conn.cursor()
+    remaining = [r[0] for r in cur.execute("SELECT word FROM definitions").fetchall()]
+    assert remaining == ["good"]
+    conn.close()

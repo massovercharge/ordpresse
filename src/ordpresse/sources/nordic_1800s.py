@@ -645,6 +645,42 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
         realia_note="Amerikabrevene ('Amerika-brevene') fra slægtninge, der berettede om gratis landbrugsjord under Homestead Act (1862) og frihed, antændte den skandinaviske masseemigration.",
         sources_used=["ODS", "Salmonsens"],
     ),
+    "tællelys": CanonicalEntry(
+        headword="tællelys",
+        historical_spellings=["Tællelys"],
+        pos="sb. itk.",
+        inflections={"tællelyset", "tællelysene", "tællelys", "Tællelys"},
+        summary_hook="Belysningslys støbt af smeltet dyrefedt (tælle/talg fra kvæg eller får) før stearinlysets opfindelse.",
+        historical_senses=[
+            SenseItem(
+                definition="Lys støbt eller dyppet af smeltet dyrefedt (tælle/talg fra kvæg eller får); datidens almindelige belysning i bondehjem før stearin- og parafinlys.",
+                label="hist.",
+                quote=None,
+                quote_author=None,
+                source_tag="ODS",
+            )
+        ],
+        realia_note="Tællelys var den dominerende belysningskilde i 1700- og 1800-tallets almuehjem, fremstillet ved hjemmeslagtning eller af lysestøbere af tælle (okse- eller fåretalg), før stearinlys og petroleumslamper vandt indpas i midten af 1800-tallet.",
+        sources_used=["ODS"],
+    ),
+    "alderstegen": CanonicalEntry(
+        headword="alderstegen",
+        historical_spellings=["Alderstegen"],
+        pos="adj.",
+        inflections={"alderstegne", "alderstegent", "alderstegen", "Alderstegen"},
+        summary_hook="Højt oppe i årene; ældgammel; svækket af høj alder.",
+        historical_senses=[
+            SenseItem(
+                definition="Gammel og svækket af høj alder; tilårskommen; fortidig.",
+                label="hist.",
+                quote=None,
+                quote_author=None,
+                source_tag="ODS",
+            )
+        ],
+        realia_note="Klassisk litterært adjektiv i ældre dansk og norsk sprogbrug anvendt om ærværdige, svækkede eller ældgamle personer, bygninger og træer.",
+        sources_used=["ODS"],
+    ),
 }
 
 

@@ -144,7 +144,7 @@ class ODSScraper:
 
         # Detect headword
         hw_elem = soup.find("span", class_="match") or soup.find("h1") or soup.find("span", class_="headline")
-        headword_raw = hw_elem.get_text(strip=True) if hw_elem else w_clean.capitalize()
+        headword_raw = hw_elem.get_text(" ", strip=True) if hw_elem else w_clean.capitalize()
         headword = re.sub(r"^[0-9.]+\s*", "", headword_raw)
         headword = re.sub(r"[,\s\d]+$", "", headword).strip()
         if not headword:
@@ -156,7 +156,7 @@ class ODSScraper:
         if res_box:
             links = res_box.find_all("a")
             for link in links:
-                txt = link.get_text(strip=True)
+                txt = link.get_text(" ", strip=True)
                 clean_txt = re.sub(r"^[0-9.]+\s*", "", txt)
                 clean_txt = re.sub(r"[,\s\d]+$", "", clean_txt).strip()
                 if clean_txt.lower() == headword.lower() and link.get("href"):
@@ -281,7 +281,7 @@ class ODSScraper:
             for sib in headword_match.next_siblings:
                 if getattr(sib, "name", None) == "span" and "semdel" in getattr(sib, "get", lambda _: [])("class", []):
                     break
-                header_text += " " + (sib.get_text(strip=True) if hasattr(sib, "get_text") else str(sib))
+                header_text += " " + (sib.get_text(" ", strip=True) if hasattr(sib, "get_text") else str(sib))
                 if len(header_text) > 80:
                     break
             pos_match = re.search(r"\b(adj\.|sb\.|v\.|adv\.|pron\.|præp\.|konj\.|interj\.|en\b|et\b)", header_text, re.IGNORECASE)
@@ -293,7 +293,7 @@ class ODSScraper:
             if dag_elem and dag_elem.parent:
                 b_elem = dag_elem.parent.find("b")
                 if b_elem:
-                    historical_spellings.append(b_elem.get_text(strip=True).rstrip("."))
+                    historical_spellings.append(b_elem.get_text(" ", strip=True).rstrip("."))
 
         # 3. Clean unwanted DOM elements
         for unwanted in art.find_all(["script", "style", "nav", "header", "footer"]):
@@ -317,7 +317,7 @@ class ODSScraper:
         betyd_nodes = art.find_all(class_=re.compile(r"\bbetydning\b"))
         if betyd_nodes:
             for bn in betyd_nodes:
-                clean_def = sanitize_ods_text(bn.get_text(strip=True))
+                clean_def = sanitize_ods_text(bn.get_text(" ", strip=True))
                 if clean_def and len(clean_def) > 8 and not clean_def.lower().startswith("se "):
                     label = self._extract_label(clean_def)
                     if label:
@@ -337,7 +337,7 @@ class ODSScraper:
                 for child in s.children:
                     tag_name = getattr(child, "name", None)
                     if tag_name == "i":
-                        txt = sanitize_ods_text(child.get_text(strip=True))
+                        txt = sanitize_ods_text(child.get_text(" ", strip=True))
                         # First substantial non-citation italic tag is definition
                         if not def_text and len(txt) > 8 and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", txt):
                             def_text = txt
@@ -378,7 +378,7 @@ class ODSScraper:
         if not senses:
             # Check <i> tags across article
             for it in art.find_all("i"):
-                t = sanitize_ods_text(it.get_text(strip=True))
+                t = sanitize_ods_text(it.get_text(" ", strip=True))
                 if len(t) > 12 and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", t):
                     label = self._extract_label(t)
                     if label:

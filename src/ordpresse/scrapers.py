@@ -231,36 +231,84 @@ class HistoricalScraper:
             resp = self.session.get(url, timeout=REQUEST_TIMEOUT)
             if resp.status_code != 200:
                 return None
+            return self.parse_naob_html(word, resp.text)
+        except Exception as exc:
+            logger.warning(f"Error scraping NAOB for '{word}': {exc}")
+            return None
 
-            soup = BeautifulSoup(resp.text, "html.parser")
+    @staticmethod
+    def parse_naob_html(word: str, html: str) -> Optional[dict]:
+        """Parse NAOB article HTML extracting clean definition without SITATER / EKSEMPLER noise."""
+        try:
+            soup = BeautifulSoup(html, "html.parser")
             article = soup.find("article") or soup.find("div", class_="article")
             if not article:
                 return None
 
+            # 1. Clean out citations, examples, audio, and metadata containers BEFORE extracting text
+            for unwanted in article.find_all(
+                class_=re.compile(
+                    r"sitat|sitater|eksempel|eksempler|kilde|kilder|cit|citat|quote|example|litteratur|forfatter",
+                    re.IGNORECASE,
+                )
+            ):
+                unwanted.decompose()
+            for unwanted_tag in article.find_all(["script", "style", "nav", "header", "footer"]):
+                unwanted_tag.decompose()
+
+            # 2. Extract headword using space separator
             h1 = article.find("h1")
-            headword = h1.get_text(strip=True) if h1 else word.capitalize()
+            headword = h1.get_text(" ", strip=True) if h1 else word.capitalize()
+            headword = re.sub(r"\s+", " ", headword).strip()
             headword_clean = re.sub(r"[,\s\d]+$", "", headword).strip().lower()
 
-            pos_elem = article.find(class_=re.compile(r"pos|ordklasse"))
-            pos = normalize_pos(pos_elem.get_text(strip=True)) if pos_elem else ""
+            # 3. Extract and normalize POS: strip attached headword and map e.g. 'adjektiv' -> 'adj.'
+            pos_elem = article.find(class_=re.compile(r"pos|ordklasse", re.IGNORECASE))
+            pos = ""
+            if pos_elem:
+                raw_pos = pos_elem.get_text(" ", strip=True)
+                raw_pos = re.sub(r"\s+", " ", raw_pos).strip()
+                raw_pos = re.sub(re.escape(headword_clean), "", raw_pos, flags=re.IGNORECASE).strip()
+                raw_pos = re.sub(re.escape(word), "", raw_pos, flags=re.IGNORECASE).strip()
+                pos = normalize_pos(raw_pos)
 
-            def_nodes = article.find_all(class_=re.compile(r"definition|betydning|expl"))
+            # 4. Extract definitions using space separator and stripping SITATER remnants
+            def_nodes = article.find_all(class_=re.compile(r"definition|betydning|expl", re.IGNORECASE))
             senses: List[SenseItem] = []
             for dn in def_nodes:
-                text = sanitize_ods_text(dn.get_text(strip=True))
-                if text and len(text) > 10:
+                text = dn.get_text(" ", strip=True)
+                text = re.sub(r"\s+", " ", text).strip()
+                if "SITATER" in text:
+                    text = text.split("SITATER")[0].strip()
+                if "EKSEMPLER" in text:
+                    text = text.split("EKSEMPLER")[0].strip()
+                text = re.sub(r"\s*\([^)]*$", "", text).strip()
+                text = sanitize_ods_text(text)
+                if text and len(text) > 8:
                     senses.append(SenseItem(definition=text, label="nordisk", source_tag="NAOB"))
                     if len(senses) >= 3:
                         break
 
             if not senses:
-                senses.append(
-                    SenseItem(
-                        definition=sanitize_ods_text(article.get_text(strip=True)),
-                        label="nordisk",
-                        source_tag="NAOB",
+                raw_art_text = article.get_text(" ", strip=True)
+                raw_art_text = re.sub(r"\s+", " ", raw_art_text).strip()
+                if "SITATER" in raw_art_text:
+                    raw_art_text = raw_art_text.split("SITATER")[0].strip()
+                if "EKSEMPLER" in raw_art_text:
+                    raw_art_text = raw_art_text.split("EKSEMPLER")[0].strip()
+                raw_art_text = re.sub(r"\s*\([^)]*$", "", raw_art_text).strip()
+                text = sanitize_ods_text(raw_art_text)
+                if text and len(text) > 8:
+                    senses.append(
+                        SenseItem(
+                            definition=text,
+                            label="nordisk",
+                            source_tag="NAOB",
+                        )
                     )
-                )
+
+            if not senses:
+                return None
 
             summary_hook = truncate_summary_hook(senses[0].definition, max_chars=165) if len(senses) > 1 else ""
 
@@ -283,5 +331,5 @@ class HistoricalScraper:
                 "canonical_entry": canonical,
             }
         except Exception as exc:
-            logger.warning(f"Error scraping NAOB for '{word}': {exc}")
+            logger.warning(f"Error parsing NAOB HTML for '{word}': {exc}")
             return None

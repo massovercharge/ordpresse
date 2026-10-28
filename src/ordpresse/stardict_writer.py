@@ -17,7 +17,9 @@ import subprocess
 from typing import Dict, List, Optional, Set, Tuple
 
 # Re-export StarDictReader and stardict_sort_key for backwards compatibility
+from ordpresse.models import CanonicalEntry
 from ordpresse.stardict_reader import StarDictReader, stardict_sort_key  # noqa: F401
+from ordpresse.synthesizer import is_valid_canonical_entry
 
 
 @dataclass
@@ -25,6 +27,7 @@ class StarDictEntry:
     headword: str
     html_content: str
     synonyms: List[str] = field(default_factory=list)
+    canonical_entry: Optional[CanonicalEntry] = None
 
 
 class StarDictWriter:
@@ -54,10 +57,23 @@ class StarDictWriter:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # 1. Deduplicate entries by lowercase headword (Invariant #1)
+        # Safety guard: Strictly forbid empty skeleton entries from being written to .idx / .dict.dz
         merged: Dict[str, StarDictEntry] = {}
         for e in entries:
             raw_hw = e.headword.strip()
             if not raw_hw:
+                continue
+
+            # Check canonical entry validity if available
+            if getattr(e, "canonical_entry", None) is not None:
+                if not is_valid_canonical_entry(e.canonical_entry):
+                    continue
+
+            # Check HTML: Must contain at least one definition container, quote, or summary hook
+            html = (e.html_content or "").strip()
+            if not html:
+                continue
+            if not any(marker in html for marker in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"]):
                 continue
 
             hw_lower = raw_hw.lower()

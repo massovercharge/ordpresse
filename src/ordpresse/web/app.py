@@ -32,12 +32,28 @@ from ordpresse.config import (
 from ordpresse.datasets import DatasetImporter
 from ordpresse.pipeline import BuildResult, Pipeline
 
+from contextlib import asynccontextmanager
+
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        db = Database()
+        purged = db.clean_corrupted_cached_definitions()
+        if purged > 0:
+            logger.info(f"Startup: Cleaned {purged} corrupted definition entries from cache.sqlite3")
+    except Exception as e:
+        logger.warning(f"Startup cache cleanup warning: {e}")
+    yield
+
 
 app = FastAPI(
     title="Den Danske Ordpresse",
     description="Historisk og moderne dansk StarDict-ordbogsbygger til KOReader",
     version=__version__,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
