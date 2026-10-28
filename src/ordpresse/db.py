@@ -150,6 +150,16 @@ class Database:
 
     # --- Cache queries ---
 
+    def clean_dummy_cached_definitions(self) -> int:
+        """Purge any legacy placeholder dummy definitions from cache."""
+        if not self.cache_path.exists():
+            return 0
+        with self.cache_conn:
+            cur = self.cache_conn.execute(
+                "DELETE FROM definitions WHERE html_content LIKE '%Historisk opslag for »%'"
+            )
+            return cur.rowcount
+
     def get_cached(self, word: str) -> Optional[dict]:
         cur = self.cache_conn.cursor()
         cur.execute(
@@ -159,12 +169,17 @@ class Database:
         row = cur.fetchone()
         if not row:
             return None
+        html_content = row["html_content"] or ""
+        if "Historisk opslag for »" in html_content:
+            with self.cache_conn:
+                self.cache_conn.execute("DELETE FROM definitions WHERE word = ?", (word.lower(),))
+            return None
         synonyms = json.loads(row["synonyms_json"]) if row["synonyms_json"] else []
         return {
             "word": row["word"],
             "source": row["source"],
             "headword": row["headword"],
-            "html_content": row["html_content"],
+            "html_content": html_content,
             "synonyms": synonyms,
         }
 

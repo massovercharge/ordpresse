@@ -183,3 +183,67 @@ def test_full_dictionary_build_without_epub_contains_historical_words(tmp_path: 
         assert html is not None, f"StarDictReader lookup for '{search_term}' failed in compiled binary!"
         assert f"<b>{expected_headword}</b>" in html, f"Expected <b>{expected_headword}</b> in lookup for '{search_term}'"
 
+
+def test_uefterrettelig_historical_definition_not_dummy(tmp_path: Path):
+    """Verify that 'uefterrettelig' and 'uefterrettelige' resolve to authentic definitions and NOT dummy text."""
+    from ordpresse.db import Database
+    from ordpresse.scrapers import HistoricalScraper
+    from ordpresse.sources.ods_scraper import ODSScraper
+    from ordpresse.stardict_reader import StarDictReader
+
+    output_dir = tmp_path / "output_uefterrettelig"
+    pipeline = Pipeline(output_dir=output_dir, bookname="Uefterrettelig Test")
+
+    # 1. Run pipeline with inflected surface form 'uefterrettelige'
+    result = pipeline.run(
+        custom_words=["uefterrettelige"],
+        include_seeds=True,
+        allow_network=False,
+    )
+
+    assert result.files["ifo"].exists()
+    reader = StarDictReader(result.files["ifo"])
+
+    # Lookup headword 'uefterrettelig'
+    html_hw = reader.lookup("uefterrettelig")
+    assert html_hw is not None, "Lookup for headword 'uefterrettelig' failed!"
+    assert "Historisk opslag for »" not in html_hw, "Found dummy placeholder in 'uefterrettelig'!"
+    assert any(
+        term in html_hw.lower()
+        for term in ["rette sig efter", "upålidelig", "upaalidelig", "ulydig"]
+    ), f"Real definition missing in: {html_hw}"
+
+    # Lookup inflected form 'uefterrettelige' via .syn
+    html_inf = reader.lookup("uefterrettelige")
+    assert html_inf is not None, "Lookup for inflected 'uefterrettelige' in .syn failed!"
+    assert "Historisk opslag for »" not in html_inf, "Found dummy placeholder in 'uefterrettelige'!"
+    assert any(
+        term in html_inf.lower()
+        for term in ["rette sig efter", "upålidelig", "upaalidelig", "ulydig"]
+    ), f"Real definition missing in: {html_inf}"
+
+    # 2. Verify HistoricalScraper offline fallback to Molbech (1859)
+    cache_db_path = tmp_path / "empty_cache.sqlite3"
+    db = Database(cache_path=cache_db_path)
+    scraper = HistoricalScraper(db)
+    res_off = scraper.fetch_word_definition("uefterrettelig", allow_remote=False)
+    assert res_off is not None, "Offline HistoricalScraper failed for 'uefterrettelig'!"
+    assert res_off["source"] == "molbech"
+    assert "Historisk opslag for »" not in res_off["html_content"]
+    assert any(
+        term in res_off["html_content"].lower()
+        for term in ["rette sig efter", "upålidelig", "ulydig"]
+    )
+
+    # 3. Verify online ODS scraping when network is available
+    ods_scraper = ODSScraper()
+    res_ods = ods_scraper.scrape_ods("uefterrettelig")
+    if res_ods:
+        assert "Historisk opslag for »" not in res_ods["html_content"]
+        assert len(res_ods["canonical_entry"].historical_senses) >= 1
+        assert any(
+            term in res_ods["html_content"].lower()
+            for term in ["rette sig efter", "upaalidelig", "upålidelig"]
+        )
+
+

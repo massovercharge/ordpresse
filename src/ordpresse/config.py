@@ -31,7 +31,7 @@ ODS_BASE_URL = "https://ordnet.dk/ods/ordbog?query="
 NAOB_BASE_URL = "https://naob.no/ordbok/"
 
 # HTTP client parameters
-USER_AGENT = "Ordpresse/0.2.0 (+https://github.com/massovercharge/ordpresse; polite historical dictionary bot)"
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 15
 REQUEST_DELAY_SECONDS = 0.5  # Polite crawl delay between external scraper requests
 

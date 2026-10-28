@@ -23,6 +23,9 @@ from ordpresse.sources.nordic_1800s import (
     get_nordic_1800s_entry,
 )
 
+from ordpresse.sources.molbech_1859 import get_molbech_1859_entry
+from ordpresse.sources.ods_scraper import ODSScraper
+
 logger = logging.getLogger(__name__)
 
 # Author expansions for literary quotes in ODS
@@ -90,9 +93,10 @@ class HistoricalScraper:
         self.db = db
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": USER_AGENT})
+        self.ods_scraper = ODSScraper(session=self.session)
 
     def fetch_word_definition(self, word: str, allow_remote: bool = True) -> Optional[dict]:
-        """Fetch word definition via Cache -> Nordic 1800s -> Seed -> ODS -> NAOB chain."""
+        """Fetch word definition via Cache -> Nordic 1800s -> Seed -> ODS -> Molbech -> NAOB chain."""
         w_clean = word.strip().lower()
         if not w_clean:
             return None
@@ -146,211 +150,77 @@ class HistoricalScraper:
                     "canonical_entry": seed_data.get("canonical_entry"),
                 }
 
-        if not allow_remote:
-            return None
+        # 4. Scrape ODS (Ordbog over det danske Sprog) online
+        if allow_remote:
+            ods_result = self._scrape_ods(w_clean)
+            if ods_result:
+                all_syns = generate_orthographic_synonyms(ods_result["headword"], ods_result["synonyms"])
+                self.db.set_cached(
+                    word=w_clean,
+                    source="ods",
+                    headword=ods_result["headword"],
+                    html_content=ods_result["html_content"],
+                    synonyms=all_syns,
+                )
+                return {
+                    "word": w_clean,
+                    "source": "ods",
+                    "headword": ods_result["headword"],
+                    "html_content": ods_result["html_content"],
+                    "synonyms": all_syns,
+                    "canonical_entry": ods_result.get("canonical_entry"),
+                }
 
-        # 4. Scrape ODS (Ordbog over det danske Sprog)
-        ods_result = self._scrape_ods(w_clean)
-        if ods_result:
-            all_syns = generate_orthographic_synonyms(ods_result["headword"], ods_result["synonyms"])
+        # 5. Check Molbech (1859) offline lexicon fallback
+        molbech_entry = get_molbech_1859_entry(w_clean)
+        if molbech_entry:
+            html = render_canonical_html(molbech_entry)
+            all_syns = generate_orthographic_synonyms(
+                molbech_entry.headword,
+                list(molbech_entry.inflections) + molbech_entry.historical_spellings,
+            )
             self.db.set_cached(
                 word=w_clean,
-                source="ods",
-                headword=ods_result["headword"],
-                html_content=ods_result["html_content"],
+                source="molbech",
+                headword=molbech_entry.headword,
+                html_content=html,
                 synonyms=all_syns,
             )
             return {
                 "word": w_clean,
-                "source": "ods",
-                "headword": ods_result["headword"],
-                "html_content": ods_result["html_content"],
+                "source": "molbech",
+                "headword": molbech_entry.headword,
+                "html_content": html,
                 "synonyms": all_syns,
-                "canonical_entry": ods_result.get("canonical_entry"),
+                "canonical_entry": molbech_entry,
             }
 
-        # 5. Scrape NAOB fallback
-        naob_result = self._scrape_naob(w_clean)
-        if naob_result:
-            all_syns = generate_orthographic_synonyms(naob_result["headword"], naob_result["synonyms"])
-            self.db.set_cached(
-                word=w_clean,
-                source="naob",
-                headword=naob_result["headword"],
-                html_content=naob_result["html_content"],
-                synonyms=all_syns,
-            )
-            return {
-                "word": w_clean,
-                "source": "naob",
-                "headword": naob_result["headword"],
-                "html_content": naob_result["html_content"],
-                "synonyms": all_syns,
-                "canonical_entry": naob_result.get("canonical_entry"),
-            }
+        # 6. Scrape NAOB fallback online
+        if allow_remote:
+            naob_result = self._scrape_naob(w_clean)
+            if naob_result:
+                all_syns = generate_orthographic_synonyms(naob_result["headword"], naob_result["synonyms"])
+                self.db.set_cached(
+                    word=w_clean,
+                    source="naob",
+                    headword=naob_result["headword"],
+                    html_content=naob_result["html_content"],
+                    synonyms=all_syns,
+                )
+                return {
+                    "word": w_clean,
+                    "source": "naob",
+                    "headword": naob_result["headword"],
+                    "html_content": naob_result["html_content"],
+                    "synonyms": all_syns,
+                    "canonical_entry": naob_result.get("canonical_entry"),
+                }
 
         return None
 
     def _scrape_ods(self, word: str) -> Optional[dict]:
-        """Scrape ODS articles, aggregating all homographs for the headword."""
-        url = f"{ODS_BASE_URL}{word}"
-        try:
-            time.sleep(REQUEST_DELAY_SECONDS)
-            resp = self.session.get(url, timeout=REQUEST_TIMEOUT)
-            if resp.status_code != 200:
-                return None
-
-            soup = BeautifulSoup(resp.text, "html.parser")
-            articles = soup.find_all("div", class_="artikel")
-            if not articles:
-                # Check for possible redirection / searchResultBox links
-                res_box = soup.find("div", class_="searchResultBox")
-                if res_box:
-                    first_link = res_box.find("a")
-                    if first_link and first_link.get("href"):
-                        target_url = first_link["href"]
-                        if not target_url.startswith("http"):
-                            target_url = f"https://ordnet.dk/ods/{target_url.lstrip('/')}"
-                        time.sleep(REQUEST_DELAY_SECONDS)
-                        r2 = self.session.get(target_url, timeout=REQUEST_TIMEOUT)
-                        if r2.status_code == 200:
-                            soup = BeautifulSoup(r2.text, "html.parser")
-                            articles = soup.find_all("div", class_="artikel")
-
-            if not articles:
-                return None
-
-            # Detect headword
-            hw_elem = soup.find("span", class_="match") or soup.find("h1") or soup.find("span", class_="headline")
-            headword_raw = hw_elem.get_text(strip=True) if hw_elem else word.capitalize()
-            headword = re.sub(r"^[0-9.]+\s*", "", headword_raw)
-            headword = re.sub(r"[,\s\d]+$", "", headword).strip()
-            if not headword:
-                headword = word.lower()
-
-            # Search result box for sibling homographs (e.g. 1. Lægd, 2. Lægd)
-            all_soups = [soup]
-            res_box = soup.find("div", class_="searchResultBox")
-            if res_box:
-                links = res_box.find_all("a")
-                for link in links:
-                    txt = link.get_text(strip=True)
-                    clean_txt = re.sub(r"^[0-9.]+\s*", "", txt)
-                    clean_txt = re.sub(r"[,\s\d]+$", "", clean_txt).strip()
-                    if clean_txt.lower() == headword.lower() and link.get("href"):
-                        href = link["href"]
-                        if not href.startswith("http"):
-                            href = f"https://ordnet.dk/ods/{href.lstrip('/')}"
-                        try:
-                            time.sleep(REQUEST_DELAY_SECONDS)
-                            sub_r = self.session.get(href, timeout=REQUEST_TIMEOUT)
-                            if sub_r.status_code == 200:
-                                sub_soup = BeautifulSoup(sub_r.text, "html.parser")
-                                all_soups.append(sub_soup)
-                        except Exception as e:
-                            logger.debug(f"Failed to fetch homograph sibling {href}: {e}")
-
-            historical_senses: List[SenseItem] = []
-            detected_pos = ""
-            historical_spellings: List[str] = []
-
-            for s_idx, sp in enumerate(all_soups):
-                # Clean unwanted DOM elements
-                for unwanted in sp.find_all(["script", "style", "nav"]):
-                    unwanted.decompose()
-                for unwanted_class in ["udtale", "henvisning", "kilde"]:
-                    for node in sp.find_all(class_=re.compile(rf"\b{unwanted_class}\b")):
-                        node.decompose()
-
-                # Extract POS if not yet found
-                if not detected_pos:
-                    pos_elem = sp.find("span", class_="pos") or sp.find("span", class_="tekst")
-                    if pos_elem:
-                        detected_pos = normalize_pos(pos_elem.get_text(strip=True))
-
-                # Extract definitions from .artikel nodes
-                for art in sp.find_all("div", class_="artikel"):
-                    # Find definition paragraphs or lists
-                    def_nodes = art.find_all(["p", "div"], class_=re.compile(r"def|betydning|tekst"))
-                    if not def_nodes:
-                        def_nodes = art.find_all("p")
-
-                    for dn in def_nodes:
-                        # Extract quote if present
-                        quote_text = None
-                        quote_author = None
-                        q_elem = dn.find(["q", "blockquote"]) or dn.find(class_=re.compile(r"citat|eksempel"))
-                        if q_elem:
-                            q_raw = q_elem.get_text(strip=True)
-                            q_elem.decompose()
-                            quote_clean = sanitize_ods_text(q_raw)
-                            # Check if author name is in quote
-                            for p, author_name in AUTHOR_EXPANSIONS:
-                                if author_name in quote_clean:
-                                    quote_author = author_name
-                                    break
-                            quote_text = quote_clean
-
-                        raw_def = dn.get_text(strip=True)
-                        clean_def = sanitize_ods_text(raw_def)
-                        if clean_def and len(clean_def) > 12 and not clean_def.startswith("Se under"):
-                            # Check for grammatical/subject label
-                            label = None
-                            label_match = re.match(r"^\((hist\.|landbo\.|foræld\.|jura|møntvæsen|bibelsk|militær)\)", clean_def)
-                            if label_match:
-                                label = label_match.group(1).rstrip(".")
-                                clean_def = clean_def[label_match.end():].strip()
-
-                            # Avoid duplicate definitions
-                            if not any(clean_def == existing.definition for existing in historical_senses):
-                                historical_senses.append(
-                                    SenseItem(
-                                        definition=clean_def,
-                                        label=label or "hist.",
-                                        quote=quote_text,
-                                        quote_author=quote_author,
-                                        source_tag="ODS",
-                                    )
-                                )
-                                if len(historical_senses) >= 4:
-                                    break
-                    if len(historical_senses) >= 4:
-                        break
-
-            # Fallback if no structured senses could be extracted
-            if not historical_senses:
-                combined_text = sanitize_ods_text(soup.get_text())
-                snippet = combined_text[:200]
-                historical_senses.append(
-                    SenseItem(definition=snippet, label="hist.", source_tag="ODS")
-                )
-
-            summary_hook = historical_senses[0].definition[:160] if historical_senses else ""
-            if len(summary_hook) > 165:
-                # Truncate to nearest clause/sentence
-                summary_hook = summary_hook[:162].rsplit(" ", 1)[0] + "..."
-
-            canonical = CanonicalEntry(
-                headword=headword.lower(),
-                historical_spellings=historical_spellings,
-                pos=detected_pos or "sb.",
-                inflections={word, headword},
-                summary_hook=summary_hook,
-                historical_senses=historical_senses[:4],
-                sources_used=["ODS"],
-            )
-
-            canonical_html = render_canonical_html(canonical)
-
-            return {
-                "headword": headword.lower(),
-                "html_content": canonical_html,
-                "synonyms": [word, headword],
-                "canonical_entry": canonical,
-            }
-        except Exception as exc:
-            logger.warning(f"Error scraping ODS for '{word}': {exc}")
-            return None
+        """Scrape ODS articles using robust ODSScraper."""
+        return self.ods_scraper.scrape_ods(word)
 
     def _scrape_naob(self, word: str) -> Optional[dict]:
         """Scrape NAOB (Det Norske Akademis ordbok) for Dano-Norwegian 19th c. terms."""

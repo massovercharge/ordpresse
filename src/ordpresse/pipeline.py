@@ -19,6 +19,10 @@ from ordpresse.epub_scanner import scan_epub_tokens
 from ordpresse.orthography import generate_orthographic_synonyms
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
+from ordpresse.sources.molbech_1859 import (
+    MOLBECH_1859_ENTRIES,
+    get_molbech_1859_entry,
+)
 from ordpresse.sources.nordic_1800s import (
     NORDIC_1800S_ENTRIES,
     get_nordic_1800s_entry,
@@ -125,8 +129,9 @@ class Pipeline:
         # Track distinct historical headwords from 1800s core & cache
         historical_headwords: set[str] = set()
 
-        # b) Always merge all curated entries from nordic_1800s.py (enriching COR entries or adding new)
-        for seed_word, canonical_seed in NORDIC_1800S_ENTRIES.items():
+        # b) Always merge all curated entries from nordic_1800s.py and molbech_1859.py
+        historical_lexicons = list(NORDIC_1800S_ENTRIES.values()) + list(MOLBECH_1859_ENTRIES.values())
+        for canonical_seed in historical_lexicons:
             hw = canonical_seed.headword.lower()
             historical_headwords.add(hw)
             ods_infs = db.lookup_ods_headword_inflections(canonical_seed.headword) if db else []
@@ -208,21 +213,21 @@ class Pipeline:
         if unresolved_tokens:
             emit(f"Matcher {len(unresolved_tokens)} ord fra EPUBs mod COR & ODS...", 45)
 
-            # Step 1: Check curated Nordic 1800s vocabulary directly
+            # Step 1: Check curated Nordic 1800s and Molbech 1859 vocabulary directly
             still_unresolved: list[str] = []
             for t in unresolved_tokens:
-                nordic_match = get_nordic_1800s_entry(t)
-                if nordic_match:
-                    hw = nordic_match.headword.lower()
+                hist_match = get_nordic_1800s_entry(t) or get_molbech_1859_entry(t)
+                if hist_match:
+                    hw = hist_match.headword.lower()
                     if hw in resolved_entries:
                         resolved_entries[hw].synonyms.append(t)
                     else:
-                        ods_infs = db.lookup_ods_headword_inflections(nordic_match.headword) if db else []
-                        all_inflections = set(nordic_match.inflections) | set(ods_infs) | {t}
-                        nordic_match.inflections = all_inflections
+                        ods_infs = db.lookup_ods_headword_inflections(hist_match.headword) if db else []
+                        all_inflections = set(hist_match.inflections) | set(ods_infs) | {t}
+                        hist_match.inflections = all_inflections
                         resolved_entries[hw] = StarDictEntry(
                             headword=hw,
-                            html_content=render_canonical_html(nordic_match),
+                            html_content=render_canonical_html(hist_match),
                             synonyms=generate_orthographic_synonyms(hw, list(all_inflections)),
                         )
                     known_surface_strings.add(t)
@@ -271,7 +276,17 @@ class Pipeline:
             )
 
             # Step 4: Create canonical historical entries for new ODS headwords
-            cached_map = {c["headword"].lower(): c for c in db.get_all_cached_definitions()} if db else {}
+            if db:
+                db.clean_dummy_cached_definitions()
+
+            cached_map = {
+                c["headword"].lower(): c
+                for c in db.get_all_cached_definitions()
+                if "Historisk opslag for »" not in c.get("html_content", "")
+            } if db else {}
+
+            from ordpresse.scrapers import HistoricalScraper
+            scraper = HistoricalScraper(db) if db else None
 
             for hw, data in new_ods_words.items():
                 if hw in cached_map:
@@ -283,27 +298,20 @@ class Pipeline:
                         synonyms=syns,
                     )
                 else:
-                    canonical = CanonicalEntry(
-                        headword=hw,
-                        pos=normalize_pos(data["pos"]),
-                        inflections=data["inflections"],
-                        summary_hook="Historisk opslag fra Ordbog over det danske Sprog (ODS).",
-                        historical_senses=[
-                            SenseItem(
-                                definition=f"Historisk opslag for »{hw}« i Ordbog over det danske Sprog.",
-                                label="hist.",
-                                source_tag="ODS",
-                            )
-                        ],
-                        sources_used=["ODS"],
-                    )
-                    html = render_canonical_html(canonical)
-                    syns = generate_orthographic_synonyms(hw, list(data["inflections"]))
-                    resolved_entries[hw] = StarDictEntry(
-                        headword=hw,
-                        html_content=html,
-                        synonyms=syns,
-                    )
+                    def_data = scraper.fetch_word_definition(hw, allow_remote=allow_network) if scraper else None
+                    if def_data:
+                        actual_hw = def_data["headword"].lower()
+                        syns = generate_orthographic_synonyms(
+                            actual_hw,
+                            list(data["inflections"]) + def_data.get("synonyms", []) + [hw],
+                        )
+                        resolved_entries[actual_hw] = StarDictEntry(
+                            headword=actual_hw,
+                            html_content=def_data["html_content"],
+                            synonyms=syns,
+                        )
+                    else:
+                        logger.warning(f"No definition found for historical lemma '{hw}'; skipping placeholder.")
 
         emit(f"Opslag fuldført. Kompilerer {len(resolved_entries)} ordbogsartikler til StarDict v2.4.2...", 80)
 
