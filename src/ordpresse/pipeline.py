@@ -99,6 +99,7 @@ class Pipeline:
 
         resolved_entries: dict[str, StarDictEntry] = {}
         cor_count = 0
+        cor_id_to_headword: dict[str, str] = {}
 
         # a) Load all COR definitions from datasets SQLite
         if db.datasets_path.exists() and db.datasets_path.stat().st_size > 1024:
@@ -113,6 +114,8 @@ class Pipeline:
                     html_content=item["html_content"],
                     synonyms=syns,
                 )
+                for lid in item.get("lemma_ids", []):
+                    cor_id_to_headword[lid] = hw
         elif full_dictionary and (allow_network or any(db.datasets_path.parent.glob("raw/*.tsv"))):
             emit("SQLite datasæt mangler. Starter automatisk import fra rå filer...", 16)
             try:
@@ -250,14 +253,80 @@ class Pipeline:
             unresolved_after_cor: list[str] = []
             cor_attached_count = 0
 
+            GRAMMATICAL_POS = {
+                "art.", "art",
+                "præp.", "præp",
+                "pron.", "pron",
+                "konj.", "konj",
+                "talord.", "talord",
+                "adv.", "adv",
+                "udråbsord.", "udråbsord",
+                "lydord.", "lydord",
+                "infmærke.", "formsubj.", "fork.", "fork",
+            }
+
             for t in still_unresolved:
-                lem = cor_form_map.get(t)
-                if lem and lem in resolved_entries:
-                    resolved_entries[lem].synonyms.append(t)
-                    known_surface_strings.add(t)
-                    cor_attached_count += 1
-                else:
+                matches = cor_form_map.get(t, [])
+                if not matches:
                     unresolved_after_cor.append(t)
+                    continue
+
+                # 1. Match against existing entry by lemma
+                attached = False
+                for m in matches:
+                    lem = m["lemma"]
+                    if lem in resolved_entries:
+                        resolved_entries[lem].synonyms.append(t)
+                        known_surface_strings.add(t)
+                        cor_attached_count += 1
+                        attached = True
+                        break
+                if attached:
+                    continue
+
+                # 2. Match against existing entry by lemma_id (e.g. moder -> mor)
+                for m in matches:
+                    lid = m.get("lemma_id")
+                    if lid and lid in cor_id_to_headword:
+                        target_hw = cor_id_to_headword[lid]
+                        if target_hw in resolved_entries:
+                            resolved_entries[target_hw].synonyms.append(t)
+                            known_surface_strings.add(t)
+                            cor_attached_count += 1
+                            attached = True
+                            break
+                if attached:
+                    continue
+
+                # 3. Known modern COR word without definitions (grammatical word or modern lemma)
+                # Create clean lightweight entry so it is never treated as an unknown historical word
+                best_match = matches[0]
+                for m in matches:
+                    if m.get("pos") in GRAMMATICAL_POS:
+                        best_match = m
+                        break
+
+                lem = best_match["lemma"].lower()
+                pos_raw = best_match.get("pos", "")
+                pos_norm = normalize_pos(pos_raw)
+
+                if lem in resolved_entries:
+                    resolved_entries[lem].synonyms.append(t)
+                else:
+                    canonical = CanonicalEntry(
+                        headword=lem,
+                        pos=pos_norm,
+                        inflections={t, lem},
+                        summary_hook=f"{lem} ({pos_norm})" if pos_norm else lem,
+                        sources_used=["COR"],
+                    )
+                    resolved_entries[lem] = StarDictEntry(
+                        headword=lem,
+                        html_content=render_canonical_html(canonical),
+                        synonyms=generate_orthographic_synonyms(lem, [t, lem]),
+                    )
+                known_surface_strings.add(t)
+                cor_attached_count += 1
 
             # Step 3: Batch-lookup against ODS forms (1,260,000+ historical inflections in SQLite)
             ods_form_map = db.lookup_ods_forms_batch(unresolved_after_cor) if db else {}

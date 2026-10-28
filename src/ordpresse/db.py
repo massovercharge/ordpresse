@@ -286,24 +286,46 @@ class Database:
                     results[inf] = (hw, pos or "")
         return results
 
-    def lookup_cor_forms_batch(self, words: list[str]) -> dict[str, str]:
-        """Bulk-lookup inflected words to find their COR lemmas in SQLite."""
+    def lookup_cor_forms_batch(self, words: list[str]) -> dict[str, list[dict[str, str]]]:
+        """Bulk-lookup inflected words to find their COR lemmas, POS, and lemma_id in SQLite."""
         if not self.datasets_path.exists() or not words:
             return {}
+        from ordpresse.orthography import historical_aa_to_modern
+
         cur = self.datasets_conn.cursor()
-        results: dict[str, str] = {}
-        unique_words = list({w.lower() for w in words if w})
+        results: dict[str, list[dict[str, str]]] = {}
+
+        # Build query set and map normalized/modern variants back to the original token
+        query_map: dict[str, set[str]] = {}
+        for w in words:
+            if not w:
+                continue
+            wl = w.lower()
+            query_map.setdefault(wl, set()).add(wl)
+            if "aa" in wl:
+                mod_aa = historical_aa_to_modern(wl).lower()
+                query_map.setdefault(mod_aa, set()).add(wl)
+
+        unique_queries = list(query_map.keys())
         chunk_size = 500
-        for i in range(0, len(unique_words), chunk_size):
-            chunk = unique_words[i : i + chunk_size]
+        for i in range(0, len(unique_queries), chunk_size):
+            chunk = unique_queries[i : i + chunk_size]
             placeholders = ",".join(["?"] * len(chunk))
             cur.execute(
-                f"SELECT lower(fullform), lower(lemma) FROM cor_forms WHERE fullform IN ({placeholders})",
+                f"""
+                SELECT lower(fullform), lower(lemma), pos, lemma_id
+                FROM cor_forms
+                WHERE fullform IN ({placeholders})
+                """,
                 chunk,
             )
-            for ff, lem in cur.fetchall():
-                if ff not in results:
-                    results[ff] = lem
+            for ff, lem, pos, lid in cur.fetchall():
+                entry = {"lemma": lem, "pos": pos or "", "lemma_id": lid or ""}
+                for original_w in query_map.get(ff, []):
+                    if original_w not in results:
+                        results[original_w] = []
+                    if not any(e["lemma"] == lem and e["pos"] == (pos or "") for e in results[original_w]):
+                        results[original_w].append(entry)
         return results
 
     # --- COR queries ---
@@ -351,7 +373,7 @@ class Database:
         limit_clause = f"LIMIT {limit}" if limit else ""
         cur.execute(
             f"""
-            SELECT cs.lemma, cs.pos, cd.definition, cd.examples
+            SELECT cs.lemma_id, cs.lemma, cs.pos, cd.definition, cd.examples
             FROM cor_sem cs
             JOIN cor_definitions cd ON cd.sense_id = cs.sense_id
             WHERE cs.lemma != ''
@@ -361,25 +383,37 @@ class Database:
         )
         rows = cur.fetchall()
         lemma_map: dict[str, dict] = {}
+        id_to_lemma: dict[str, str] = {}
         for r in rows:
             lemma = r["lemma"]
+            lid = r["lemma_id"]
             pos = r["pos"] or ""
             definition = r["definition"]
             examples = r["examples"] or ""
             if lemma not in lemma_map:
-                lemma_map[lemma] = {"pos": pos, "defs": []}
+                lemma_map[lemma] = {"pos": pos, "defs": [], "lemma_ids": set()}
             lemma_map[lemma]["defs"].append((definition, examples))
+            if lid:
+                lemma_map[lemma]["lemma_ids"].add(lid)
+                id_to_lemma[lid] = lemma
 
-        # Bulk pre-populate inflections in a single fast sequential scan
+        # Bulk pre-populate inflections in a single fast sequential scan (linking by lemma and lemma_id)
         inflections_map: dict[str, set[str]] = {}
-        cur.execute("SELECT lemma, fullform FROM cor_forms WHERE fullform != ''")
+        cur.execute("SELECT lemma, lemma_id, fullform FROM cor_forms WHERE fullform != ''")
         for row in cur.fetchall():
             lem = row[0]
+            lid = row[1]
+            target_lem = None
             if lem in lemma_map:
-                if lem not in inflections_map:
-                    inflections_map[lem] = set()
-                if len(inflections_map[lem]) < 40:
-                    inflections_map[lem].add(row[1])
+                target_lem = lem
+            elif lid and lid in id_to_lemma:
+                target_lem = id_to_lemma[lid]
+
+            if target_lem:
+                if target_lem not in inflections_map:
+                    inflections_map[target_lem] = set()
+                if len(inflections_map[target_lem]) < 40:
+                    inflections_map[target_lem].add(row[2])
 
         results = []
         for lemma, data in lemma_map.items():
@@ -420,5 +454,6 @@ class Database:
                 "html_content": html,
                 "synonyms": list(canonical.inflections),
                 "canonical_entry": canonical,
+                "lemma_ids": list(data.get("lemma_ids", set())),
             })
         return results
