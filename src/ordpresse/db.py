@@ -137,6 +137,11 @@ def init_cache_db(conn: sqlite3.Connection) -> None:
                 fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_cache_headword ON definitions(headword);
+            CREATE TABLE IF NOT EXISTS not_found_words (
+                word TEXT PRIMARY KEY,
+                checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_not_found_word ON not_found_words(word);
             """
         )
     clean_corrupted_cached_definitions(conn)
@@ -209,11 +214,19 @@ class Database:
     def get_cached(self, word: str) -> Optional[dict]:
         with self._write_lock:
             cur = self.cache_conn.cursor()
+            w = word.strip().lower()
             cur.execute(
-                "SELECT word, source, headword, html_content, synonyms_json FROM definitions WHERE word = ?",
-                (word.lower(),),
+                "SELECT word, source, headword, html_content, synonyms_json FROM definitions WHERE word = ? OR LOWER(headword) = ? LIMIT 1",
+                (w, w),
             )
             row = cur.fetchone()
+            if not row:
+                w_nohyphen = w.replace("-", "")
+                cur.execute(
+                    "SELECT word, source, headword, html_content, synonyms_json FROM definitions WHERE REPLACE(LOWER(headword), '-', '') = ? LIMIT 1",
+                    (w_nohyphen,),
+                )
+                row = cur.fetchone()
             if not row:
                 return None
             html_content = row["html_content"] or ""
@@ -222,7 +235,7 @@ class Database:
                 "adjektiv" in html_content or
                 not any(m in html_content for m in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"])):
                 with self.cache_conn:
-                    self.cache_conn.execute("DELETE FROM definitions WHERE word = ?", (word.lower(),))
+                    self.cache_conn.execute("DELETE FROM definitions WHERE word = ?", (row["word"],))
                 return None
             synonyms = json.loads(row["synonyms_json"]) if row["synonyms_json"] else []
             return {
@@ -232,6 +245,25 @@ class Database:
                 "html_content": html_content,
                 "synonyms": synonyms,
             }
+
+    def set_not_found(self, word: str) -> None:
+        """Record that a word was queried online and has no article on ODS/ordnet.dk."""
+        w = word.strip().lower()
+        if not w:
+            return
+        with self._write_lock:
+            with self.cache_conn:
+                self.cache_conn.execute(
+                    "INSERT OR IGNORE INTO not_found_words (word) VALUES (?)", (w,)
+                )
+
+    def get_not_found_words(self) -> set[str]:
+        """Fetch all words known to have no article on ODS."""
+        if not self.cache_path.exists():
+            return set()
+        cur = self.cache_conn.cursor()
+        cur.execute("SELECT word FROM not_found_words")
+        return {r[0] for r in cur.fetchall()}
 
     def set_cached(
         self,

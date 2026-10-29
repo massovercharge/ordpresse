@@ -496,8 +496,8 @@ async def submit_cache(payload: CacheSubmitPayload):
         raise HTTPException(status_code=400, detail="Ugyldigt 'html'")
 
     parsed = parse_ods_html(word, html)
+    db = Database()
     if parsed:
-        db = Database()
         db.set_cached(
             word=word.lower(),
             source="ods",
@@ -505,6 +505,9 @@ async def submit_cache(payload: CacheSubmitPayload):
             html_content=parsed["html_content"],
             synonyms=parsed.get("synonyms", []),
         )
+    else:
+        # Negative cache: word was looked up on ordnet.dk and has no article
+        db.set_not_found(word=word.lower())
 
     coordinator.mark_word_resolved(word, build_id)
     remaining = len(coordinator.get_pending_words(build_id)) if build_id else 0

@@ -373,3 +373,29 @@ def test_corrupted_cache_cleanup_migration(tmp_path: Path):
     remaining = [r[0] for r in cur.execute("SELECT word FROM definitions").fetchall()]
     assert remaining == ["good"]
     conn.close()
+
+def test_cache_multi_key_resolution_and_negative_cache(tmp_path: Path):
+    """Verify that cache hits succeed on query word, hyphenated ODS headwords, and negative cache."""
+    from ordpresse.db import Database
+
+    cache_path = tmp_path / "test_multi_cache.sqlite3"
+    db = Database(cache_path=cache_path)
+    
+    # Store word with hyphenated ODS headword (e.g. fra-stød for frastøde)
+    db.set_cached(
+        word="frastøde",
+        source="ods",
+        headword="fra-stød",
+        html_content="<div class='artikel'><p>At støde fra.</p></div>",
+        synonyms=["frastøder"],
+    )
+    
+    # Verify get_cached finds it by exact word, by raw headword, and by unhyphenated headword
+    assert db.get_cached("frastøde") is not None
+    assert db.get_cached("fra-stød") is not None
+    assert db.get_cached("frastød") is not None
+    
+    # Negative cache testing
+    assert "ukendt_ord_xyz" not in db.get_not_found_words()
+    db.set_not_found("ukendt_ord_xyz")
+    assert "ukendt_ord_xyz" in db.get_not_found_words()

@@ -1,3 +1,4 @@
+import re
 import asyncio
 from ordpresse.sources.rate_limiter import coordinator, ScrapeCoordinator
 """Pipeline orchestrator linking SQLite datasets, EPUB scanners, scrapers, and StarDict compiler."""
@@ -207,26 +208,37 @@ class Pipeline:
         # c) Always merge all previously cached historical definitions from cache.sqlite3
         cached_defs = db.get_all_cached_definitions() if db else []
         for c_item in cached_defs:
-            c_hw = c_item["headword"].lower()
-            if c_item.get("source") == "seed" or c_hw in NORDIC_1800S_ENTRIES:
-                if c_hw in resolved_entries:
-                    existing_entry = resolved_entries[c_hw]
+            raw_hw = c_item.get("headword", "").strip()
+            raw_word = c_item.get("word", "").strip().lower()
+            if not raw_hw:
+                raw_hw = raw_word
+            clean_hw = re.sub(r"^[ivxlcdm0-9.]+\s*", "", raw_hw, flags=re.I).replace("-", "").strip().lower()
+            primary_hw = clean_hw if clean_hw else raw_hw.lower()
+
+            all_forms = {raw_word, raw_hw.lower(), primary_hw}
+            for s in c_item.get("synonyms", []):
+                if s:
+                    all_forms.add(s.strip().lower())
+            all_forms.discard("")
+
+            if c_item.get("source") == "seed" or primary_hw in NORDIC_1800S_ENTRIES:
+                if primary_hw in resolved_entries:
+                    existing_entry = resolved_entries[primary_hw]
                     existing_entry.synonyms = generate_orthographic_synonyms(
-                        c_hw, existing_entry.synonyms + c_item.get("synonyms", [])
+                        primary_hw, list(set(existing_entry.synonyms) | all_forms)
                     )
                 continue
 
-            historical_headwords.add(c_hw)
-            c_syns = c_item.get("synonyms", [])
-            if c_hw in resolved_entries:
-                existing_entry = resolved_entries[c_hw]
+            historical_headwords.add(primary_hw)
+            if primary_hw in resolved_entries:
+                existing_entry = resolved_entries[primary_hw]
                 existing_entry.synonyms = generate_orthographic_synonyms(
-                    c_hw, existing_entry.synonyms + c_syns
+                    primary_hw, list(set(existing_entry.synonyms) | all_forms)
                 )
             else:
-                syns = generate_orthographic_synonyms(c_hw, c_syns)
-                resolved_entries[c_hw] = StarDictEntry(
-                    headword=c_hw,
+                syns = generate_orthographic_synonyms(primary_hw, list(all_forms))
+                resolved_entries[primary_hw] = StarDictEntry(
+                    headword=primary_hw,
                     html_content=c_item["html_content"],
                     synonyms=syns,
                 )
@@ -441,27 +453,49 @@ class Pipeline:
             if db:
                 db.clean_corrupted_cached_definitions()
 
-            cached_map = {
-                c["headword"].lower(): c
-                for c in db.get_all_cached_definitions()
-                if "Historisk opslag for »" not in c.get("html_content", "")
-            } if db else {}
+            cached_map: dict[str, dict] = {}
+            if db:
+                for c in db.get_all_cached_definitions():
+                    if "Historisk opslag for »" in c.get("html_content", ""):
+                        continue
+                    w = c.get("word", "").lower().strip()
+                    hw = c.get("headword", "").lower().strip()
+                    clean_hw = re.sub(r"^[ivxlcdm0-9.]+\s*", "", hw, flags=re.I).replace("-", "").strip()
+                    if w:
+                        cached_map[w] = c
+                    if hw:
+                        cached_map[hw] = c
+                    if clean_hw:
+                        cached_map[clean_hw] = c
+                    for s in c.get("synonyms", []):
+                        if s:
+                            cached_map[s.lower().strip()] = c
+
+            not_found_words = db.get_not_found_words() if db else set()
 
             from ordpresse.scrapers import HistoricalScraper
             scraper = HistoricalScraper(db) if db else None
 
             total_ods = len(new_ods_words)
-            uncached_words = [hw for hw in new_ods_words if hw not in cached_map]
+            uncached_words = [
+                hw for hw in new_ods_words
+                if hw not in cached_map and hw not in not_found_words
+            ]
             cached_words = [hw for hw in new_ods_words if hw in cached_map]
 
             # 1. Instantly resolve all already-cached words
             for hw in cached_words:
                 c_item = cached_map[hw]
-                syns = generate_orthographic_synonyms(
-                    hw, list(new_ods_words[hw]["inflections"]) + c_item.get("synonyms", [])
-                )
-                resolved_entries[hw] = StarDictEntry(
-                    headword=hw,
+                raw_hw = c_item.get("headword", "").strip()
+                raw_word = c_item.get("word", "").strip().lower()
+                clean_hw = re.sub(r"^[ivxlcdm0-9.]+\s*", "", raw_hw, flags=re.I).replace("-", "").strip().lower()
+                actual_hw = clean_hw if clean_hw else (raw_hw.lower() if raw_hw else hw)
+
+                all_forms = set(new_ods_words[hw]["inflections"]) | set(c_item.get("synonyms", [])) | {hw, actual_hw, raw_word}
+                all_forms.discard("")
+                syns = generate_orthographic_synonyms(actual_hw, list(all_forms))
+                resolved_entries[actual_hw] = StarDictEntry(
+                    headword=actual_hw,
                     html_content=c_item["html_content"],
                     synonyms=syns,
                 )
