@@ -61,7 +61,7 @@ BIBLIO_PATTERNS = [
 
 
 def sanitize_ods_text(text: str) -> str:
-    """Strip bibliographic sigils and expand author abbreviations in quotes and definitions."""
+    """Strip bibliographic sigils, expand author abbreviations, and repair OCR/spacing glitches."""
     if not text:
         return ""
     # Expand author abbreviations first
@@ -70,7 +70,19 @@ def sanitize_ods_text(text: str) -> str:
     # Strip bibliographic sigils
     for pattern in BIBLIO_PATTERNS:
         text = pattern.sub("", text)
-    # Collapse excess whitespace
+
+    # Typographic spacing fixes
+    text = re.sub(r"([a-zæøåA-ZÆØÅ0-9])\(", r"\1 (", text)
+    text = re.sub(r"\)([a-zæøåA-ZÆØÅ0-9])", r") \1", text)
+    text = re.sub(r"([a-zæøåA-ZÆØÅ0-9])(ell?\.)", r"\1 \2", text)
+    text = re.sub(r"\b(ell?\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", text)
+    text = re.sub(r"([a-zæøåA-ZÆØÅ0-9])(jf\.)", r"\1 \2", text)
+    text = re.sub(r"\b(jf\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", text)
+    text = re.sub(r"\b(m\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", text)
+    text = re.sub(r"\b(f\.eks\.|fx)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", text)
+
+    # Whitespace cleanup around punctuation
+    text = re.sub(r"\s+([,.;:!)])", r"\1", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 

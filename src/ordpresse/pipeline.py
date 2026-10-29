@@ -213,7 +213,7 @@ class Pipeline:
             raw_word = c_item.get("word", "").strip().lower()
             if not raw_hw:
                 raw_hw = raw_word
-            clean_hw = re.sub(r"^[ivxlcdm0-9.]+\s*", "", raw_hw, flags=re.I).replace("-", "").strip().lower()
+            clean_hw = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", raw_hw, flags=re.I).replace("-", "").strip().lower()
             primary_hw = clean_hw if clean_hw else raw_hw.lower()
 
             all_forms = {raw_word, raw_hw.lower(), primary_hw}
@@ -480,7 +480,7 @@ class Pipeline:
                         continue
                     w = c.get("word", "").lower().strip()
                     hw = c.get("headword", "").lower().strip()
-                    clean_hw = re.sub(r"^[ivxlcdm0-9.]+\s*", "", hw, flags=re.I).replace("-", "").strip()
+                    clean_hw = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", hw, flags=re.I).replace("-", "").strip()
                     if w:
                         cached_map[w] = c
                     if hw:
@@ -508,7 +508,7 @@ class Pipeline:
                 c_item = cached_map[hw]
                 raw_hw = c_item.get("headword", "").strip()
                 raw_word = c_item.get("word", "").strip().lower()
-                clean_hw = re.sub(r"^[ivxlcdm0-9.]+\s*", "", raw_hw, flags=re.I).replace("-", "").strip().lower()
+                clean_hw = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", raw_hw, flags=re.I).replace("-", "").strip().lower()
                 actual_hw = clean_hw if clean_hw else (raw_hw.lower() if raw_hw else hw)
 
                 all_forms = set(new_ods_words[hw]["inflections"]) | set(c_item.get("synonyms", [])) | {hw, actual_hw, raw_word}

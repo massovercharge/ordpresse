@@ -681,6 +681,96 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
         realia_note="Klassisk litterært adjektiv i ældre dansk og norsk sprogbrug anvendt om ærværdige, svækkede eller ældgamle personer, bygninger og træer.",
         sources_used=["ODS"],
     ),
+    "natlig": CanonicalEntry(
+        headword="natlig",
+        historical_spellings=["Natlig", "Natlige"],
+        pos="adj.",
+        inflections={"natlig", "natlige", "natligt", "Natlig", "Natlige"},
+        summary_hook="Som sker, foregår eller hører til om natten; natlig stund, natlig ro.",
+        historical_senses=[
+            SenseItem(
+                definition="Som foregår el. hører til om natten; nattemørk, natlig.",
+                label="hist.",
+                quote=None,
+                quote_author=None,
+                source_tag="ODS",
+            )
+        ],
+        realia_note="Klassisk litterært udtryk brugt i 1800-talslitteraturen om fænomener og handlinger under nattens mulm og mørke.",
+        sources_used=["ODS"],
+    ),
+    "runge": CanonicalEntry(
+        headword="runge",
+        historical_spellings=["Runge", "Rungede"],
+        pos="vb.",
+        inflections={"runge", "runger", "rungede", "runget", "Runge"},
+        summary_hook="Give en stærk, dyb, vibrerende og genlydende klang; gjalde eller give ekko.",
+        historical_senses=[
+            SenseItem(
+                definition="Give en dyb, fyldig el. genlydende lyd fra sig; gjalde kraftigt.",
+                label="hist.",
+                quote=None,
+                quote_author=None,
+                source_tag="ODS",
+            )
+        ],
+        realia_note="Klassisk 1800-tals udtryk anvendt i digtning og højtidelig prosa om kraftige kirkeklokker, torden eller malmfulde røster, der giver genlyd over landskabet.",
+        sources_used=["ODS"],
+    ),
+    "skræve": CanonicalEntry(
+        headword="skræve",
+        historical_spellings=["Skræve", "Skrævede"],
+        pos="vb.",
+        inflections={"skræve", "skræver", "skrævede", "skrævet", "Skræve"},
+        summary_hook="Gå eller stå med spredte ben; tage lange, vidtstrakte skridt.",
+        historical_senses=[
+            SenseItem(
+                definition="Stå el. gaa med vidt adskilte ben; skride vidt over noget.",
+                label="hist.",
+                quote=None,
+                quote_author=None,
+                source_tag="ODS",
+            )
+        ],
+        realia_note="Oprindelig folkelig og kropslig betegnelse for at stå eller spankulere med spredte ben, anvendt i 1800-tallets almuelitteratur om bravour og uforsigtig gang.",
+        sources_used=["ODS"],
+    ),
+    "vildsom": CanonicalEntry(
+        headword="vildsom",
+        historical_spellings=["Vildsom", "Vildsomme"],
+        pos="adj.",
+        inflections={"vildsom", "vildsomme", "vildsomt", "Vildsom", "Vildsomme"},
+        summary_hook="Som fører på afveje eller er svær at finde vej i; uoverskuelig, vildledende.",
+        historical_senses=[
+            SenseItem(
+                definition="Svær at finde rede el. vej i; vildledende, uvejsom.",
+                label="hist.",
+                quote=None,
+                quote_author=None,
+                source_tag="ODS",
+            )
+        ],
+        realia_note="Klassisk litterært adjektiv (jf. Blicher og Ingemann) om tætte, uvejsomme hede- og skovstrækninger, hvor den rejsende let forvildede sig.",
+        sources_used=["ODS"],
+    ),
+    "ejendomsfællesskab": CanonicalEntry(
+        headword="ejendomsfællesskab",
+        historical_spellings=["Ejendomsfællesskab"],
+        pos="sb. itk.",
+        inflections={"ejendomsfællesskab", "ejendomsfællesskabet", "ejendomsfællesskaber", "ejendomsfællesskaberne", "Ejendomsfællesskab"},
+        summary_hook="Formuefællesskab eller fælles ejendomsret, fx mellem ægtefæller eller i et kollektivt samfund.",
+        historical_senses=[
+            SenseItem(
+                definition="Fællesskab om ejendom el. formue (fx mellem ægtefæller el. inden for et samfund).",
+                label="hist., jura",
+                quote=None,
+                quote_author=None,
+                source_tag="ODS",
+            )
+        ],
+        realia_note="Juridisk og samfundsmæssigt begreb i ældre ret om formuefællesskab mellem ægtefæller eller kollektivt ejerskab i landsbyfællesskaber før udskiftningen.",
+        sources_used=["ODS"],
+    ),
 }
 
 

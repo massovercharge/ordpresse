@@ -198,3 +198,85 @@ def test_cache_triage_keep_salvage_purge(tmp_path: Path):
     purged_content = purged_path.read_text(encoding="utf-8")
     assert "dummy_ddo" in purged_content
     assert "dummy_hist" in purged_content
+
+
+def test_headword_prefix_not_truncated(tmp_path: Path):
+    """Verify that headwords beginning with letters in [ivxlcdm] (like lægdslem, værkbrudden, city, mandfolk)
+    do not lose their first letter due to the Roman numeral cleanup regex."""
+    output_dir = tmp_path / "output_prefixes"
+    pipeline = Pipeline(output_dir=output_dir, bookname="Prefix Test")
+
+    result = pipeline.run(
+        custom_words=["lægdslem", "værkbrudden", "city", "mandfolk"],
+        include_seeds=True,
+        allow_network=False,
+    )
+
+    reader = StarDictReader(result.files["ifo"])
+    # Verify exact headwords exist in .idx
+    hw_list = [hw for hw, _, _ in reader.idx_entries]
+    assert "lægdslem" in hw_list, "lægdslem was corrupted to ægdslem!"
+    assert "ægdslem" not in hw_list
+    assert "værkbrudden" in hw_list, "værkbrudden was corrupted to ærkbrudden!"
+    assert "ærkbrudden" not in hw_list
+
+
+def test_typographic_spacing_repairs():
+    """Verify that sanitize_ods_text repairs glued OCR typography around parentheses and abbreviations."""
+    from ordpresse.sources.ods_scraper import sanitize_ods_text
+
+    raw1 = "(stor) drengell. (især)ungt menneske(paa en 17-18 aar)"
+    cleaned1 = sanitize_ods_text(raw1)
+    assert "dreng ell." in cleaned1
+    assert "(især) ungt" in cleaned1
+    assert "menneske (paa" in cleaned1
+
+    raw2 = "volde uroell.plage"
+    cleaned2 = sanitize_ods_text(raw2)
+    assert "uro ell. plage" in cleaned2
+
+    raw3 = "merke medtjærekors; jf.avtørke"
+    cleaned3 = sanitize_ods_text(raw3)
+    assert "jf. avtørke" in cleaned3
+
+
+def test_author_as_definition_rejected_and_ejendomsfaellesskab_salvaged(tmp_path: Path):
+    """Verify that author signatures like 'Anna Larssen Bjørner' are rejected as definitions,
+    and 'ejendomsfællesskab' is salvaged to its authentic historical definition."""
+    from ordpresse.sources.ods_scraper import is_valid_definition
+
+    assert not is_valid_definition("Anna Larssen Bjørner")
+    assert not is_valid_definition("H.F. Feilberg")
+    assert not is_valid_definition("Goldschm.. Aakj..")
+    assert not is_valid_definition("L. Holberg Ep..")
+    assert not is_valid_definition("Romneya Coulteri.")
+    assert is_valid_definition("Fællesskab om ejendom el. formue mellem ægtefæller.")
+
+    output_dir = tmp_path / "output_ejendomsfaellesskab"
+    pipeline = Pipeline(output_dir=output_dir, bookname="Ejendomsfaellesskab Test")
+    result = pipeline.run(
+        custom_words=["ejendomsfællesskab"],
+        include_seeds=True,
+        allow_network=False,
+    )
+    reader = StarDictReader(result.files["ifo"])
+    html = reader.lookup("ejendomsfællesskab")
+    assert html is not None
+    assert "Anna Larssen Bjørner" not in html
+    assert any(term in html.lower() for term in ["ejendom", "formue", "fællesskab"])
+
+
+def test_recovered_words_natlig_runge_skraeve_vildsom(tmp_path: Path):
+    """Verify that 'natlig', 'runge', 'skræve', 'vildsom' are built with rich definitions."""
+    output_dir = tmp_path / "output_recovered"
+    pipeline = Pipeline(output_dir=output_dir, bookname="Recovered Words Test")
+    result = pipeline.run(
+        custom_words=["natlig", "runge", "skræve", "vildsom"],
+        include_seeds=True,
+        allow_network=False,
+    )
+    reader = StarDictReader(result.files["ifo"])
+    for w in ["natlig", "runge", "skræve", "vildsom"]:
+        html = reader.lookup(w)
+        assert html is not None, f"Word '{w}' was not found in dictionary!"
+        assert "HISTORISK BETYDNING" in html or "▸" in html

@@ -63,16 +63,74 @@ BIBLIO_PATTERNS = [
 ]
 
 
+FORBIDDEN_DEFINITION_SUBSTRINGS = (
+    "Historisk opslag for",
+    "ingen betydningsangivelse",
+    "SITATER",
+    "EKSEMPLER",
+    "ORD I NÆRHEDEN",
+    "Mente du:",
+)
+
+COMMON_DANISH_DEF_WORDS = {
+    "som", "der", "at", "i", "paa", "på", "af", "til", "eller", "ell.", "el.",
+    "en", "et", "og", "om", "for", "med", "fra", "ved", "mod", "over", "under",
+    "især", "egl.", "betegner", "angiver", "udtrykker", "person", "genstand", "handling"
+}
+
+
 def sanitize_ods_text(text: str) -> str:
-    """Strip bibliographic sigils and expand author abbreviations in quotes and definitions."""
+    """Strip bibliographic sigils, expand author abbreviations, and repair OCR/spacing glitches."""
     if not text:
         return ""
     for pattern, full_name in AUTHOR_EXPANSIONS:
         text = pattern.sub(full_name, text)
     for pattern in BIBLIO_PATTERNS:
         text = pattern.sub("", text)
+
+    # Typographic spacing fixes
+    text = re.sub(r"([a-zæøåA-ZÆØÅ0-9])\(", r"\1 (", text)
+    text = re.sub(r"\)([a-zæøåA-ZÆØÅ0-9])", r") \1", text)
+    text = re.sub(r"([a-zæøåA-ZÆØÅ0-9])(ell?\.)", r"\1 \2", text)
+    text = re.sub(r"\b(ell?\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", text)
+    text = re.sub(r"([a-zæøåA-ZÆØÅ0-9])(jf\.)", r"\1 \2", text)
+    text = re.sub(r"\b(jf\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", text)
+    text = re.sub(r"\b(m\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", text)
+    text = re.sub(r"\b(f\.eks\.|fx)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", text)
+
+    # Whitespace cleanup around punctuation
+    text = re.sub(r"\s+([,.;:!)])", r"\1", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def is_valid_definition(text: str) -> bool:
+    """Check if candidate definition is genuine explanatory text and not an author or citation."""
+    if not text:
+        return False
+    t = text.strip()
+    if len(t) < 4:
+        return False
+    if any(bad in t for bad in FORBIDDEN_DEFINITION_SUBSTRINGS):
+        return False
+
+    clean_no_label = re.sub(r"^\([^)]+\)\s*", "", t).strip()
+
+    # Reject if string is simply an author name or expansion
+    for _, full_name in AUTHOR_EXPANSIONS:
+        if clean_no_label.lower() == full_name.lower() or clean_no_label.lower() == f"{full_name.lower()}.":
+            return False
+
+    # Reject bibliographic / publication citations (e.g. "Goldschm.. Aakj..", "Jydske Tidende.")
+    if re.search(r"\.\.", clean_no_label) or re.search(r"\b(?:Saml|Tidende|Ugeskr|Aarb|Oversk)\.", clean_no_label):
+        return False
+
+    # If short (< 45 chars) and has no common Danish functional/def words, and looks like a name or title
+    words_in_text = set(re.findall(r"\b[a-zæøåA-ZÆØÅ.]+\b", clean_no_label.lower()))
+    if len(clean_no_label) < 45 and not (words_in_text & COMMON_DANISH_DEF_WORDS):
+        return False
+
+    return True
 
 
 class ODSScraperRateLimitError(Exception):
@@ -334,23 +392,12 @@ class ODSScraper:
         if headword_match:
             headword_match.decompose()
 
-        FORBIDDEN_DEFINITION_SUBSTRINGS = (
-            "Historisk opslag for",
-            "ingen betydningsangivelse",
-            "SITATER",
-            "EKSEMPLER",
-            "ORD I NÆRHEDEN",
-            "Mente du:",
-        )
-
         # 4. Extract structured definitions from .betydning
         betyd_nodes = art.find_all(class_=re.compile(r"\bbetydning\b"))
         if betyd_nodes:
             for bn in betyd_nodes:
                 clean_def = sanitize_ods_text(bn.get_text(" ", strip=True))
-                if clean_def and len(clean_def) > 8 and not clean_def.lower().startswith("se "):
-                    if any(bad in clean_def for bad in FORBIDDEN_DEFINITION_SUBSTRINGS):
-                        continue
+                if is_valid_definition(clean_def) and not clean_def.lower().startswith("se "):
                     label = self._extract_label(clean_def)
                     if label:
                         clean_def = re.sub(r"^\([^)]+\)\s*", "", clean_def).strip()
@@ -371,7 +418,7 @@ class ODSScraper:
                     if tag_name == "i":
                         txt = sanitize_ods_text(child.get_text(" ", strip=True))
                         # First substantial non-citation italic tag is definition
-                        if not def_text and len(txt) > 8 and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", txt):
+                        if not def_text and is_valid_definition(txt) and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", txt):
                             def_text = txt
                         elif def_text and last_text and not quote_text:
                             # Check if this italic element contains an author citation for last_text
@@ -391,9 +438,7 @@ class ODSScraper:
                     full_s = re.sub(r"^[0-9]+[.)]\s*", "", full_s)
                     def_text = full_s
 
-                if def_text and len(def_text) > 8 and not def_text.lower().startswith("se "):
-                    if any(bad in def_text for bad in FORBIDDEN_DEFINITION_SUBSTRINGS):
-                        continue
+                if is_valid_definition(def_text) and not def_text.lower().startswith("se "):
                     label = self._extract_label(def_text)
                     if label:
                         def_text = re.sub(r"^\([^)]+\)\s*", "", def_text).strip()
@@ -415,7 +460,7 @@ class ODSScraper:
             if gloss_match:
                 gloss_text = gloss_match.group(1).strip()
                 gloss_text = sanitize_ods_text(gloss_text)
-                if gloss_text and len(gloss_text) >= 4 and not any(bad in gloss_text for bad in FORBIDDEN_DEFINITION_SUBSTRINGS):
+                if is_valid_definition(gloss_text):
                     label = self._extract_label(gloss_text)
                     if label:
                         gloss_text = re.sub(r"^\([^)]+\)\s*", "", gloss_text).strip()
@@ -442,9 +487,7 @@ class ODSScraper:
             # Check <i> tags across article
             for it in art.find_all("i"):
                 t = sanitize_ods_text(it.get_text(" ", strip=True))
-                if len(t) > 12 and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", t):
-                    if any(bad in t for bad in FORBIDDEN_DEFINITION_SUBSTRINGS):
-                        continue
+                if is_valid_definition(t) and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", t):
                     label = self._extract_label(t)
                     if label:
                         t = re.sub(r"^\([^)]+\)\s*", "", t).strip()
@@ -455,14 +498,13 @@ class ODSScraper:
                 art_text = sanitize_ods_text(art.get_text(" ", strip=True))
                 # Clean leading POS like 'en .', 'adj .'
                 art_text = re.sub(r"^(?:en|et|adj\.|sb\.|v\.|adv\.)\s*[.]?\s*", "", art_text).strip()
-                if art_text and len(art_text) > 15 and not art_text.lower().startswith("se "):
-                    if not any(bad in art_text for bad in FORBIDDEN_DEFINITION_SUBSTRINGS):
-                        # Ensure it's not a raw citation
-                        if not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", art_text):
-                            label = self._extract_label(art_text)
-                            if label:
-                                art_text = re.sub(r"^\([^)]+\)\s*", "", art_text).strip()
-                            senses.append(SenseItem(definition=art_text, label=label or "hist.", source_tag="ODS"))
+                if is_valid_definition(art_text) and not art_text.lower().startswith("se "):
+                    # Ensure it's not a raw citation
+                    if not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", art_text):
+                        label = self._extract_label(art_text)
+                        if label:
+                            art_text = re.sub(r"^\([^)]+\)\s*", "", art_text).strip()
+                        senses.append(SenseItem(definition=art_text, label=label or "hist.", source_tag="ODS"))
 
         # 7. Follow cross-reference articles (e.g. 'I. Lægd, en. se I. Lejd.')
         is_pure_ref = (not senses) or (
@@ -470,7 +512,7 @@ class ODSScraper:
         )
         if is_pure_ref and depth < 2 and (ref_link or ref_match):
             target_ref = ref_link.split("#")[0] if ref_link else ref_match.group(1).strip()
-            target_ref = re.sub(r"^[IVXLCDM0-9.]+\s*", "", target_ref).strip()
+            target_ref = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", target_ref, flags=re.I).strip()
             target_ref = re.sub(r"[,\s\d]+$", "", target_ref).strip()
             if target_ref and target_ref.lower() not in visited_refs:
                 visited_refs.add(target_ref.lower())

@@ -120,6 +120,13 @@ def is_clean_keep_row(word: str, headword: str, html_content: str) -> bool:
         if re.match(r"^\(:\s*[^)]+\)$", li_txt):
             return False
 
+    # 8. Must not be merely an author signature or bibliographic citation
+    from ordpresse.sources.ods_scraper import is_valid_definition
+    for li in soup.find_all("li"):
+        li_txt = re.sub(r"^\([^)]+\)\s*", "", li.get_text(" ", strip=True)).strip()
+        if not is_valid_definition(li_txt):
+            return False
+
     return True
 
 
