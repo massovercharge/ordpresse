@@ -246,3 +246,31 @@ def test_missing_words_endpoint_top_500():
     assert data["words"][499] == "testword_499"
 
     coordinator.unregister_build(build_id)
+
+def test_worker_js_contains_progressive_pacing_and_429_backoff():
+    """Verify /static/worker.js contains progressive jitter, pacing and HTTP 429 backoff handling."""
+    client = TestClient(app)
+    resp = client.get("/static/worker.js")
+    assert resp.status_code == 200
+    js = resp.text
+    # 429 detection and cool-down
+    assert "r.status === 429" in js
+    assert "20000" in js  # 20 second cool-down
+    assert "i--" in js    # retry word
+    # Progressive pacing & jitter
+    assert "baseDelay" in js
+    assert "jitterRange" in js
+    assert "progressiveExtra" in js
+    assert "skip-queue" in js
+
+def test_index_html_contains_updated_batch_chip_timings():
+    """Verify index.html contains updated chip timing estimates and 429 handling in bookmarklet."""
+    client = TestClient(app)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "(~40s)" in html
+    assert "(~2½m)" in html
+    assert "(~7m)" in html
+    assert "(~20m)" in html
+    assert "r.status === 429" in html

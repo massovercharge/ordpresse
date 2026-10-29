@@ -41,20 +41,54 @@
   box.appendChild(contentDiv);
   box.appendChild(stopBtn);
 
+  // Progressive pacing and jitter based on batch size
+  let baseDelay = 350;
+  let jitterRange = 150;
+  if (words.length > 500) {
+    baseDelay = 1100;
+    jitterRange = 700;
+  } else if (words.length > 250) {
+    baseDelay = 650;
+    jitterRange = 450;
+  } else if (words.length > 100) {
+    baseDelay = 450;
+    jitterRange = 250;
+  }
+
   for (let i = 0; i < words.length; i++) {
     if (stopped) break;
     const w = words[i];
     contentDiv.innerHTML = "<b>⚡ Ordpresse Lyn-Henter</b><br>Henter <b>" + (i+1) + " / " + words.length + "</b>: <code style='color:#f59e0b;font-size:14px;'>" + w + "</code>";
+
     try {
       const r = await fetch("https://ordnet.dk/ods/ordbog?query=" + encodeURIComponent(w));
-      const html = await r.text();
-      await fetch(host + "/api/cache/submit", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({word: w, html: html, build_id: bid})
-      });
-    } catch (e) { console.error(e); }
-    await new Promise(r => setTimeout(r, 350));
+
+      if (r.status === 429) {
+        contentDiv.innerHTML = "<b>⚠️ ordnet.dk bad om en pause (HTTP 429).</b><br>Venter 20 sekunder før automatisk genoptagelse...";
+        baseDelay += 400;
+        jitterRange += 300;
+        await new Promise(res => setTimeout(res, 20000));
+        i--;
+        continue;
+      }
+
+      if (r.ok) {
+        const html = await r.text();
+        await fetch(host + "/api/cache/submit", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({word: w, html: html, build_id: bid})
+        });
+      } else {
+        console.warn("Uventet HTTP status for " + w + ": " + r.status);
+      }
+    } catch (e) {
+      console.error("Fejl under hentning af " + w + ":", e);
+    }
+
+    const progressiveExtra = (i > 500) ? Math.min(500, Math.floor((i - 500) / 100) * 50) : 0;
+    const actualDelay = baseDelay + progressiveExtra + Math.floor(Math.random() * jitterRange);
+    await new Promise(r => setTimeout(r, actualDelay));
   }
 
   if (!stopped) {
