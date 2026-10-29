@@ -471,12 +471,14 @@ async def get_missing_words(build_id: str, limit: Optional[int] = None):
     """Get currently pending words for a specific build awaiting resolution, optionally capped by limit."""
     words = coordinator.get_pending_words(build_id)
     total_count = len(words)
+    resolved_count = coordinator.get_resolved_count(build_id)
     if limit is not None and limit > 0:
         words = words[:limit]
     return {
         "build_id": build_id,
         "missing_count": len(words),
         "total_pending": total_count,
+        "resolved_count": resolved_count,
         "words": words,
     }
 

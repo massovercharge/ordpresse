@@ -84,6 +84,10 @@ class ScrapeCoordinator:
         done_lower = {w.lower() for w in done}
         return [w for w in all_missing if w not in done and w.lower() not in done_lower]
 
+    def get_resolved_count(self, build_id: str) -> int:
+        """Return the number of unique words resolved so far for a specific build."""
+        return len(self.resolved_words.get(build_id, set()))
+
     def mark_word_resolved(self, word: str, build_id: Optional[str] = None) -> None:
         """Mark a word as resolved across builds (or for a specific build) and wake waiting loops."""
         w_low = word.strip().lower()

@@ -502,7 +502,7 @@ class Pipeline:
                 coordinator.register_build(actual_build_id, words_to_scrape, initial_mode=scrape_mode)
                 if scrape_mode in ("bookmarklet", "wait_choice"):
                     emit(
-                        f"Fandt {total_to_scrape} ord, der mangler i cachen. Venter på valg: Kør Lyn-Henter eller start server-kø...",
+                        f"Klar til berigelse af op til {total_to_scrape} prioriterede ord. Vælg mængde og kør Lyn-Henter...",
                         60,
                     )
                 else:
@@ -515,13 +515,19 @@ class Pipeline:
                 completed = 0
                 server_scraped_count = 0
                 last_emit_time = time.time()
+                last_logged_resolved = -1
+                last_wait_emit_time = 0.0
                 try:
                     for idx, hw in enumerate(words_to_scrape, start=1):
                         if is_cancelled and is_cancelled():
                             raise RuntimeError("Byggeprocessen blev afbrudt af brugeren.")
 
                         if coordinator.should_skip_remaining(actual_build_id):
-                            emit("Bruger valgte at afslutte byg og springe resterende kø over.", 79)
+                            resolved_cnt = coordinator.get_resolved_count(actual_build_id)
+                            emit(
+                                f"Lyn-Henter fuldført ({resolved_cnt} ord modtaget). Færdiggør og kompilerer ordbog...",
+                                79,
+                            )
                             break
 
                         # Check if peer bookmarklet already submitted it
@@ -544,17 +550,34 @@ class Pipeline:
                         # Rate-limit acquisition with peer-resolve wakeup
                         current_pct = 60 + int(20 * (idx / total_to_scrape))
                         def on_wait(wait_s: float, pending: int):
+                            nonlocal last_logged_resolved, last_wait_emit_time
                             cur_mode = coordinator.get_build_mode(actual_build_id)
+                            resolved_cnt = coordinator.get_resolved_count(actual_build_id)
+                            now = time.time()
+
                             if cur_mode in ("bookmarklet", "wait_choice"):
-                                emit(
-                                    f"Venter på Lyn-Henter ({pending} ord mangler) — kør Bookmarklet på ordnet.dk eller klik 'Start server-kø'!",
-                                    current_pct,
-                                )
+                                if resolved_cnt > 0:
+                                    if resolved_cnt != last_logged_resolved and (resolved_cnt % 5 == 0 or (now - last_wait_emit_time) >= 2.0):
+                                        emit(
+                                            f"⚡ Lyn-Henter aktiv: {resolved_cnt} ord modtaget og gemt i ordbogen...",
+                                            current_pct,
+                                        )
+                                        last_logged_resolved = resolved_cnt
+                                        last_wait_emit_time = now
+                                else:
+                                    if (now - last_wait_emit_time) >= 5.0 or last_wait_emit_time == 0.0:
+                                        emit(
+                                            "Venter på Lyn-Henter — kør Bookmarklet på ordnet.dk eller klik 'Start server-kø'!",
+                                            current_pct,
+                                        )
+                                        last_wait_emit_time = now
                             else:
-                                emit(
-                                    f"Venter på server-kvote ({wait_s:.0f}s, {pending} ord i kø) — brug Bookmarklet for lyn-hentning!",
-                                    current_pct,
-                                )
+                                if (now - last_wait_emit_time) >= 3.0:
+                                    emit(
+                                        f"Venter på server-kvote ({wait_s:.0f}s, {completed} ord hentet) — brug Bookmarklet for lyn-hentning!",
+                                        current_pct,
+                                    )
+                                    last_wait_emit_time = now
 
                         should_scrape = _acquire_token(
                             coordinator, actual_build_id, hw, on_wait_cb=on_wait, loop=loop
@@ -575,7 +598,11 @@ class Pipeline:
                                     synonyms=syns,
                                 )
                             if coordinator.should_skip_remaining(actual_build_id):
-                                emit("Afslutter online-kø efter brugeranmodning...", 79)
+                                resolved_cnt = coordinator.get_resolved_count(actual_build_id)
+                                emit(
+                                    f"Lyn-Henter fuldført ({resolved_cnt} ord modtaget). Færdiggør og kompilerer ordbog...",
+                                    79,
+                                )
                                 break
                             completed += 1
                             continue
