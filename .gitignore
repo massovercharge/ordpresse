@@ -38,6 +38,8 @@ htmlcov/
 data/raw/
 data/*.sqlite3*
 data/output/
+data/purged_words.txt
+data/ordpresse-moberg-eksempel/
 *.dict
 *.dict.dz
 *.idx
