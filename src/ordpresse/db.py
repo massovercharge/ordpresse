@@ -92,13 +92,12 @@ def init_datasets_db(conn: sqlite3.Connection) -> None:
 
 def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
     """Purge corrupted scraper entries, SITATER/adjektiv leaks, and empty skeleton definitions."""
+    corrupted_pos_pattern = re.compile(r"<i>[^<]*(?:adjektiv|substantiv)</i>")
     with conn:
         cur = conn.execute(
             """
             DELETE FROM definitions
             WHERE html_content LIKE '%SITATER%'
-               OR html_content LIKE '%<i>%adjektiv%</i>%'
-               OR html_content LIKE '%<i>%substantiv%</i>%'
                OR html_content LIKE '%Historisk opslag for »%'
                OR html_content IS NULL
                OR trim(html_content) = ''
@@ -112,6 +111,9 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
             word = row[0]
             html = (row[1] or "").strip()
             if not html:
+                to_delete.append(word)
+                continue
+            if corrupted_pos_pattern.search(html):
                 to_delete.append(word)
                 continue
             if not any(marker in html for marker in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"]):
@@ -233,7 +235,7 @@ class Database:
             html_content = row["html_content"] or ""
             if ("Historisk opslag for »" in html_content or
                 "SITATER" in html_content or
-                bool(re.search(r"<i>[^<]*(?:adjektiv|substantiv)", html_content)) or
+                bool(re.search(r"<i>[^<]*(?:adjektiv|substantiv)</i>", html_content)) or
                 not any(m in html_content for m in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"])):
                 with self.cache_conn:
                     self.cache_conn.execute("DELETE FROM definitions WHERE word = ?", (row["word"],))
