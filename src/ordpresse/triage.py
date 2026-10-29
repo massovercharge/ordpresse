@@ -114,6 +114,12 @@ def is_clean_keep_row(word: str, headword: str, html_content: str) -> bool:
     if re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+$", def_text):
         return False
 
+    # 7. Must not be solely an inline gloss stub like '(: fra gaden)' without full explanation
+    for li in soup.find_all("li"):
+        li_txt = re.sub(r"^\([^)]+\)\s*", "", li.get_text(" ", strip=True)).strip()
+        if re.match(r"^\(:\s*[^)]+\)$", li_txt):
+            return False
+
     return True
 
 
