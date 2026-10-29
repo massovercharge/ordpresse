@@ -1,6 +1,7 @@
 """SQLite database manager for streaming datasets and scraper caching."""
 
 import json
+import re
 from pathlib import Path
 import sqlite3
 import threading
@@ -96,8 +97,8 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
             """
             DELETE FROM definitions
             WHERE html_content LIKE '%SITATER%'
-               OR html_content LIKE '%adjektiv%'
-               OR html_content LIKE '%substantiv%'
+               OR html_content LIKE '%<i>%adjektiv%</i>%'
+               OR html_content LIKE '%<i>%substantiv%</i>%'
                OR html_content LIKE '%Historisk opslag for »%'
                OR html_content IS NULL
                OR trim(html_content) = ''
@@ -232,7 +233,7 @@ class Database:
             html_content = row["html_content"] or ""
             if ("Historisk opslag for »" in html_content or
                 "SITATER" in html_content or
-                "adjektiv" in html_content or
+                bool(re.search(r"<i>[^<]*(?:adjektiv|substantiv)", html_content)) or
                 not any(m in html_content for m in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"])):
                 with self.cache_conn:
                     self.cache_conn.execute("DELETE FROM definitions WHERE word = ?", (row["word"],))

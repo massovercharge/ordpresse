@@ -363,6 +363,8 @@ def test_corrupted_cache_cleanup_migration(tmp_path: Path):
         ("bad2", "naob", "bad2", "<div><b>bad2</b> <i>bad2adjektiv</i></div><ol><li>alderstegenadjektiv</li></ol>", "[]"),
         ("bad3", "cor", "bad3", "<div><b>bad3</b> <i>sb.</i></div><div><small>Kilde: COR</small></div>", "[]"),
         ("good", "ods", "good", "<div><b>good</b> <i>sb. fk.</i></div><ol><li>En gyldig definition.</li></ol>", "[]"),
+        ("hvordan", "ods", "hvordan", "<div><b>hvordan</b> <i>adj.</i></div><ol><li>(hist.) sj.) substantiveret, om den maade</li></ol>", "[]"),
+        ("hvad", "ods", "hvad", "<div><b>hvad</b> <i>pron.</i></div><ol><li>knyttet til substantiv ell. substantivisk ord</li></ol>", "[]"),
     ])
     conn.commit()
 
@@ -370,8 +372,13 @@ def test_corrupted_cache_cleanup_migration(tmp_path: Path):
     assert deleted >= 3
 
     cur = conn.cursor()
-    remaining = [r[0] for r in cur.execute("SELECT word FROM definitions").fetchall()]
-    assert remaining == ["good"]
+    remaining = sorted(r[0] for r in cur.execute("SELECT word FROM definitions").fetchall())
+    assert remaining == sorted(["good", "hvordan", "hvad"])
+
+    # Also verify Database.get_cached does not delete valid entries with 'substantiv' in definition
+    db_test = Database(cache_path=cache_path)
+    assert db_test.get_cached("hvordan") is not None
+    assert db_test.get_cached("hvad") is not None
     conn.close()
 
 def test_cache_multi_key_resolution_and_negative_cache(tmp_path: Path):
