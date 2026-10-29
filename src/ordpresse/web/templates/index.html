@@ -375,6 +375,12 @@
                         <span>⏩ Afslut byg med lokale ord nu</span>
                     </button>
                 </div>
+                <div class="flex items-center gap-2 text-[11px] text-slate-400">
+                    <span>Aktivt Bygge-ID:</span>
+                    <code id="active-build-id-code" class="text-amber-300 font-mono font-bold select-all bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">afventer...</code>
+                    <span class="text-slate-600">|</span>
+                    <span class="text-slate-400">Linket ovenfor åbner automatisk ordnet.dk med dette ID indbygget.</span>
+                </div>
                 <p class="text-[11px] text-slate-400 italic">
                     Tip: Du kan også stoppe når som helst undervejs ved at trykke på den røde <strong>[⏹ Stop & afslut]</strong> knap direkte i bogmærke-boksen på ordnet.dk.
                 </p>
@@ -542,6 +548,24 @@
             skipQueueBtn.addEventListener('click', () => skipQueue(currentBuildId));
         }
 
+        let missingWordsPollTimer = null;
+
+        function stopMissingWordsPolling() {
+            if (missingWordsPollTimer) {
+                clearInterval(missingWordsPollTimer);
+                missingWordsPollTimer = null;
+            }
+        }
+
+        function startMissingWordsPolling(bid) {
+            stopMissingWordsPolling();
+            missingWordsPollTimer = setInterval(() => {
+                if (currentBuildId && currentBuildId === bid) {
+                    updateMissingWordsCount(bid);
+                }
+            }, 2000);
+        }
+
         async function updateMissingWordsCount(bid) {
             if (!bid) return;
             try {
@@ -551,16 +575,14 @@
                     if (missingWordsBadge) {
                         if (data.resolved_count !== undefined && data.resolved_count > 0) {
                             missingWordsBadge.textContent = `${data.resolved_count} ord hentet`;
-                        } else if (data.total_pending !== undefined) {
+                        } else if (data.total_pending !== undefined && data.total_pending > 0) {
                             missingWordsBadge.textContent = `${data.total_pending} ord i kø`;
+                        } else {
+                            missingWordsBadge.textContent = 'Klar til opslag';
                         }
                     }
-                    if (peerHelperPanel) {
-                        if ((data.total_pending && data.total_pending > 0) || (data.resolved_count && data.resolved_count > 0)) {
-                            peerHelperPanel.classList.remove('hidden');
-                        } else {
-                            peerHelperPanel.classList.add('hidden');
-                        }
+                    if (peerHelperPanel && currentBuildId) {
+                        peerHelperPanel.classList.remove('hidden');
                     }
                 }
             } catch (e) {}
@@ -577,6 +599,10 @@
             const btnLabel = document.getElementById('open-ordnet-btn-label');
             if (btnLabel) {
                 btnLabel.textContent = selectedBatchLimit ? `⚡ 1. Åbn ordnet.dk (Hent top ${selectedBatchLimit} ord) ↗` : `⚡ 1. Åbn ordnet.dk (Hent alle ord) ↗`;
+            }
+            const idCode = document.getElementById('active-build-id-code');
+            if (idCode) {
+                idCode.textContent = currentBuildId;
             }
             try {
                 window.location.hash = `ordpresse_id=${encodeURIComponent(currentBuildId)}${limitParam}`;
@@ -606,6 +632,7 @@
         if (cancelBuildBtn) {
             cancelBuildBtn.addEventListener('click', async () => {
                 if (!currentBuildId) return;
+                stopMissingWordsPolling();
                 cancelBuildBtn.disabled = true;
                 cancelBuildBtn.classList.add('opacity-50', 'cursor-not-allowed');
                 progressStatusTitle.textContent = 'Afbryder byggeproces...';
@@ -614,6 +641,7 @@
                 logEntry.textContent = `[${new Date().toLocaleTimeString()}] Afbryder byggejob (${currentBuildId})...`;
                 logBox.appendChild(logEntry);
                 logBox.scrollTop = logBox.scrollHeight;
+                if (peerHelperPanel) peerHelperPanel.classList.add('hidden');
                 try {
                     await fetch(`/api/build/cancel/${currentBuildId}`, { method: 'POST' });
                 } catch (err) {
@@ -702,13 +730,18 @@
                 currentBuildId = buildId;
                 updateOpenOrdnetLinkHref();
                 if (peerHelperPanel) {
-                    peerHelperPanel.classList.add('hidden');
+                    peerHelperPanel.classList.remove('hidden');
                 }
                 if (skipQueueBtn) {
                     skipQueueBtn.disabled = false;
                     skipQueueBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                 }
+                if (startServerScrapeBtn) {
+                    startServerScrapeBtn.disabled = false;
+                    startServerScrapeBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
                 updateMissingWordsCount(buildId);
+                startMissingWordsPolling(buildId);
 
                 // Connect to SSE stream
                 const evtSource = new EventSource(`/api/build/events/${buildId}`);
@@ -723,6 +756,9 @@
                         }
                         if (evData.message) {
                             progressMessage.textContent = evData.message;
+                            if (peerHelperPanel && currentBuildId) {
+                                peerHelperPanel.classList.remove('hidden');
+                            }
                             if (evData.message.startsWith('⚡ Lyn-Henter aktiv:')) {
                                 const m = evData.message.match(/(\d+) ord modtaget/);
                                 if (m && missingWordsBadge) {
@@ -735,6 +771,7 @@
                             logBox.scrollTop = logBox.scrollHeight;
                         }
                         if (evData.status === 'done') {
+                            stopMissingWordsPolling();
                             statusSpinner.classList.add('hidden');
                             cancelBuildBtn.classList.add('hidden');
                             progressStatusTitle.textContent = 'Færdigbygget!';
@@ -748,19 +785,23 @@
                             submitBtn.disabled = false;
                             submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                         } else if (evData.status === 'cancelled') {
+                            stopMissingWordsPolling();
                             statusSpinner.classList.add('hidden');
                             cancelBuildBtn.classList.add('hidden');
                             progressStatusTitle.textContent = 'Bygning afbrudt';
                             progressMessage.textContent = 'Byggeprocessen blev afbrudt af brugeren.';
+                            if (peerHelperPanel) peerHelperPanel.classList.add('hidden');
                             cancelledBanner.classList.remove('hidden');
                             evtSource.close();
                             submitBtn.disabled = false;
                             submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                         } else if (evData.status === 'error') {
+                            stopMissingWordsPolling();
                             statusSpinner.classList.add('hidden');
                             cancelBuildBtn.classList.add('hidden');
                             progressStatusTitle.textContent = 'Fejl under bygning';
                             progressMessage.textContent = `Fejl: ${evData.error}`;
+                            if (peerHelperPanel) peerHelperPanel.classList.add('hidden');
                             evtSource.close();
                             submitBtn.disabled = false;
                             submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
@@ -775,9 +816,11 @@
                 };
 
             } catch (err) {
+                stopMissingWordsPolling();
                 progressMessage.textContent = `Kunne ikke starte byggejob: ${err.message}`;
                 statusSpinner.classList.add('hidden');
                 cancelBuildBtn.classList.add('hidden');
+                if (peerHelperPanel) peerHelperPanel.classList.add('hidden');
                 submitBtn.disabled = false;
                 submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
             }
