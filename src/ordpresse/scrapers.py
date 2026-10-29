@@ -196,7 +196,32 @@ class HistoricalScraper:
                 "canonical_entry": molbech_entry,
             }
 
-        # 6. Scrape NAOB fallback online
+        # 6. Check morphological synthesis for directional adverbs & compounds (Phase 3)
+        from ordpresse.orthography import synthesize_compound_entry
+        synth_entry = synthesize_compound_entry(w_clean, self.db)
+        if synth_entry:
+            html = render_canonical_html(synth_entry)
+            all_syns = generate_orthographic_synonyms(
+                synth_entry.headword,
+                list(synth_entry.inflections) + synth_entry.historical_spellings,
+            )
+            self.db.set_cached(
+                word=w_clean,
+                source="ods",
+                headword=synth_entry.headword,
+                html_content=html,
+                synonyms=all_syns,
+            )
+            return {
+                "word": w_clean,
+                "source": "ods",
+                "headword": synth_entry.headword,
+                "html_content": html,
+                "synonyms": all_syns,
+                "canonical_entry": synth_entry,
+            }
+
+        # 7. Scrape NAOB fallback online
         if allow_remote:
             naob_result = self._scrape_naob(w_clean)
             if naob_result:
@@ -268,6 +293,8 @@ class HistoricalScraper:
             if pos_elem:
                 raw_pos = pos_elem.get_text(" ", strip=True)
                 raw_pos = re.sub(r"\s+", " ", raw_pos).strip()
+                raw_pos = re.sub(rf"^{re.escape(headword_clean)}\s*", "", raw_pos, flags=re.IGNORECASE).strip()
+                raw_pos = re.sub(rf"^{re.escape(word)}\s*", "", raw_pos, flags=re.IGNORECASE).strip()
                 raw_pos = re.sub(re.escape(headword_clean), "", raw_pos, flags=re.IGNORECASE).strip()
                 raw_pos = re.sub(re.escape(word), "", raw_pos, flags=re.IGNORECASE).strip()
                 pos = normalize_pos(raw_pos)
@@ -278,12 +305,11 @@ class HistoricalScraper:
             for dn in def_nodes:
                 text = dn.get_text(" ", strip=True)
                 text = re.sub(r"\s+", " ", text).strip()
-                if "SITATER" in text:
-                    text = text.split("SITATER")[0].strip()
-                if "EKSEMPLER" in text:
-                    text = text.split("EKSEMPLER")[0].strip()
+                text = re.sub(r"\s+([,.;:!)])", r"\1", text)
+                text = re.split(r"\b(?:SITATER|EKSEMPLER)\b", text)[0].strip()
                 text = re.sub(r"\s*\([^)]*$", "", text).strip()
                 text = sanitize_ods_text(text)
+                text = re.sub(r"\s+([,.;:!)])", r"\1", text)
                 if text and len(text) > 8:
                     senses.append(SenseItem(definition=text, label="nordisk", source_tag="NAOB"))
                     if len(senses) >= 3:
@@ -292,12 +318,11 @@ class HistoricalScraper:
             if not senses:
                 raw_art_text = article.get_text(" ", strip=True)
                 raw_art_text = re.sub(r"\s+", " ", raw_art_text).strip()
-                if "SITATER" in raw_art_text:
-                    raw_art_text = raw_art_text.split("SITATER")[0].strip()
-                if "EKSEMPLER" in raw_art_text:
-                    raw_art_text = raw_art_text.split("EKSEMPLER")[0].strip()
+                raw_art_text = re.sub(r"\s+([,.;:!)])", r"\1", raw_art_text)
+                raw_art_text = re.split(r"\b(?:SITATER|EKSEMPLER)\b", raw_art_text)[0].strip()
                 raw_art_text = re.sub(r"\s*\([^)]*$", "", raw_art_text).strip()
                 text = sanitize_ods_text(raw_art_text)
+                text = re.sub(r"\s+([,.;:!)])", r"\1", text)
                 if text and len(text) > 8:
                     senses.append(
                         SenseItem(

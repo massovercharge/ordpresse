@@ -647,13 +647,13 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
     ),
     "tællelys": CanonicalEntry(
         headword="tællelys",
-        historical_spellings=["Tællelys"],
+        historical_spellings=["Tællelys", "Tællelyset"],
         pos="sb. itk.",
-        inflections={"tællelyset", "tællelysene", "tællelys", "Tællelys"},
-        summary_hook="Belysningslys støbt af smeltet dyrefedt (tælle/talg fra kvæg eller får) før stearinlysets opfindelse.",
+        inflections={"tællelys", "tællelyset", "tællelysene", "tællelysenes", "Tællelys", "Tællelyset"},
+        summary_hook="Lys støbt eller dyppet af smeltet dyrefedt (tælle/talg fra kvæg eller får); datidens almindelige belysning i bondehjem før stearin- og parafinlys.",
         historical_senses=[
             SenseItem(
-                definition="Lys støbt eller dyppet af smeltet dyrefedt (tælle/talg fra kvæg eller får); datidens almindelige belysning i bondehjem før stearin- og parafinlys.",
+                definition="Traditionelt belysningslys støbt af dyrefedt (tælle fra okser el. får), som var almuehjemmenes primære lyskilde før stearinlys.",
                 label="hist.",
                 quote=None,
                 quote_author=None,
@@ -665,10 +665,10 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
     ),
     "alderstegen": CanonicalEntry(
         headword="alderstegen",
-        historical_spellings=["Alderstegen"],
+        historical_spellings=["Alderstegen", "Alderstegne"],
         pos="adj.",
-        inflections={"alderstegne", "alderstegent", "alderstegen", "Alderstegen"},
-        summary_hook="Højt oppe i årene; ældgammel; svækket af høj alder.",
+        inflections={"alderstegen", "alderstegne", "alderstegent", "Alderstegen", "Alderstegne"},
+        summary_hook="Højt oppe i årene; ældgammel; svækket eller mærket af høj alder.",
         historical_senses=[
             SenseItem(
                 definition="Gammel og svækket af høj alder; tilårskommen; fortidig.",

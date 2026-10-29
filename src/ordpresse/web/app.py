@@ -220,7 +220,22 @@ def preview_lookup(request: Request, q: str, format: Optional[str] = None):
                 "source": "cor_sem",
             }
 
-    # 4. Fallback to Scraper
+    # 4. Fallback to morphological compound synthesis (dernedefra, uefterrettelig)
+    from ordpresse.orthography import synthesize_compound_entry
+    synth = synthesize_compound_entry(word, db)
+    if synth:
+        html = render_canonical_html(synth)
+        if format == "html":
+            return HTMLResponse(content=html)
+        return {
+            "word": q,
+            "headword": synth.headword,
+            "found": True,
+            "html": html,
+            "source": "morphology",
+        }
+
+    # 5. Fallback to Scraper
     from ordpresse.scrapers import HistoricalScraper
     scraper = HistoricalScraper(db)
     res = scraper.fetch_word_definition(word, allow_remote=True)

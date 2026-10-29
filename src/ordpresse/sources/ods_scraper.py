@@ -142,6 +142,27 @@ class ODSScraper:
         if not articles:
             return None
 
+        # Check for DDO dummy/placeholder text (Phase 3.1)
+        page_text = soup.get_text(" ", strip=True)
+        if any(bad in page_text for bad in [
+            "ingen betydningsangivelse",
+            "Dette ord har foreløbig ingen betydningsangivelse",
+            "Historisk opslag for »",
+            "ORD I NÆRHEDEN",
+            "Mente du:",
+        ]):
+            from ordpresse.orthography import synthesize_compound_entry
+            synth = synthesize_compound_entry(w_clean)
+            if synth:
+                canonical_html = render_canonical_html(synth)
+                return {
+                    "headword": synth.headword,
+                    "html_content": canonical_html,
+                    "synonyms": sorted(list(synth.inflections)),
+                    "canonical_entry": synth,
+                }
+            return None
+
         # Detect headword
         hw_elem = soup.find("span", class_="match") or soup.find("h1") or soup.find("span", class_="headline")
         headword_raw = hw_elem.get_text(" ", strip=True) if hw_elem else w_clean.capitalize()
@@ -313,12 +334,23 @@ class ODSScraper:
         if headword_match:
             headword_match.decompose()
 
+        FORBIDDEN_DEFINITION_SUBSTRINGS = (
+            "Historisk opslag for",
+            "ingen betydningsangivelse",
+            "SITATER",
+            "EKSEMPLER",
+            "ORD I NÆRHEDEN",
+            "Mente du:",
+        )
+
         # 4. Extract structured definitions from .betydning
         betyd_nodes = art.find_all(class_=re.compile(r"\bbetydning\b"))
         if betyd_nodes:
             for bn in betyd_nodes:
                 clean_def = sanitize_ods_text(bn.get_text(" ", strip=True))
                 if clean_def and len(clean_def) > 8 and not clean_def.lower().startswith("se "):
+                    if any(bad in clean_def for bad in FORBIDDEN_DEFINITION_SUBSTRINGS):
+                        continue
                     label = self._extract_label(clean_def)
                     if label:
                         clean_def = re.sub(r"^\([^)]+\)\s*", "", clean_def).strip()
@@ -360,6 +392,8 @@ class ODSScraper:
                     def_text = full_s
 
                 if def_text and len(def_text) > 8 and not def_text.lower().startswith("se "):
+                    if any(bad in def_text for bad in FORBIDDEN_DEFINITION_SUBSTRINGS):
+                        continue
                     label = self._extract_label(def_text)
                     if label:
                         def_text = re.sub(r"^\([^)]+\)\s*", "", def_text).strip()
@@ -374,12 +408,43 @@ class ODSScraper:
                         )
                     )
 
-        # 6. Fallback: Extract from .artikel / .tekstmedium body text
+        # 6. Fallback: Check for inline editorial gloss (: ...) or body text
+        if not senses:
+            # Phase 3.2: Check for editorial gloss pattern r"\(\s*:\s*([^)]+)\)"
+            gloss_match = re.search(r"\(\s*:\s*([^)]+)\)", raw_text)
+            if gloss_match:
+                gloss_text = gloss_match.group(1).strip()
+                gloss_text = sanitize_ods_text(gloss_text)
+                if gloss_text and len(gloss_text) >= 4 and not any(bad in gloss_text for bad in FORBIDDEN_DEFINITION_SUBSTRINGS):
+                    label = self._extract_label(gloss_text)
+                    if label:
+                        gloss_text = re.sub(r"^\([^)]+\)\s*", "", gloss_text).strip()
+                    quote_txt = None
+                    quote_auth = None
+                    for p, author_name in AUTHOR_EXPANSIONS:
+                        if p.search(raw_text):
+                            quote_auth = author_name
+                            break
+                    q_m = re.search(r"»([^«]+)«", raw_text)
+                    if q_m:
+                        quote_txt = q_m.group(1).strip()
+                    senses.append(
+                        SenseItem(
+                            definition=gloss_text,
+                            label=label or "hist.",
+                            quote=quote_txt,
+                            quote_author=quote_auth,
+                            source_tag="ODS",
+                        )
+                    )
+
         if not senses:
             # Check <i> tags across article
             for it in art.find_all("i"):
                 t = sanitize_ods_text(it.get_text(" ", strip=True))
                 if len(t) > 12 and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", t):
+                    if any(bad in t for bad in FORBIDDEN_DEFINITION_SUBSTRINGS):
+                        continue
                     label = self._extract_label(t)
                     if label:
                         t = re.sub(r"^\([^)]+\)\s*", "", t).strip()
@@ -391,10 +456,13 @@ class ODSScraper:
                 # Clean leading POS like 'en .', 'adj .'
                 art_text = re.sub(r"^(?:en|et|adj\.|sb\.|v\.|adv\.)\s*[.]?\s*", "", art_text).strip()
                 if art_text and len(art_text) > 15 and not art_text.lower().startswith("se "):
-                    label = self._extract_label(art_text)
-                    if label:
-                        art_text = re.sub(r"^\([^)]+\)\s*", "", art_text).strip()
-                    senses.append(SenseItem(definition=art_text, label=label or "hist.", source_tag="ODS"))
+                    if not any(bad in art_text for bad in FORBIDDEN_DEFINITION_SUBSTRINGS):
+                        # Ensure it's not a raw citation
+                        if not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", art_text):
+                            label = self._extract_label(art_text)
+                            if label:
+                                art_text = re.sub(r"^\([^)]+\)\s*", "", art_text).strip()
+                            senses.append(SenseItem(definition=art_text, label=label or "hist.", source_tag="ODS"))
 
         # 7. Follow cross-reference articles (e.g. 'I. Lægd, en. se I. Lejd.')
         is_pure_ref = (not senses) or (

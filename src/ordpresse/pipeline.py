@@ -25,9 +25,10 @@ from ordpresse.config import (
 )
 from ordpresse.db import Database
 from ordpresse.epub_scanner import scan_epub_token_counts, scan_epub_tokens
-from ordpresse.orthography import generate_orthographic_synonyms
+from ordpresse.orthography import generate_orthographic_synonyms, synthesize_compound_entry
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
+from ordpresse.synthesizer import is_valid_canonical_entry
 from ordpresse.sources.molbech_1859 import (
     MOLBECH_1859_ENTRIES,
     get_molbech_1859_entry,
@@ -278,10 +279,14 @@ class Pipeline:
         if unresolved_tokens:
             emit(f"Matcher {len(unresolved_tokens)} ord fra EPUBs mod COR & ODS...", 45)
 
-            # Step 1: Check curated Nordic 1800s and Molbech 1859 vocabulary directly
+            # Step 1: Check curated Nordic 1800s, Molbech 1859, and compound synthesis directly
             still_unresolved: list[str] = []
             for t in unresolved_tokens:
-                hist_match = get_nordic_1800s_entry(t) or get_molbech_1859_entry(t)
+                hist_match = (
+                    get_nordic_1800s_entry(t)
+                    or get_molbech_1859_entry(t)
+                    or synthesize_compound_entry(t, db)
+                )
                 if hist_match:
                     hw = hist_match.headword.lower()
                     if hw in resolved_entries:
@@ -440,6 +445,21 @@ class Pipeline:
                             new_ods_words[cor_lem]["frequency"] += cnt
                             if is_cust:
                                 new_ods_words[cor_lem]["is_custom"] = True
+                elif t in custom_tokens_set or synthesize_compound_entry(t, db):
+                    cnt = token_counts.get(t, 1)
+                    synth = synthesize_compound_entry(t, db)
+                    pos = synth.pos if synth else ""
+                    if t not in new_ods_words:
+                        new_ods_words[t] = {
+                            "pos": pos,
+                            "inflections": {t},
+                            "frequency": cnt,
+                            "is_custom": True,
+                        }
+                    else:
+                        new_ods_words[t]["inflections"].add(t)
+                        if pos and not new_ods_words[t]["pos"]:
+                            new_ods_words[t]["pos"] = pos
                 else:
                     non_danish_ignored += 1
 
@@ -500,7 +520,29 @@ class Pipeline:
                     synonyms=syns,
                 )
 
-            # 2. Sort uncached words: custom words first, then by frequency descending
+            # 2. Resolve via offline curated lexicons and morphological synthesis (Phase 1 & 3)
+            offline_resolved: list[str] = []
+            for hw in uncached_words:
+                local_entry = (
+                    get_nordic_1800s_entry(hw)
+                    or get_molbech_1859_entry(hw)
+                    or synthesize_compound_entry(hw, db)
+                )
+                if local_entry:
+                    actual_hw = local_entry.headword.lower()
+                    all_forms = set(new_ods_words[hw]["inflections"]) | set(local_entry.inflections) | {hw, actual_hw}
+                    syns = generate_orthographic_synonyms(actual_hw, list(all_forms))
+                    resolved_entries[actual_hw] = StarDictEntry(
+                        headword=actual_hw,
+                        html_content=render_canonical_html(local_entry),
+                        synonyms=syns,
+                    )
+                    offline_resolved.append(hw)
+
+            if offline_resolved:
+                uncached_words = [hw for hw in uncached_words if hw not in offline_resolved]
+
+            # 3. Sort uncached words: custom words first, then by frequency descending
             uncached_words.sort(
                 key=lambda hw: (
                     1 if new_ods_words[hw].get("is_custom") else 0,
@@ -680,7 +722,20 @@ class Pipeline:
                 finally:
                     coordinator.unregister_build(actual_build_id)
 
-        emit(f"Opslag fuldført. Kompilerer {len(resolved_entries)} ordbogsartikler til StarDict v2.4.2...", 80)
+        # Hard Compiler Guard (Phase 1.2): Filter out any entry without genuine definition
+        valid_entries = []
+        for e in resolved_entries.values():
+            if getattr(e, "canonical_entry", None) is not None:
+                if not is_valid_canonical_entry(e.canonical_entry):
+                    continue
+            html = (e.html_content or "").strip()
+            if not html:
+                continue
+            if not any(marker in html for marker in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"]):
+                continue
+            valid_entries.append(e)
+
+        emit(f"Opslag fuldført. Kompilerer {len(valid_entries)} ordbogsartikler til StarDict v2.4.2...", 80)
 
         # 3. Compile StarDict binaries
         writer = StarDictWriter(
@@ -690,7 +745,7 @@ class Pipeline:
         )
         base_name = "ordpresse"
         compiled_files = writer.compile(
-            entries=list(resolved_entries.values()),
+            entries=valid_entries,
             output_dir=target_dir,
             base_filename=base_name,
             compress_dict=True,

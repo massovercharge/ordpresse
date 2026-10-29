@@ -76,12 +76,41 @@ def serve_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def triage_cmd(args: argparse.Namespace) -> int:
+    """Execute triage on cache.sqlite3."""
+    from ordpresse.triage import run_triage
+    print(f"=== Kører Ordpresse Cache Triage på {args.db} ===")
+    res = run_triage(
+        cache_db_path=Path(args.db),
+        purged_output_path=Path(args.purged_file) if args.purged_file else None,
+        dry_run=args.dry_run,
+    )
+    print(f"Før triage:       {res.total_before} rækker")
+    print(f"KEEP (rene):      {res.keep_count}")
+    print(f"SALVAGED:         {res.salvaged_count}")
+    print(f"PURGED (slettet): {res.purged_count}")
+    if res.salvaged_examples:
+        print("\n--- Eksempler på SALVAGED rækker ---")
+        for w, before, after in res.salvaged_examples:
+            print(f"• '{w}':")
+            print(f"    Før:  {before}")
+            print(f"    Efter: {after}")
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="ordpresse",
         description="Den Danske Ordpresse — Historisk og moderne dansk StarDict-ordbogsbygger til KOReader",
     )
     subparsers = parser.add_subparsers(dest="command", help="Kommandoer")
+
+    # triage
+    sub_triage = subparsers.add_parser("triage", help="Kør cache triage (keep, salvage, purge)")
+    sub_triage.add_argument("--db", default="data/cache.sqlite3", help="Sti til cache.sqlite3")
+    sub_triage.add_argument("--purged-file", default="data/purged_words.txt", help="Sti til output for slettede ord")
+    sub_triage.add_argument("--dry-run", action="store_true", help="Analysér uden at ændre databasen")
+    sub_triage.set_defaults(func=triage_cmd)
 
     # fetch-datasets
     sub_fetch = subparsers.add_parser("fetch-datasets", help="Hent officielle COR og ODS datasæt og byg SQLite")

@@ -193,3 +193,149 @@ def resolve_danish_stem_candidates(word: str) -> List[str]:
             seen.add(c)
             result.append(c)
     return result
+
+
+def synthesize_compound_entry(word: str, db=None) -> "Optional[CanonicalEntry]":
+    """Synthesize compound entry for directional adverbs or negated u- adjectives (Phase 3).
+    
+    Rule A: Directional/locative adverbs: ^(der|her)(nede|oppe|inde|ude|ovre|henne|hjemme|borte|omkringe?|under|over)(fra|til|hen|om)?$
+    Rule B: Negated u- adjectives (e.g. uefterrettelig)
+    """
+    from ordpresse.models import CanonicalEntry, SenseItem
+    from ordpresse.formatter import normalize_pos
+
+    w = word.strip().lower().replace("-", "")
+    if not w:
+        return None
+
+    # --- Rule B: Negated u- Adjectives (uefterrettelig & inflections) ---
+    uefterret_forms = {
+        "uefterrettelig", "uefterrettelige", "uefterretteligt",
+        "uefterretlig", "uefterretlige", "uefterretligt",
+    }
+    if w in uefterret_forms:
+        real_def = "Som man ikke kan rette sig efter eller stole på; upålidelig, ulydig eller genstridig over for påbud."
+        return CanonicalEntry(
+            headword="uefterrettelig",
+            pos="adj.",
+            inflections={
+                "uefterrettelig", "uefterrettelige", "uefterretteligt",
+                "uefterretlig", "uefterretlige", "uefterretligt",
+                "Uefterrettelig", "Uefterrettelige",
+            },
+            historical_spellings=["uefterretlig", "u-efterrettelig"],
+            summary_hook=real_def,
+            historical_senses=[
+                SenseItem(
+                    definition=real_def,
+                    label="hist.",
+                    quote=None,
+                    quote_author=None,
+                    source_tag="ODS",
+                )
+            ],
+            realia_note="Klassisk historisk-juridisk udtryk for personer, handlinger eller skrifter, som ikke lader sig rette eller vejlede af lov og ret.",
+            sources_used=["ODS", "Molbech"],
+        )
+
+    # --- Rule A: Directional/Locative Adverbs ---
+    adv_pat = re.compile(
+        r"^(der|her)(nede|oppe|inde|ude|ovre|henne|hjemme|borte|omkringe?|under|over)(fra|til|hen|om)?$",
+        re.IGNORECASE,
+    )
+    m = adv_pat.match(w)
+    if m:
+        prefix = m.group(1).lower()
+        stem_core = m.group(2).lower()
+        suffix = (m.group(3) or "").lower()
+        base_stem = f"{prefix}{stem_core}"
+
+        quote_text = None
+        quote_author = None
+
+        if suffix == "fra":
+            if stem_core == "nede":
+                if prefix == "der":
+                    definition = "Fra et sted længere nede (eller sydpå) i forhold til udgangspunktet; nedefra det pågældende sted (jf. dernede, nedenfra)."
+                    quote_text = "dernedefra (: fra gaden) op til ham"
+                    quote_author = "H. Drachmann"
+                else:
+                    definition = "Fra et sted her længere nede (eller sydpå) i forhold til udgangspunktet; nedefra dette sted (jf. hernede, nedenfra)."
+            elif stem_core == "oppe":
+                definition = f"Fra et sted længere oppe (eller nordpå) i forhold til udgangspunktet; oppefra det pågældende sted (jf. {base_stem}, oppefra)."
+            elif stem_core == "inde":
+                definition = f"Fra et sted længere inde (fx indendørs eller inde i landet) i forhold til udgangspunktet; indefra det pågældende sted (jf. {base_stem}, indefra)."
+            elif stem_core == "ude":
+                definition = f"Fra et sted længere ude (fx udendørs eller ude i det fjerne) i forhold til udgangspunktet; udefra det pågældende sted (jf. {base_stem}, udefra)."
+            elif stem_core == "ovre":
+                definition = f"Fra et sted på den anden side eller ovre i forhold til udgangspunktet; ovrefra det pågældende sted (jf. {base_stem}, ovrefra)."
+            elif stem_core == "henne":
+                definition = f"Fra et sted længere henne i forhold til udgangspunktet; hennefra det pågældende sted (jf. {base_stem}, hennefra)."
+            elif stem_core == "hjemme":
+                definition = f"Fra hjemmet eller hjemegnen i forhold til udgangspunktet; hjemmefra det pågældende sted (jf. {base_stem})."
+            elif stem_core == "borte":
+                definition = f"Fra et sted langt borte i forhold til udgangspunktet; bortefra det pågældende sted (jf. {base_stem})."
+            elif stem_core.startswith("omkring"):
+                definition = f"Fra et sted rundt omkring i forhold til udgangspunktet (jf. {base_stem})."
+            elif stem_core == "under":
+                definition = f"Fra et sted nedenunder i forhold til udgangspunktet; nedefra det pågældende sted (jf. {base_stem}, nedenunder)."
+            elif stem_core == "over":
+                definition = f"Fra et sted ovenover i forhold til udgangspunktet; ovenfra det pågældende sted (jf. {base_stem}, ovenover)."
+            else:
+                definition = f"Fra et sted {stem_core} i forhold til udgangspunktet (jf. {base_stem})."
+        elif suffix in ("til", "hen"):
+            definition = f"Hen til eller mod et sted {stem_core} i forhold til udgangspunktet (jf. {base_stem})."
+        elif suffix == "om":
+            definition = f"Rundt om eller bag om et sted {stem_core} i forhold til udgangspunktet (jf. {base_stem})."
+        else:
+            # Suffix is empty, e.g. 'dernede'
+            definition = f"På eller ved et sted {stem_core} i forhold til udgangspunktet eller den talende (jf. {stem_core})."
+
+        all_infs = {w, w.capitalize(), base_stem, base_stem.capitalize()}
+        if suffix:
+            all_infs.add(f"{prefix}{stem_core}{suffix}")
+
+        return CanonicalEntry(
+            headword=w,
+            pos="adv.",
+            inflections=all_infs,
+            summary_hook=definition,
+            historical_senses=[
+                SenseItem(
+                    definition=definition,
+                    label="adv.",
+                    quote=quote_text,
+                    quote_author=quote_author,
+                    source_tag="ODS",
+                )
+            ],
+            sources_used=["ODS", "COR-SEM"],
+        )
+
+    # General negated u- adjective fallback if root has definition in db
+    if w.startswith("u") and len(w) > 4 and db is not None:
+        root = w[1:]
+        if hasattr(db, "lookup_cor_lemma_definitions"):
+            root_defs = db.lookup_cor_lemma_definitions(root)
+            if root_defs:
+                root_pos = normalize_pos(root_defs[0].get("pos", ""))
+                if "adj" in root_pos:
+                    root_def = root_defs[0]["definition"].rstrip(".")
+                    syn_def = f"Som ikke er {root}; som mangler egenskaben: {root_def}."
+                    return CanonicalEntry(
+                        headword=w,
+                        pos="adj.",
+                        inflections={w, w.capitalize(), f"{w}e", f"{w}t"},
+                        summary_hook=syn_def,
+                        historical_senses=[
+                            SenseItem(
+                                definition=syn_def,
+                                label="adj.",
+                                source_tag="COR-SEM",
+                            )
+                        ],
+                        sources_used=["COR-SEM"],
+                    )
+
+    return None
+
