@@ -510,26 +510,15 @@ class Pipeline:
                 reverse=True,
             )
 
-            # Filter eligible words to scrape online (custom words or words appearing >= threshold)
-            frequent_uncached = [
-                hw for hw in uncached_words
-                if new_ods_words[hw].get("is_custom")
-                or new_ods_words[hw].get("frequency", 1) >= MIN_EPUB_WORD_FREQUENCY_FOR_SCRAPING
-            ]
-
+            # All uncached words are prioritized by custom flag and frequency descending
             words_to_scrape = []
             if allow_network and uncached_words:
-                if frequent_uncached:
-                    words_to_scrape = frequent_uncached[:MAX_ONLINE_SCRAPE_BATCH]
-                elif all(new_ods_words[hw].get("frequency", 1) == 1 for hw in new_ods_words):
-                    # Corpus has only single-occurrence words (e.g. short sample / wordlist)
-                    words_to_scrape = uncached_words[:MAX_ONLINE_SCRAPE_BATCH]
-                else:
-                    emit(
-                        f"Alle hyppige historiske ord fra bøgerne (frekvens ≥ {MIN_EPUB_WORD_FREQUENCY_FOR_SCRAPING}) "
-                        f"er allerede i cachen ({len(cached_words)} genbrugt).",
-                        75,
-                    )
+                words_to_scrape = uncached_words[:MAX_ONLINE_SCRAPE_BATCH]
+            elif not uncached_words and cached_words:
+                emit(
+                    f"Alle historiske ord fra bøgerne er allerede i cachen ({len(cached_words)} genbrugt).",
+                    75,
+                )
 
             if words_to_scrape:
                 total_to_scrape = len(words_to_scrape)

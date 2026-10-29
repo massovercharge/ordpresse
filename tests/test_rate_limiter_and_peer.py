@@ -274,3 +274,28 @@ def test_index_html_contains_updated_batch_chip_timings():
     assert "(~7m)" in html
     assert "(~20m)" in html
     assert "r.status === 429" in html
+
+def test_missing_words_endpoint_all_exceeds_1000():
+    """Verify that choosing 'all' (limit=None) returns all words even when exceeding 1000."""
+    client = TestClient(app)
+    build_id = "test_large_all_build"
+    words = [f"word_{i}" for i in range(1600)]
+    coordinator.register_build(build_id, words)
+
+    # Test with no limit (Alle)
+    resp_all = client.get(f"/api/build/{build_id}/missing-words")
+    assert resp_all.status_code == 200
+    data_all = resp_all.json()
+    assert data_all["missing_count"] == 1600
+    assert data_all["total_pending"] == 1600
+    assert len(data_all["words"]) == 1600
+
+    # Test with limit=1000
+    resp_1000 = client.get(f"/api/build/{build_id}/missing-words?limit=1000")
+    assert resp_1000.status_code == 200
+    data_1000 = resp_1000.json()
+    assert data_1000["missing_count"] == 1000
+    assert data_1000["total_pending"] == 1600
+    assert len(data_1000["words"]) == 1000
+
+    coordinator.unregister_build(build_id)
