@@ -554,8 +554,12 @@
                         } else if (data.total_pending !== undefined) {
                             missingWordsBadge.textContent = `${data.total_pending} ord i kø`;
                         }
-                        if (peerHelperPanel) {
+                    }
+                    if (peerHelperPanel) {
+                        if ((data.total_pending && data.total_pending > 0) || (data.resolved_count && data.resolved_count > 0)) {
                             peerHelperPanel.classList.remove('hidden');
+                        } else {
+                            peerHelperPanel.classList.add('hidden');
                         }
                     }
                 }
@@ -698,7 +702,7 @@
                 currentBuildId = buildId;
                 updateOpenOrdnetLinkHref();
                 if (peerHelperPanel) {
-                    peerHelperPanel.classList.remove('hidden');
+                    peerHelperPanel.classList.add('hidden');
                 }
                 if (skipQueueBtn) {
                     skipQueueBtn.disabled = false;

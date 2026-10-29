@@ -91,7 +91,9 @@ def init_datasets_db(conn: sqlite3.Connection) -> None:
 
 
 def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
-    """Purge corrupted scraper entries, SITATER/adjektiv leaks, and empty skeleton definitions."""
+    """Purge corrupted scraper entries, SITATER/adjektiv leaks, author signatures, and repair glued typography."""
+    from bs4 import BeautifulSoup
+    from ordpresse.sources.ods_scraper import is_valid_definition
     corrupted_pos_pattern = re.compile(r"<i>[^<]*(?:adjektiv|substantiv)</i>")
     with conn:
         cur = conn.execute(
@@ -99,6 +101,7 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
             DELETE FROM definitions
             WHERE html_content LIKE '%SITATER%'
                OR html_content LIKE '%Historisk opslag for »%'
+               OR html_content LIKE '%ingen betydningsangivelse%'
                OR html_content IS NULL
                OR trim(html_content) = ''
             """
@@ -107,6 +110,7 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
 
         cur = conn.execute("SELECT word, html_content FROM definitions")
         to_delete = []
+        to_update = []
         for row in cur.fetchall():
             word = row[0]
             html = (row[1] or "").strip()
@@ -118,10 +122,36 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
                 continue
             if not any(marker in html for marker in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"]):
                 to_delete.append(word)
+                continue
+
+            # Check if definition is merely an author signature or unparsed citation
+            soup = BeautifulSoup(html, "html.parser")
+            has_valid_sense = False
+            for li in soup.find_all("li"):
+                li_txt = re.sub(r"^\([^)]+\)\s*", "", li.get_text(" ", strip=True)).strip()
+                if is_valid_definition(li_txt):
+                    has_valid_sense = True
+                    break
+            if not has_valid_sense and "▸" not in html and "[Historisk kontekst]" not in html:
+                to_delete.append(word)
+                continue
+
+            # Repair typography spacing in cached html
+            repaired_html = html
+            if re.search(r"[a-zæøåA-ZÆØÅ0-9]ell\.", repaired_html) or re.search(r"\b(?:m\.|jf\.)[a-zæøåA-ZÆØÅ0-9]", repaired_html):
+                repaired_html = re.sub(r"([a-zæøåA-ZÆØÅ0-9])(ell?\.)", r"\1 \2", repaired_html)
+                repaired_html = re.sub(r"\b(ell?\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", repaired_html)
+                repaired_html = re.sub(r"([a-zæøåA-ZÆØÅ0-9])(jf\.)", r"\1 \2", repaired_html)
+                repaired_html = re.sub(r"\b(jf\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", repaired_html)
+                repaired_html = re.sub(r"\b(m\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", repaired_html)
+                to_update.append((repaired_html, word))
 
         if to_delete:
             conn.executemany("DELETE FROM definitions WHERE word = ?", [(w,) for w in to_delete])
             deleted += len(to_delete)
+
+        if to_update:
+            conn.executemany("UPDATE definitions SET html_content = ? WHERE word = ?", to_update)
 
         return deleted
 

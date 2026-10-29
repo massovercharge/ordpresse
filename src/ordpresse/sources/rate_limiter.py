@@ -48,7 +48,8 @@ class ScrapeCoordinator:
         self.missing_by_build[build_id] = unique_words
         self.resolved_words[build_id] = set()
         self.word_resolved_events[build_id] = asyncio.Event()
-        self.build_modes[build_id] = initial_mode
+        if build_id not in self.build_modes:
+            self.build_modes[build_id] = initial_mode
         self.mode_events[build_id] = asyncio.Event()
         if build_id not in self._rr_queue:
             self._rr_queue.append(build_id)
