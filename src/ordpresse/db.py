@@ -103,6 +103,7 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
             WHERE html_content LIKE '%SITATER%'
                OR html_content LIKE '%Historisk opslag for »%'
                OR html_content LIKE '%ingen betydningsangivelse%'
+               OR html_content LIKE '%finansielle støttespillere%'
                OR html_content IS NULL
                OR trim(html_content) = ''
             """
@@ -121,7 +122,7 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
             if corrupted_pos_pattern.search(html):
                 to_delete.append(word)
                 continue
-            if not any(marker in html for marker in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"]):
+            if not any(marker in html for marker in ["<ol>", "<li>", "▸", "•", "<p>", "[Historisk kontekst]"]):
                 to_delete.append(word)
                 continue
 
@@ -133,18 +134,25 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
                 if is_valid_definition(li_txt):
                     has_valid_sense = True
                     break
-            if not has_valid_sense and "▸" not in html and "[Historisk kontekst]" not in html:
+            if not has_valid_sense and "▸" not in html and "•" not in html and "[Historisk kontekst]" not in html:
                 to_delete.append(word)
                 continue
 
-            # Repair typography spacing in cached html
+            # Repair typography spacing and e-ink symbols in cached html
             repaired_html = html
+            if "▸" in repaired_html:
+                repaired_html = repaired_html.replace("▸", "•")
+            if "|" in repaired_html:
+                repaired_html = re.sub(r"\s*\|\s*", "; ", repaired_html)
+
             if re.search(r"[a-zæøåA-ZÆØÅ0-9]ell\.", repaired_html) or re.search(r"\b(?:m\.|jf\.)[a-zæøåA-ZÆØÅ0-9]", repaired_html):
                 repaired_html = re.sub(r"([a-zæøåA-ZÆØÅ0-9])(ell?\.)", r"\1 \2", repaired_html)
                 repaired_html = re.sub(r"\b(ell?\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", repaired_html)
                 repaired_html = re.sub(r"([a-zæøåA-ZÆØÅ0-9])(jf\.)", r"\1 \2", repaired_html)
                 repaired_html = re.sub(r"\b(jf\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", repaired_html)
                 repaired_html = re.sub(r"\b(m\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", repaired_html)
+
+            if repaired_html != html:
                 to_update.append((repaired_html, word))
 
         if to_delete:
