@@ -469,7 +469,20 @@ async def cancel_build(build_id: str):
 
 @app.api_route("/api/download/{build_id}", methods=["GET", "HEAD"])
 async def download_dict(build_id: str):
-    """Download the generated StarDict zip archive."""
+    if build_id == "latest":
+        candidates = sorted(
+            list(OUTPUT_DIR.glob("build_*/ordpresse.zip")),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if candidates:
+            return FileResponse(
+                path=str(candidates[0]),
+                filename="ordpresse.zip",
+                media_type="application/zip",
+            )
+        raise HTTPException(status_code=404, detail="Ingen ordbogsbyg fundet")
+
     target_dir = OUTPUT_DIR / f"build_{build_id}"
     zip_path = target_dir / "ordpresse.zip"
     if not zip_path.exists():
