@@ -127,6 +127,8 @@ class StarDictWriter:
                 # Invariant #2: Intet headword må optræde i sit eget .syn-sæt
                 if not s_clean or s_clean.lower() == entry.headword.lower() or s_clean in seen_syns:
                     continue
+                if s_clean.startswith("-") or s_clean.endswith("-"):
+                    continue
                 seen_syns.add(s_clean)
                 syn_records_list.append((s_clean, i))
 

@@ -25,10 +25,15 @@ from ordpresse.config import (
 )
 from ordpresse.db import Database
 from ordpresse.epub_scanner import scan_epub_token_counts, scan_epub_tokens
-from ordpresse.orthography import generate_orthographic_synonyms, synthesize_compound_entry
+from ordpresse.orthography import (
+    classify_external_lookup_priority,
+    generate_orthographic_synonyms,
+    synthesize_compound_entry,
+)
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
 from ordpresse.synthesizer import is_valid_canonical_entry
+from ordpresse.sources.ddo_scraper import DDOScraper, DDOScraperRateLimitError
 from ordpresse.sources.molbech_1859 import (
     MOLBECH_1859_ENTRIES,
     get_molbech_1859_entry,
@@ -139,6 +144,7 @@ class Pipeline:
         db = self.get_db()
 
         resolved_entries: dict[str, StarDictEntry] = {}
+        resolved_canonical: dict[str, CanonicalEntry] = {}
         cor_count = 0
         cor_id_to_headword: dict[str, str] = {}
 
@@ -155,6 +161,8 @@ class Pipeline:
                     html_content=item["html_content"],
                     synonyms=syns,
                 )
+                if item.get("canonical_entry"):
+                    resolved_canonical[hw] = item["canonical_entry"]
                 for lid in item.get("lemma_ids", []):
                     cor_id_to_headword[lid] = hw
         elif full_dictionary and (allow_network or any(db.datasets_path.parent.glob("raw/*.tsv"))):
@@ -173,6 +181,8 @@ class Pipeline:
                         html_content=item["html_content"],
                         synonyms=syns,
                     )
+                    if item.get("canonical_entry"):
+                        resolved_canonical[hw] = item["canonical_entry"]
             except Exception as e:
                 logger.warning(f"Kunne ikke auto-importere datasæt: {e}")
 
@@ -180,13 +190,14 @@ class Pipeline:
         historical_headwords: set[str] = set()
 
         # b) Always merge all curated entries from nordic_1800s.py and molbech_1859.py
-        historical_lexicons = list(NORDIC_1800S_ENTRIES.values()) + list(MOLBECH_1859_ENTRIES.values())
+        historical_lexicons = list(MOLBECH_1859_ENTRIES.values()) + list(NORDIC_1800S_ENTRIES.values())
         for canonical_seed in historical_lexicons:
             hw = canonical_seed.headword.lower()
             historical_headwords.add(hw)
             ods_infs = db.lookup_ods_headword_inflections(canonical_seed.headword) if db else []
             all_inflections = set(canonical_seed.inflections) | set(ods_infs) | set(canonical_seed.historical_spellings)
             canonical_seed.inflections = all_inflections
+            resolved_canonical[hw] = canonical_seed
 
             # If entry already exists from COR-SEM, enrich it
             if hw in resolved_entries:
@@ -548,48 +559,139 @@ class Pipeline:
             if offline_resolved:
                 uncached_words = [hw for hw in uncached_words if hw not in offline_resolved]
 
-            # 3. Sort uncached words: custom words first, then by frequency descending
-            uncached_words.sort(
-                key=lambda hw: (
-                    1 if new_ods_words[hw].get("is_custom") else 0,
-                    new_ods_words[hw].get("frequency", 1),
-                    hw,
-                ),
+            # 3. Build 3-tier queue: Priority 1 (completely missing/empty skeletons) before Priority 2 (cliffhanger truncated)
+            priority_1_items: list[dict] = []
+            priority_2_items: list[dict] = []
+
+            # Priority 1: Uncached historical headwords from new_ods_words
+            for hw in uncached_words:
+                priority_1_items.append({
+                    "word": hw,
+                    "target": "ods",
+                    "priority": 1,
+                    "frequency": new_ods_words[hw].get("frequency", 1),
+                    "is_custom": new_ods_words[hw].get("is_custom", False),
+                })
+
+            # Check candidate headwords from EPUB/custom words against resolved_canonical for Priority 1 / Priority 2
+            candidate_headwords: set[str] = set()
+            for t in all_tokens:
+                if t in resolved_canonical:
+                    candidate_headwords.add(t)
+                elif t in token_to_cor_lemma and token_to_cor_lemma[t] in resolved_canonical:
+                    candidate_headwords.add(token_to_cor_lemma[t])
+                elif t in resolved_entries and resolved_entries[t].headword in resolved_canonical:
+                    candidate_headwords.add(resolved_entries[t].headword)
+            for cw in custom_tokens_set:
+                if cw in resolved_canonical:
+                    candidate_headwords.add(cw)
+
+            for hw in candidate_headwords:
+                prio = classify_external_lookup_priority(resolved_canonical[hw])
+                if prio == 1:
+                    if hw not in cached_map and hw not in not_found_words:
+                        priority_1_items.append({
+                            "word": hw,
+                            "target": "ddo",
+                            "priority": 1,
+                            "frequency": token_counts.get(hw, 1),
+                            "is_custom": hw in custom_tokens_set,
+                        })
+                elif prio == 2:
+                    # Priority 2: Cliffhanger truncation — check cache first to resolve offline
+                    cached_item = db.get_cached_definition(hw) if db else None
+                    if cached_item and "Historisk opslag for »" not in cached_item.get("html_content", ""):
+                        c_html = cached_item.get("html_content", "")
+                        if len(c_html) > 50 and not c_html.strip().endswith(("...", "…")):
+                            actual_hw = cached_item.get("headword", hw).lower()
+                            cur_entry = resolved_entries.get(actual_hw)
+                            syns = cur_entry.synonyms if cur_entry else [actual_hw]
+                            resolved_entries[actual_hw] = StarDictEntry(
+                                headword=actual_hw,
+                                html_content=c_html,
+                                synonyms=syns,
+                            )
+                            continue
+                    priority_2_items.append({
+                        "word": hw,
+                        "target": "ddo",
+                        "priority": 2,
+                        "frequency": token_counts.get(hw, 1),
+                        "is_custom": hw in custom_tokens_set,
+                    })
+                # Priority 3 words are excluded from the auto EPUB queue per specification
+
+            priority_1_items.sort(
+                key=lambda it: (1 if it.get("is_custom") else 0, it.get("frequency", 1), it["word"]),
+                reverse=True,
+            )
+            priority_2_items.sort(
+                key=lambda it: (1 if it.get("is_custom") else 0, it.get("frequency", 1), it["word"]),
                 reverse=True,
             )
 
-            # All uncached words are prioritized by custom flag and frequency descending
-            words_to_scrape = []
-            if allow_network and uncached_words:
-                words_to_scrape = uncached_words[:MAX_ONLINE_SCRAPE_BATCH]
-            elif not uncached_words and cached_words:
+            seen_queue_words = set()
+            dedup_combined_items: list[dict] = []
+            for it in (priority_1_items + priority_2_items):
+                w_low = it["word"].lower()
+                if w_low not in seen_queue_words:
+                    seen_queue_words.add(w_low)
+                    dedup_combined_items.append(it)
+
+            items_to_scrape: list[dict] = []
+            if allow_network and dedup_combined_items:
+                items_to_scrape = dedup_combined_items[:MAX_ONLINE_SCRAPE_BATCH]
+            elif not dedup_combined_items and cached_words:
                 emit(
                     f"Alle historiske ord fra bøgerne er allerede i cachen ({len(cached_words)} genbrugt).",
                     75,
                 )
 
-            if words_to_scrape:
-                total_to_scrape = len(words_to_scrape)
-                coordinator.register_build(actual_build_id, words_to_scrape, initial_mode=scrape_mode)
+            if items_to_scrape:
+                total_to_scrape = len(items_to_scrape)
+                words_to_scrape = [it["word"] for it in items_to_scrape]
+                coordinator.register_build(actual_build_id, words_to_scrape, initial_mode=scrape_mode, items=items_to_scrape)
+
+                p1_items_in_batch = [it for it in items_to_scrape if it.get("priority", 1) == 1]
+                p2_items_in_batch = [it for it in items_to_scrape if it.get("priority", 1) == 2]
+                p1_total = len(p1_items_in_batch)
+                p2_total = len(p2_items_in_batch)
+
                 if scrape_mode in ("bookmarklet", "wait_choice"):
                     emit(
-                        f"Klar til berigelse af op til {total_to_scrape} prioriterede ord. Vælg mængde og kør Lyn-Henter...",
+                        f"Klar til berigelse af op til {total_to_scrape} prioriterede ord "
+                        f"({p1_total} Prio 1, {p2_total} Prio 2). Vælg mængde og kør Lyn-Henter...",
                         60,
                     )
                 else:
                     emit(
-                        f"Henter {total_to_scrape} prioriterede historiske ord over nettet "
-                        f"({len(cached_words)} genbrugt fra cache, {len(uncached_words) - total_to_scrape} afventer)...",
+                        f"Henter {total_to_scrape} prioriterede ord over nettet "
+                        f"({p1_total} Prio 1, {p2_total} Prio 2, {len(cached_words)} genbrugt fra cache)...",
                         60,
                     )
 
                 completed = 0
                 server_scraped_count = 0
+                p1_idx = 0
+                p2_idx = 0
                 last_emit_time = time.time()
                 last_logged_resolved = -1
                 last_wait_emit_time = 0.0
+                ddo_scraper = DDOScraper()
+
                 try:
-                    for idx, hw in enumerate(words_to_scrape, start=1):
+                    for idx, it in enumerate(items_to_scrape, start=1):
+                        hw = it["word"]
+                        target = it.get("target", "ods")
+                        prio = it.get("priority", 1)
+
+                        if prio == 1:
+                            p1_idx += 1
+                            step_desc = f"Henter manglende ord {p1_idx}/{p1_total} ({hw}) [Prio 1 — mangler helt]..."
+                        else:
+                            p2_idx += 1
+                            step_desc = f"Fuldender afkortet definition {p2_idx}/{p2_total} ({hw}) [Prio 2 — kan springes over]..."
+
                         if is_cancelled and is_cancelled():
                             raise RuntimeError("Byggeprocessen blev afbrudt af brugeren.")
 
@@ -603,20 +705,25 @@ class Pipeline:
 
                         # Check if peer bookmarklet already submitted it
                         cached_entry = db.get_cached_definition(hw) if db else None
-                        if cached_entry:
-                            coordinator.mark_word_resolved(hw, actual_build_id)
-                            actual_hw = cached_entry["headword"].lower()
-                            syns = generate_orthographic_synonyms(
-                                actual_hw,
-                                list(new_ods_words[hw]["inflections"]) + cached_entry.get("synonyms", []) + [hw],
-                            )
-                            resolved_entries[actual_hw] = StarDictEntry(
-                                headword=actual_hw,
-                                html_content=cached_entry["html_content"],
-                                synonyms=syns,
-                            )
-                            completed += 1
-                            continue
+                        if cached_entry and "Historisk opslag for »" not in cached_entry.get("html_content", ""):
+                            c_html = cached_entry.get("html_content", "")
+                            if (prio == 1 and len(c_html) > 20) or (prio == 2 and len(c_html) > 50 and not c_html.strip().endswith(("...", "…"))):
+                                coordinator.mark_word_resolved(hw, actual_build_id)
+                                actual_hw = cached_entry["headword"].lower()
+                                infs = list(new_ods_words.get(hw, {}).get("inflections", []))
+                                if not infs and actual_hw in resolved_entries:
+                                    infs = list(resolved_entries[actual_hw].synonyms)
+                                syns = generate_orthographic_synonyms(
+                                    actual_hw,
+                                    infs + cached_entry.get("synonyms", []) + [hw],
+                                )
+                                resolved_entries[actual_hw] = StarDictEntry(
+                                    headword=actual_hw,
+                                    html_content=c_html,
+                                    synonyms=syns,
+                                )
+                                completed += 1
+                                continue
 
                         # Rate-limit acquisition with peer-resolve wakeup
                         current_pct = 60 + int(20 * (idx / total_to_scrape))
@@ -659,9 +766,12 @@ class Pipeline:
                             cached_entry = db.get_cached_definition(hw) if db else None
                             if cached_entry:
                                 actual_hw = cached_entry["headword"].lower()
+                                infs = list(new_ods_words.get(hw, {}).get("inflections", []))
+                                if not infs and actual_hw in resolved_entries:
+                                    infs = list(resolved_entries[actual_hw].synonyms)
                                 syns = generate_orthographic_synonyms(
                                     actual_hw,
-                                    list(new_ods_words[hw]["inflections"]) + cached_entry.get("synonyms", []) + [hw],
+                                    infs + cached_entry.get("synonyms", []) + [hw],
                                 )
                                 resolved_entries[actual_hw] = StarDictEntry(
                                     headword=actual_hw,
@@ -689,8 +799,11 @@ class Pipeline:
 
                         def_data = None
                         try:
-                            def_data = scraper.fetch_word_definition(hw, allow_remote=True) if scraper else None
-                        except ODSScraperRateLimitError as rle:
+                            if target == "ddo":
+                                def_data = ddo_scraper.scrape_ddo(hw)
+                            else:
+                                def_data = scraper.fetch_word_definition(hw, allow_remote=True) if scraper else None
+                        except (ODSScraperRateLimitError, DDOScraperRateLimitError) as rle:
                             pct = 60 + int(20 * (idx / total_to_scrape))
                             emit(
                                 f"Advarsel: ordnet.dk anmodede om pause ({rle}). Online-hentning afbrudt pænt; "
@@ -705,25 +818,44 @@ class Pipeline:
                         if def_data:
                             coordinator.mark_word_resolved(hw, actual_build_id)
                             actual_hw = def_data["headword"].lower()
-                            syns = generate_orthographic_synonyms(
-                                actual_hw,
-                                list(new_ods_words[hw]["inflections"]) + def_data.get("synonyms", []) + [hw],
-                            )
-                            resolved_entries[actual_hw] = StarDictEntry(
-                                headword=actual_hw,
-                                html_content=def_data["html_content"],
-                                synonyms=syns,
-                            )
+                            if target == "ddo":
+                                if db:
+                                    db.save_cached_definition(
+                                        word=hw,
+                                        headword=def_data["headword"],
+                                        pos=def_data.get("pos", ""),
+                                        html_content=def_data["html_content"],
+                                        synonyms=def_data.get("synonyms", []),
+                                    )
+                                    if def_data.get("definitions"):
+                                        db.update_cor_definition(hw, def_data["definitions"][0])
+                                existing_syns = resolved_entries[actual_hw].synonyms if actual_hw in resolved_entries else []
+                                syns = generate_orthographic_synonyms(
+                                    actual_hw,
+                                    list(existing_syns) + def_data.get("synonyms", []) + [hw],
+                                )
+                                resolved_entries[actual_hw] = StarDictEntry(
+                                    headword=actual_hw,
+                                    html_content=def_data["html_content"],
+                                    synonyms=syns,
+                                )
+                            else:
+                                infs = list(new_ods_words.get(hw, {}).get("inflections", []))
+                                syns = generate_orthographic_synonyms(
+                                    actual_hw,
+                                    infs + def_data.get("synonyms", []) + [hw],
+                                )
+                                resolved_entries[actual_hw] = StarDictEntry(
+                                    headword=actual_hw,
+                                    html_content=def_data["html_content"],
+                                    synonyms=syns,
+                                )
 
                         completed += 1
                         now = time.time()
                         if completed % 5 == 0 or completed == total_to_scrape or (now - last_emit_time) >= 1.5:
                             pct = 60 + int(20 * (completed / total_to_scrape))
-                            freq = new_ods_words[hw].get("frequency", 1)
-                            emit(
-                                f"Henter historiske ODS-opslag: {completed}/{total_to_scrape} ({pct}%) — »{hw}« (frekvens: {freq})",
-                                pct,
-                            )
+                            emit(step_desc, pct)
                             last_emit_time = now
                 finally:
                     coordinator.unregister_build(actual_build_id)
@@ -737,7 +869,7 @@ class Pipeline:
             html = (e.html_content or "").strip()
             if not html:
                 continue
-            if not any(marker in html for marker in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"]):
+            if not any(marker in html for marker in ["<ol>", "<li>", "<p>", "[Historisk kontekst]"]):
                 continue
             valid_entries.append(e)
 

@@ -436,10 +436,15 @@ class Database:
                 SELECT lower(fullform), lower(lemma), pos, lemma_id
                 FROM cor_forms
                 WHERE fullform IN ({placeholders})
+                  AND (norm_status != 'U' OR norm_status IS NULL)
+                  AND fullform NOT LIKE '-%'
+                  AND fullform NOT LIKE '%-'
                 """,
                 chunk,
             )
             for ff, lem, pos, lid in cur.fetchall():
+                if ff.startswith("-") or ff.endswith("-"):
+                    continue
                 entry = {"lemma": lem, "pos": pos or "", "lemma_id": lid or ""}
                 for original_w in query_map.get(ff, []):
                     if original_w not in results:
@@ -491,6 +496,9 @@ class Database:
             SELECT DISTINCT fullform, pos
             FROM cor_forms
             WHERE lemma = ?
+              AND norm_status != 'U'
+              AND fullform NOT LIKE '-%'
+              AND fullform NOT LIKE '%-'
             LIMIT 100
             """,
             (lemma,),
@@ -500,6 +508,8 @@ class Database:
         results = []
         for r in rows:
             ff = r[0]
+            if ff.startswith("-") or ff.endswith("-"):
+                continue
             r_pos = normalize_pos(r[1] or "")
             if norm_filter_pos and r_pos:
                 if not (r_pos == norm_filter_pos or r_pos.startswith(norm_filter_pos[:2])):
@@ -566,12 +576,27 @@ class Database:
 
         # Bulk pre-populate inflections in a single fast sequential scan (linking by lemma and lemma_id)
         inflections_map: dict[str, set[str]] = {}
-        cur.execute("SELECT lemma, lemma_id, pos, fullform FROM cor_forms WHERE fullform != ''")
+        cur.execute(
+            """
+            SELECT lemma, lemma_id, pos, fullform, norm_status
+            FROM cor_forms
+            WHERE fullform != ''
+              AND (norm_status != 'U' OR norm_status IS NULL)
+              AND fullform NOT LIKE '-%'
+              AND fullform NOT LIKE '%-'
+            """
+        )
         for row in cur.fetchall():
             lem = row[0].lower()
             lid = row[1]
             row_pos = normalize_pos(row[2] or "")
             fullform = row[3]
+            norm_status = row[4] if len(row) > 4 else ""
+
+            if norm_status == "U":
+                continue
+            if fullform.startswith("-") or fullform.endswith("-"):
+                continue
 
             target_lem = None
             if lid and lid in id_to_lemma:
@@ -647,3 +672,32 @@ class Database:
                 "lemma_ids": list(data.get("lemma_ids", set())),
             })
         return results
+
+    def update_cor_definition(self, lemma_or_id: str, new_definition: str) -> bool:
+        """Permanently update a definition in datasets.sqlite3 (cor_definitions) for a lemma or sense_id."""
+        if not self.datasets_path.exists():
+            return False
+        cur = self.datasets_conn.cursor()
+        target = lemma_or_id.strip()
+        updated = 0
+        if target.startswith("COR.SEM."):
+            cur.execute(
+                "UPDATE cor_definitions SET definition = ? WHERE sense_id = ?",
+                (new_definition, target),
+            )
+            updated = cur.rowcount
+        else:
+            cur.execute(
+                """
+                UPDATE cor_definitions
+                SET definition = ?
+                WHERE sense_id IN (
+                    SELECT sense_id FROM cor_sem WHERE lower(lemma) = ?
+                )
+                """,
+                (new_definition, target.lower()),
+            )
+            updated = cur.rowcount
+        self.datasets_conn.commit()
+        return updated > 0
+

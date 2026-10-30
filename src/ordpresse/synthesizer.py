@@ -11,19 +11,23 @@ logger = logging.getLogger(__name__)
 
 # Curated completed definitions for COR-SEM entries whose DSL export ended in "…" (U+2026)
 COR_SEM_DEFINITION_COMPLETIONS: dict[str, str] = {
+    "stakkels": "som vækker medlidenhed pga. sin svaghed, hjælpeløshed eller ulykkelige situation",
     "prioritetslån": "lån der ydes mod panteret i fast ejendom typisk et realkreditlån",
     "nybegynder": "person der netop er begyndt at beskæftige sig med et bestemt fag, en bestemt sport, hobby el.lign., men næsten ikke har noget kendskab dertil",
     "søskende": "personer som er børn af samme forældre, dvs. brødre og søstre",
+    "grund": "landjorden som et underlag man kan stå fast, gå eller færdes på",
     "grunde": "tænke dybt og grundigt over noget; gruble; fundere",
 }
 
 # Mapping by exact COR.SEM ID
 COR_SEM_ID_COMPLETIONS: dict[str, str] = {
+    "COR.SEM.24428.01": "som vækker medlidenhed pga. sin svaghed, hjælpeløshed eller ulykkelige situation",
     "COR.SEM.1006235.01": "lån der ydes mod panteret i fast ejendom typisk et realkreditlån",
     "COR.SEM.87422.01": "person der netop er begyndt at beskæftige sig med et bestemt fag, en bestemt sport, hobby el.lign., men næsten ikke har noget kendskab dertil",
     "COR.SEM.68312.01": "personer som er børn af samme forældre, dvs. brødre og søstre",
     "COR.SEM.1002897.01": "landjorden som et underlag man kan stå fast, gå eller færdes på",
     "COR.SEM.1002897.02": "grundlag som giver (u)sikkerhed; udgangspunkt hvorfra noget udvikler sig eller kan bedømmes",
+    "COR.SEM.1002897.03": "landområde (hvorpå noget bygges)",
     "COR.SEM.1002897.04": "grundlag som forårsager, motiverer eller forklarer et fænomen, en handling, holdning e.l.; årsag",
     "COR.SEM.1002898.01": "tænke dybt og grundigt over noget; gruble; fundere",
 }

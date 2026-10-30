@@ -19,7 +19,7 @@ MOLBECH_1859_ENTRIES: Dict[str, CanonicalEntry] = {
             "uefterretligt",
         },
         historical_spellings=["uefterretlig", "u-efterrettelig"],
-        summary_hook="som man ikke kan rette sig efter; upålidelig; ulydig.",
+        summary_hook="Som man ikke kan rette sig efter eller stole på; upålidelig, ulydig over for påbud.",
         historical_senses=[
             SenseItem(
                 definition="som man ikke kan rette sig efter; upålidelig; ulydig.",

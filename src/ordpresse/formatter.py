@@ -67,10 +67,47 @@ def normalize_pos(pos: str) -> str:
     return p
 
 
+def select_display_inflections(
+    headword: str,
+    inflections: set[str] | list[str],
+    limit: int = 3,
+) -> list[str]:
+    """Select the best representative display inflections for KOReader header.
+
+    Rules:
+    - Never include forms starting or ending with a hyphen ('grund-', 'søskende-').
+    - Exclude forms identical to headword (case-insensitive).
+    - Deprioritize genitives (-ens, -ets, -enes, -ernes).
+    - Sort by: (is_capitalized_variant, is_genitive, len(form), form.lower())
+    """
+    hw_lower = headword.strip().lower()
+    clean_forms = []
+    seen = set()
+
+    for raw_f in inflections:
+        f = raw_f.strip()
+        if not f:
+            continue
+        if f.startswith("-") or f.endswith("-"):
+            continue
+        if f.lower() == hw_lower:
+            continue
+        if f.lower() in seen:
+            continue
+        seen.add(f.lower())
+
+        is_capitalized_variant = 1 if (f[0].isupper() and f.lower() != f) else 0
+        is_genitive = 1 if f.lower().endswith(("ens", "ets", "enes", "ernes")) else 0
+        clean_forms.append((is_capitalized_variant, is_genitive, len(f), f.lower(), f))
+
+    clean_forms.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
+    return [item[4] for item in clean_forms[:limit]]
+
+
 def render_canonical_html(entry: CanonicalEntry) -> str:
     """Render a CanonicalEntry into KOReader-optimized E-Ink HTML."""
     meta_parts = []
-    sample_forms = sorted(f for f in entry.inflections if f.lower() != entry.headword.lower())[:3]
+    sample_forms = select_display_inflections(entry.headword, entry.inflections, limit=3)
     if sample_forms:
         meta_parts.append(", ".join(sample_forms))
     if entry.historical_spellings:

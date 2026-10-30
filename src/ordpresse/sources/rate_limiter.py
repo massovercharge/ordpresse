@@ -5,7 +5,7 @@ from collections import deque
 import logging
 import os
 import time
-from typing import Awaitable, Callable, Dict, List, Optional, Set
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,9 @@ class ScrapeCoordinator:
         self.last_refill: float = time.monotonic()
         self.__lock: Optional[asyncio.Lock] = None
 
-        # Active builds tracking: build_id -> list of remaining missing words
+        # Active builds tracking: build_id -> list of remaining missing words/items
         self.missing_by_build: Dict[str, List[str]] = {}
+        self.missing_items_by_build: Dict[str, List[dict]] = {}
         self.resolved_words: Dict[str, Set[str]] = {}
         self.skip_remaining_flags: Set[str] = set()
         self.word_resolved_events: Dict[str, asyncio.Event] = {}
@@ -42,10 +43,46 @@ class ScrapeCoordinator:
     def _lock(self, val: Optional[asyncio.Lock]) -> None:
         self.__lock = val
 
-    def register_build(self, build_id: str, missing_words: List[str], initial_mode: str = "server") -> None:
-        """Register a build with its list of missing words and execution mode."""
-        unique_words = list(dict.fromkeys(w.strip() for w in missing_words if w.strip()))
-        self.missing_by_build[build_id] = unique_words
+    def register_build(
+        self,
+        build_id: str,
+        missing_words: List[Any],
+        initial_mode: str = "server",
+        items: Optional[List[dict]] = None,
+    ) -> None:
+        """Register a build with its list of missing words/items and execution mode."""
+        clean_items: List[dict] = []
+        if items:
+            clean_items = [dict(it) for it in items]
+        elif missing_words and isinstance(missing_words[0], dict):
+            clean_items = [dict(it) for it in missing_words]
+        else:
+            for w in missing_words:
+                if isinstance(w, dict):
+                    clean_items.append(dict(w))
+                elif isinstance(w, str) and w.strip():
+                    clean_items.append({"word": w.strip(), "target": "ods", "priority": 1})
+
+        # Ensure priority ordering: Priority 1 first, then Priority 2
+        # Exclude Priority 3
+        clean_items = [it for it in clean_items if it.get("priority", 1) in (1, 2)]
+        clean_items.sort(key=lambda it: (it.get("priority", 1), 0 if it.get("target") == "ods" else 1))
+
+        # Deduplicate by word lowercase while preserving order
+        dedup_items: List[dict] = []
+        seen_words = set()
+        for it in clean_items:
+            w_str = it.get("word", "").strip()
+            if w_str and w_str.lower() not in seen_words:
+                seen_words.add(w_str.lower())
+                dedup_items.append({
+                    "word": w_str,
+                    "target": it.get("target", "ods"),
+                    "priority": it.get("priority", 1),
+                })
+
+        self.missing_items_by_build[build_id] = dedup_items
+        self.missing_by_build[build_id] = [it["word"] for it in dedup_items]
         self.resolved_words[build_id] = set()
         self.word_resolved_events[build_id] = asyncio.Event()
         if build_id not in self.build_modes:
@@ -71,6 +108,7 @@ class ScrapeCoordinator:
     def unregister_build(self, build_id: str) -> None:
         """Clean up all tracking structures for a completed/cancelled build."""
         self.missing_by_build.pop(build_id, None)
+        self.missing_items_by_build.pop(build_id, None)
         self.resolved_words.pop(build_id, None)
         self.skip_remaining_flags.discard(build_id)
         self.word_resolved_events.pop(build_id, None)
@@ -78,12 +116,16 @@ class ScrapeCoordinator:
         self.mode_events.pop(build_id, None)
         self._rr_queue = deque(b for b in self._rr_queue if b != build_id)
 
-    def get_pending_words(self, build_id: str) -> List[str]:
-        """Return the list of words still awaiting resolution for a specific build."""
-        all_missing = self.missing_by_build.get(build_id, [])
+    def get_pending_items(self, build_id: str) -> List[dict]:
+        """Return the list of items (with word, target, priority) still awaiting resolution."""
+        all_items = self.missing_items_by_build.get(build_id, [])
         done = self.resolved_words.get(build_id, set())
         done_lower = {w.lower() for w in done}
-        return [w for w in all_missing if w not in done and w.lower() not in done_lower]
+        return [it for it in all_items if it["word"] not in done and it["word"].lower() not in done_lower]
+
+    def get_pending_words(self, build_id: str) -> List[str]:
+        """Return the list of words still awaiting resolution for a specific build."""
+        return [it["word"] for it in self.get_pending_items(build_id)]
 
     def get_resolved_count(self, build_id: str) -> int:
         """Return the number of unique words resolved so far for a specific build."""

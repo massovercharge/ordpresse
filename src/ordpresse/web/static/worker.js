@@ -30,9 +30,9 @@
   const url = host + "/api/build/" + bid + "/missing-words" + (l ? "?limit=" + l[1] : "");
   const res = await fetch(url);
   const data = await res.json();
-  const words = data.words || [];
+  const items = data.items || (data.words || []).map(w => ({word: w, target: "ods", priority: 1}));
 
-  if (words.length === 0) {
+  if (items.length === 0) {
     box.innerHTML = "<b>✅ Ingen ord mangler!</b> Alle ord er allerede fundet.";
     return;
   }
@@ -44,24 +44,28 @@
   // Progressive pacing and jitter based on batch size
   let baseDelay = 350;
   let jitterRange = 150;
-  if (words.length > 500) {
+  if (items.length > 500) {
     baseDelay = 1100;
     jitterRange = 700;
-  } else if (words.length > 250) {
+  } else if (items.length > 250) {
     baseDelay = 650;
     jitterRange = 450;
-  } else if (words.length > 100) {
+  } else if (items.length > 100) {
     baseDelay = 450;
     jitterRange = 250;
   }
 
-  for (let i = 0; i < words.length; i++) {
+  for (let i = 0; i < items.length; i++) {
     if (stopped) break;
-    const w = words[i];
-    contentDiv.innerHTML = "<b>⚡ Ordpresse Lyn-Henter</b><br>Henter <b>" + (i+1) + " / " + words.length + "</b>: <code style='color:#f59e0b;font-size:14px;'>" + w + "</code>";
+    const it = items[i];
+    const w = typeof it === "string" ? it : it.word;
+    const target = (it && it.target === "ddo") ? "ddo" : "ods";
+    const prioLabel = (it && it.priority === 2) ? " [Prio 2: DDO]" : " [Prio 1: ODS]";
+    contentDiv.innerHTML = "<b>⚡ Ordpresse Lyn-Henter</b><br>Henter <b>" + (i+1) + " / " + items.length + "</b>" + prioLabel + ": <code style='color:#f59e0b;font-size:14px;'>" + w + "</code>";
 
     try {
-      const r = await fetch("https://ordnet.dk/ods/ordbog?query=" + encodeURIComponent(w));
+      const endpoint = target === "ddo" ? "https://ordnet.dk/ddo/ordbog?query=" : "https://ordnet.dk/ods/ordbog?query=";
+      const r = await fetch(endpoint + encodeURIComponent(w));
 
       if (r.status === 429) {
         contentDiv.innerHTML = "<b>⚠️ ordnet.dk bad om en pause (HTTP 429).</b><br>Venter 20 sekunder før automatisk genoptagelse...";

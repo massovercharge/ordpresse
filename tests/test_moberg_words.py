@@ -230,7 +230,7 @@ def test_uefterrettelig_historical_definition_not_dummy(tmp_path: Path):
     scraper = HistoricalScraper(db)
     res_off = scraper.fetch_word_definition("uefterrettelig", allow_remote=False)
     assert res_off is not None, "Offline HistoricalScraper failed for 'uefterrettelig'!"
-    assert res_off["source"] == "molbech"
+    assert res_off["source"] in ("molbech", "nordic_1800s")
     assert "Historisk opslag for »" not in res_off["html_content"]
     assert any(
         term in res_off["html_content"].lower()

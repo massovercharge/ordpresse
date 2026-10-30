@@ -1,7 +1,50 @@
 """Pre-1948 Danish orthography normalizer, aa<->å converters, and suffix resolvers."""
 
 import re
-from typing import List, Set
+from typing import List, Optional, Set, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ordpresse.models import CanonicalEntry
+
+# Cliffhanger endings where truncation breaks the core meaning of the sentence:
+CLIFFHANGER_ELLIPSIS_RE = re.compile(
+    r"\b(?:et|en|den|det|de|at|i|på|med|til|for|af|om|over|under|ved|fra|"
+    r"som|der|eller|el\.|dvs\.|fx|f\.eks\.|bl\.a\.|fast|så|ikke|kan|skal|må)\s*(?:\.\.\.|…)\s*$",
+    re.IGNORECASE,
+)
+
+
+def classify_external_lookup_priority(entry: "Optional[CanonicalEntry]") -> Optional[int]:
+    """
+    Returns:
+      1 = Priority 1 (CRITICAL): Entry is missing or is an empty COR skeleton with 0 definitions.
+      2 = Priority 2 (SECONDARY): Entry has a COR-SEM definition, but it ends with a 'cliffhanger'
+          truncation (e.g. 'med et...', 'i fast...', 'dvs. brødre...', 'stå fast...').
+      3 = Priority 3 (COSMETIC / PASSIVE): Entry has a truncated COR-SEM definition ('...'),
+          but the main clause before '...' already provides usable context (e.g. 'svaghed, hjælpeløshed...').
+      None = Entry is 100% complete; no external lookup needed.
+    """
+    if entry is None:
+        return 1
+    if not entry.modern_senses and not entry.historical_senses and not entry.summary_hook:
+        return 1
+
+    # Check if any modern sense from COR-SEM is truncated with '...'
+    truncated_defs = [
+        s.definition.strip()
+        for s in entry.modern_senses
+        if s.definition.strip().endswith(("...", "…"))
+    ]
+    if not truncated_defs:
+        return None
+
+    # If the primary definition is very short (< 28 chars) or cuts off right after a function word/cliffhanger:
+    for d in truncated_defs:
+        if len(d) < 28 or CLIFFHANGER_ELLIPSIS_RE.search(d):
+            return 2
+
+    return 3
+
 
 
 def sanitize_text(text: str) -> str:
@@ -214,7 +257,7 @@ def synthesize_compound_entry(word: str, db=None) -> "Optional[CanonicalEntry]":
         "uefterretlig", "uefterretlige", "uefterretligt",
     }
     if w in uefterret_forms:
-        real_def = "Som man ikke kan rette sig efter eller stole på; upålidelig, ulydig eller genstridig over for påbud."
+        real_def = "Som man ikke kan rette sig efter eller stole på; upålidelig, ulydig eller genstridig over for øvrighedens påbud."
         return CanonicalEntry(
             headword="uefterrettelig",
             pos="adj.",

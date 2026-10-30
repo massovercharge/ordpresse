@@ -671,7 +671,7 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
         summary_hook="Højt oppe i årene; ældgammel; svækket eller mærket af høj alder.",
         historical_senses=[
             SenseItem(
-                definition="Gammel og svækket af høj alder; tilårskommen; fortidig.",
+                definition="Højt oppe i årene; ældgammel (og svækket el. mærket af alder); om ærværdige el. svækkede personer, træer og bygninger.",
                 label="hist.",
                 quote=None,
                 quote_author=None,
@@ -680,6 +680,28 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
         ],
         realia_note="Klassisk litterært adjektiv i ældre dansk og norsk sprogbrug anvendt om ærværdige, svækkede eller ældgamle personer, bygninger og træer.",
         sources_used=["ODS"],
+    ),
+    "uefterrettelig": CanonicalEntry(
+        headword="uefterrettelig",
+        historical_spellings=["uefterretlig", "u-efterrettelig", "Uefterrettelig"],
+        pos="adj.",
+        inflections={
+            "uefterrettelig", "uefterrettelige", "uefterretteligt",
+            "uefterretlig", "uefterretlige", "uefterretligt",
+            "Uefterrettelig", "Uefterrettelige",
+        },
+        summary_hook="Som man ikke kan rette sig efter eller stole på; upålidelig, ulydig eller genstridig over for øvrighedens påbud.",
+        historical_senses=[
+            SenseItem(
+                definition="Som man ikke kan rette sig efter; upålidelig; i ældre retssprog særlig: ulydig, genstridig mod lov eller øvrighedens påbud.",
+                label="hist., jura",
+                quote=None,
+                quote_author=None,
+                source_tag="ODS",
+            )
+        ],
+        realia_note="Klassisk historisk-juridisk udtryk for personer, handlinger eller skrifter, som ikke lader sig rette eller vejlede af lov og øvrighedens påbud.",
+        sources_used=["ODS", "Molbech"],
     ),
     "natlig": CanonicalEntry(
         headword="natlig",
