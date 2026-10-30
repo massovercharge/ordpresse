@@ -85,7 +85,7 @@ def render_canonical_html(entry: CanonicalEntry) -> str:
     if should_render_summary_hook(entry):
         parts.append(
             f'<div style="margin:3px 0;padding:2px 6px;border-left:2px solid #555;">'
-            f"<b>▸</b> {entry.summary_hook}</div>"
+            f"<b>•</b> {entry.summary_hook}</div>"
         )
 
     # Layer 2A: Historical Senses (ODS / 1700–1950)
@@ -94,7 +94,11 @@ def render_canonical_html(entry: CanonicalEntry) -> str:
         for s in entry.historical_senses[:4]:
             lbl = f"<i>({s.label})</i> " if s.label else ""
             q_auth = f" ({s.quote_author})" if s.quote_author else ""
-            q = f'<br><small><i>»{s.quote}«</i>{q_auth}</small>' if s.quote else ""
+            q = ""
+            if s.quote:
+                clean_q = s.quote.split("|")[0].strip()
+                if clean_q:
+                    q = f'<br><small><i>»{clean_q}«</i>{q_auth}</small>'
             parts.append(f"<li>{lbl}{s.definition}{q}</li>")
         parts.append("</ol></div>")
 
@@ -103,7 +107,11 @@ def render_canonical_html(entry: CanonicalEntry) -> str:
         hdr = '<small><b>NUTIDSDANSK (COR-SEM)</b></small>' if entry.historical_senses else ""
         parts.append(f"<div>{hdr}<ol>")
         for s in entry.modern_senses[:3]:
-            q = f'<br><small><i>»{s.quote}«</i></small>' if s.quote else ""
+            q = ""
+            if s.quote:
+                clean_q = s.quote.split("|")[0].strip()
+                if clean_q:
+                    q = f'<br><small><i>»{clean_q}«</i></small>'
             parts.append(f"<li>{s.definition}{q}</li>")
         parts.append("</ol></div>")
 

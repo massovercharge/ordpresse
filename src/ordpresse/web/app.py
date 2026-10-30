@@ -191,19 +191,25 @@ def preview_lookup(request: Request, q: str, format: Optional[str] = None):
         cor_defs = db.lookup_cor_lemma_definitions(word)
         if cor_defs:
             lemma = cor_defs[0]["lemma"].lower()
-            pos = normalize_pos(cor_defs[0].get("pos", ""))
+            poses = []
+            for d in cor_defs:
+                p = normalize_pos(d.get("pos", ""))
+                if p and p not in poses:
+                    poses.append(p)
+            pos_display = " / ".join(poses) if poses else normalize_pos(cor_defs[0].get("pos", ""))
+
             modern_senses = [
                 SenseItem(
-                    definition=d["definition"],
-                    quote=d.get("examples") or None,
+                    definition=f"({normalize_pos(d.get('pos', ''))}) {d['definition']}" if len(poses) > 1 and d.get("pos") else d["definition"],
+                    quote=d.get("examples").split("|")[0].strip() if d.get("examples") else None,
                     source_tag="COR-SEM",
                 )
-                for d in cor_defs[:3]
+                for d in cor_defs[:4]
             ]
-            cor_infs = db.lookup_cor_inflections(lemma)
+            cor_infs = db.lookup_cor_inflections(lemma, poses[0] if len(poses) == 1 else None)
             canonical = CanonicalEntry(
                 headword=lemma,
-                pos=pos,
+                pos=pos_display,
                 inflections=set(cor_infs + [word]),
                 summary_hook="",
                 modern_senses=modern_senses,

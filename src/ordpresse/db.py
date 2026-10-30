@@ -12,6 +12,7 @@ from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
 from ordpresse.synthesizer import (
     COR_SEM_DEFINITION_COMPLETIONS,
+    COR_SEM_ID_COMPLETIONS,
     synthesize_cor_sem_summary_hook,
 )
 from ordpresse.sources.nordic_1800s import (
@@ -448,7 +449,7 @@ class Database:
         cur = self.datasets_conn.cursor()
         cur.execute(
             """
-            SELECT DISTINCT cs.lemma_id, cs.lemma, cs.pos, cd.definition, cd.examples
+            SELECT DISTINCT cs.sense_id, cs.lemma_id, cs.lemma, cs.pos, cd.definition, cd.examples
             FROM cor_sem cs
             JOIN cor_definitions cd ON cd.sense_id = cs.sense_id
             LEFT JOIN cor_forms cf ON cf.lemma_id = cs.lemma_id
@@ -461,27 +462,46 @@ class Database:
         results = []
         for r in rows:
             d = dict(r)
+            sid = d.get("sense_id", "")
             lem = d.get("lemma", "").lower()
-            if lem in COR_SEM_DEFINITION_COMPLETIONS and (d["definition"].endswith("…") or d["definition"].endswith("...")):
+            if sid in COR_SEM_ID_COMPLETIONS and (d["definition"].endswith("…") or d["definition"].endswith("...")):
+                d["definition"] = COR_SEM_ID_COMPLETIONS[sid]
+            elif lem in COR_SEM_DEFINITION_COMPLETIONS and (d["definition"].endswith("…") or d["definition"].endswith("...")):
                 d["definition"] = COR_SEM_DEFINITION_COMPLETIONS[lem]
+            if d.get("examples") and "|" in d["examples"]:
+                d["examples"] = d["examples"].split("|")[0].strip()
             results.append(d)
         return results
 
-    def lookup_cor_inflections(self, lemma: str) -> list[str]:
-        """Find all inflected forms for a lemma in COR."""
+    def lookup_cor_inflections(self, lemma: str, pos: Optional[str] = None) -> list[str]:
+        """Find all inflected forms for a lemma in COR, optionally filtered by POS."""
         if not self.datasets_path.exists():
             return []
         cur = self.datasets_conn.cursor()
         cur.execute(
             """
-            SELECT DISTINCT fullform
+            SELECT DISTINCT fullform, pos
             FROM cor_forms
             WHERE lemma = ?
             LIMIT 100
             """,
             (lemma,),
         )
-        return [r[0] for r in cur.fetchall()]
+        rows = cur.fetchall()
+        norm_filter_pos = normalize_pos(pos) if pos else None
+        results = []
+        for r in rows:
+            ff = r[0]
+            r_pos = normalize_pos(r[1] or "")
+            if norm_filter_pos and r_pos:
+                if not (r_pos == norm_filter_pos or r_pos.startswith(norm_filter_pos[:2])):
+                    continue
+            if norm_filter_pos and norm_filter_pos.startswith("sb"):
+                added = ff[len(lemma):].lower()
+                if added in ("ede", "te", "ende", "des"):
+                    continue
+            results.append(ff)
+        return results
 
     def get_all_cor_lemmas_with_definitions(self, limit: Optional[int] = None) -> list[dict]:
         """Fetch all lemmas that have definitions in COR, along with their inflections."""
@@ -491,11 +511,10 @@ class Database:
         limit_clause = f"LIMIT {limit}" if limit else ""
         cur.execute(
             f"""
-            SELECT cs.lemma_id, cs.lemma, cs.pos, cd.definition, cd.examples
+            SELECT cs.sense_id, cs.lemma_id, cs.lemma, cs.pos, cd.definition, cd.examples
             FROM cor_sem cs
             JOIN cor_definitions cd ON cd.sense_id = cs.sense_id
             WHERE cs.lemma != ''
-            GROUP BY cs.lemma, cd.definition
             {limit_clause}
             """
         )
@@ -504,54 +523,99 @@ class Database:
         id_to_lemma: dict[str, str] = {}
         for r in rows:
             lemma = r["lemma"]
+            sid = r["sense_id"]
             lid = r["lemma_id"]
             pos = r["pos"] or ""
             definition = r["definition"]
             lem_lower = lemma.lower()
-            if lem_lower in COR_SEM_DEFINITION_COMPLETIONS and (definition.endswith("…") or definition.endswith("...")):
+            if sid in COR_SEM_ID_COMPLETIONS and (definition.endswith("…") or definition.endswith("...")):
+                definition = COR_SEM_ID_COMPLETIONS[sid]
+            elif lem_lower in COR_SEM_DEFINITION_COMPLETIONS and (definition.endswith("…") or definition.endswith("...")):
                 definition = COR_SEM_DEFINITION_COMPLETIONS[lem_lower]
             examples = r["examples"] or ""
-            if lemma not in lemma_map:
-                lemma_map[lemma] = {"pos": pos, "defs": [], "lemma_ids": set()}
-            lemma_map[lemma]["defs"].append((definition, examples))
+            if examples and "|" in examples:
+                examples = examples.split("|")[0].strip()
+
+            if lem_lower not in lemma_map:
+                lemma_map[lem_lower] = {
+                    "lemma": lemma,
+                    "poses": [],
+                    "defs": [],
+                    "lemma_ids": set(),
+                    "seen_defs": set(),
+                }
+            pos_norm = normalize_pos(pos)
+            if pos_norm and pos_norm not in lemma_map[lem_lower]["poses"]:
+                lemma_map[lem_lower]["poses"].append(pos_norm)
             if lid:
-                lemma_map[lemma]["lemma_ids"].add(lid)
-                id_to_lemma[lid] = lemma
+                lemma_map[lem_lower]["lemma_ids"].add(lid)
+                id_to_lemma[lid] = lem_lower
+
+            def_key = definition.strip().lower()
+            if def_key not in lemma_map[lem_lower]["seen_defs"]:
+                lemma_map[lem_lower]["seen_defs"].add(def_key)
+                lemma_map[lem_lower]["defs"].append((definition, examples, pos_norm))
 
         # Bulk pre-populate inflections in a single fast sequential scan (linking by lemma and lemma_id)
         inflections_map: dict[str, set[str]] = {}
-        cur.execute("SELECT lemma, lemma_id, fullform FROM cor_forms WHERE fullform != ''")
+        cur.execute("SELECT lemma, lemma_id, pos, fullform FROM cor_forms WHERE fullform != ''")
         for row in cur.fetchall():
-            lem = row[0]
+            lem = row[0].lower()
             lid = row[1]
+            row_pos = normalize_pos(row[2] or "")
+            fullform = row[3]
+
             target_lem = None
-            if lem in lemma_map:
-                target_lem = lem
-            elif lid and lid in id_to_lemma:
+            if lid and lid in id_to_lemma:
                 target_lem = id_to_lemma[lid]
+            elif lem in lemma_map:
+                if row_pos and row_pos in lemma_map[lem]["poses"]:
+                    target_lem = lem
 
             if target_lem:
+                # Invariant: A noun ('sb.') can NEVER take verbal inflections (-ede, -te, -ende, -des)
+                target_poses = lemma_map[target_lem]["poses"]
+                is_pure_noun = all(p.startswith("sb") for p in target_poses)
+                if is_pure_noun:
+                    added = fullform[len(target_lem):].lower()
+                    if added in ("ede", "te", "ende", "des"):
+                        continue
+                    if row_pos and not row_pos.startswith("sb"):
+                        continue
+
                 if target_lem not in inflections_map:
                     inflections_map[target_lem] = set()
                 if len(inflections_map[target_lem]) < 40:
-                    inflections_map[target_lem].add(row[2])
+                    inflections_map[target_lem].add(fullform)
 
         results = []
-        for lemma, data in lemma_map.items():
-            pos_norm = normalize_pos(data["pos"])
+        for lem_lower, data in lemma_map.items():
+            pos_norm = " / ".join(data["poses"]) if data["poses"] else ""
+
+            # If multiple POS exist, ensure top definitions from each POS are included
+            if len(data["poses"]) > 1:
+                selected_defs = []
+                by_pos: dict[str, list] = {}
+                for d, ex, p in data["defs"]:
+                    by_pos.setdefault(p, []).append((d, ex, p))
+                for p, p_defs in by_pos.items():
+                    selected_defs.extend(p_defs[:2])
+            else:
+                selected_defs = data["defs"][:4]
+
             modern_senses = [
                 SenseItem(
-                    definition=d,
-                    quote=ex or None,
+                    definition=f"({d_pos}) {d}" if len(data["poses"]) > 1 and d_pos else d,
+                    quote=ex.split("|")[0].strip() if ex else None,
                     source_tag="COR-SEM",
                 )
-                for d, ex in data["defs"][:3]
+                for d, ex, d_pos in selected_defs
             ]
-            inflections = set(inflections_map.get(lemma, set()))
-            summary_hook = synthesize_cor_sem_summary_hook(data.get("defs", []))
+            inflections = set(inflections_map.get(lem_lower, set()))
+            summary_hook = ""  # Rule: No synthesized summary hook for COR-SEM entries
 
             canonical = CanonicalEntry(
-                headword=lemma.lower(),
+                headword=lem_lower,
                 pos=pos_norm,
                 inflections=inflections,
                 summary_hook=summary_hook,
@@ -561,10 +625,9 @@ class Database:
 
             # False-friend enrichment rule:
             # If word is in curated 1800s vocabulary, enrich with historical senses and realia note
-            hw_lower = lemma.lower()
-            if hw_lower in NORDIC_1800S_ENTRIES:
+            if lem_lower in NORDIC_1800S_ENTRIES:
                 canonical = enrich_canonical_entry_with_historical(
-                    canonical, NORDIC_1800S_ENTRIES[hw_lower]
+                    canonical, NORDIC_1800S_ENTRIES[lem_lower]
                 )
 
             html = render_canonical_html(canonical)

@@ -279,4 +279,4 @@ def test_recovered_words_natlig_runge_skraeve_vildsom(tmp_path: Path):
     for w in ["natlig", "runge", "skræve", "vildsom"]:
         html = reader.lookup(w)
         assert html is not None, f"Word '{w}' was not found in dictionary!"
-        assert "HISTORISK BETYDNING" in html or "▸" in html
+        assert "HISTORISK BETYDNING" in html or "•" in html

@@ -14,6 +14,7 @@ COR_SEM_DEFINITION_COMPLETIONS: dict[str, str] = {
     "prioritetslån": "lån der ydes mod panteret i fast ejendom typisk et realkreditlån",
     "nybegynder": "person der netop er begyndt at beskæftige sig med et bestemt fag, en bestemt sport, hobby el.lign., men næsten ikke har noget kendskab dertil",
     "søskende": "personer som er børn af samme forældre, dvs. brødre og søstre",
+    "grunde": "tænke dybt og grundigt over noget; gruble; fundere",
 }
 
 # Mapping by exact COR.SEM ID
@@ -21,6 +22,10 @@ COR_SEM_ID_COMPLETIONS: dict[str, str] = {
     "COR.SEM.1006235.01": "lån der ydes mod panteret i fast ejendom typisk et realkreditlån",
     "COR.SEM.87422.01": "person der netop er begyndt at beskæftige sig med et bestemt fag, en bestemt sport, hobby el.lign., men næsten ikke har noget kendskab dertil",
     "COR.SEM.68312.01": "personer som er børn af samme forældre, dvs. brødre og søstre",
+    "COR.SEM.1002897.01": "landjorden som et underlag man kan stå fast, gå eller færdes på",
+    "COR.SEM.1002897.02": "grundlag som giver (u)sikkerhed; udgangspunkt hvorfra noget udvikler sig eller kan bedømmes",
+    "COR.SEM.1002897.04": "grundlag som forårsager, motiverer eller forklarer et fænomen, en handling, holdning e.l.; årsag",
+    "COR.SEM.1002898.01": "tænke dybt og grundigt over noget; gruble; fundere",
 }
 
 
@@ -94,29 +99,14 @@ def should_render_summary_hook(entry: CanonicalEntry) -> bool:
     return True
 
 
-def synthesize_cor_sem_summary_hook(definitions: list[tuple[str, str]]) -> str:
+def synthesize_cor_sem_summary_hook(definitions: list) -> str:
     """Synthesize summary_hook for COR-SEM entries.
 
-    - If 1 definition: return empty string (omit hook to avoid repeating the definition).
-    - If multiple definitions: synthesize a clean multi-sense hook with natural clause boundaries.
+    Rule: Never synthesize a summary hook by merely concatenating modern definitions
+    (to prevent double repetition and wasted screen space on e-ink readers).
+    Returns an empty string so the article goes directly to the numbered definitions list.
     """
-    if len(definitions) <= 1:
-        return ""
-
-    clauses = []
-    for i, (d, _) in enumerate(definitions[:3], 1):
-        clean_d = truncate_summary_hook(d, max_chars=80)
-        clean_d = clean_d.rstrip(".;")
-        if clean_d:
-            clauses.append(f"{i}) {clean_d}")
-
-    if not clauses:
-        return ""
-
-    hook = "; ".join(clauses)
-    if len(hook) > 165:
-        hook = truncate_summary_hook(hook, max_chars=165)
-    return hook
+    return ""
 
 
 def is_valid_canonical_entry(entry: CanonicalEntry) -> bool:

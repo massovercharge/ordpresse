@@ -1,6 +1,7 @@
 """End-to-end regression suite verifying the 5 Moberg benchmark words in a simulated EPUB."""
 
 from pathlib import Path
+import sqlite3
 import zipfile
 import pytest
 
@@ -130,7 +131,8 @@ def test_all_nordic_1800s_vocabulary_binary_lookup(tmp_path: Path):
         res_hw = reader.lookup(hw)
         assert res_hw is not None, f"Binary lookup for headword '{hw}' failed!"
         assert f"<b>{hw}</b>" in res_hw
-        assert "▸" in res_hw, f"Layer 1 summary hook missing for '{hw}'"
+        assert "•" in res_hw, f"Layer 1 summary hook missing for '{hw}'"
+        assert "▸" not in res_hw, f"Disallowed ▸ found in '{hw}'"
         assert "HISTORISK BETYDNING" in res_hw, f"Layer 2A historical senses missing for '{hw}'"
         assert "[Historisk kontekst]:" in res_hw, f"Layer 3 realia note missing for '{hw}'"
 
@@ -406,3 +408,127 @@ def test_cache_multi_key_resolution_and_negative_cache(tmp_path: Path):
     assert "ukendt_ord_xyz" not in db.get_not_found_words()
     db.set_not_found("ukendt_ord_xyz")
     assert "ukendt_ord_xyz" in db.get_not_found_words()
+
+
+def test_grundede_resolution_and_clean_formatting(tmp_path: Path):
+    """Verify that 'grundede' resolves to 'grunde' (vb.), definitions are completed,
+
+    quotes have no raw | separators, ▸ is replaced by • or removed, and summary_hook does not repeat.
+    """
+    from ordpresse.db import Database, init_datasets_db
+
+    db_path = tmp_path / "datasets.sqlite3"
+    conn = sqlite3.connect(str(db_path))
+    init_datasets_db(conn)
+
+    with conn:
+        # 1. Insert cor_sem rows for both 'grund' (sb.) and 'grunde' (vb.)
+        conn.executemany(
+            "INSERT INTO cor_sem (sense_id, lemma_id, lemma, pos) VALUES (?, ?, ?, ?)",
+            [
+                ("COR.SEM.1002897.01", "COR.43648", "grund", "sb."),
+                ("COR.SEM.1002897.02", "COR.43648", "grund", "sb."),
+                ("COR.SEM.1002897.04", "COR.43648", "grund", "sb."),
+                ("COR.SEM.1002898.01", "COR.31633", "grunde", "vb."),
+            ],
+        )
+        # 2. Insert definitions with ellipsis and multiple quotes separated by |
+        conn.executemany(
+            "INSERT INTO cor_definitions (sense_id, definition, examples) VALUES (?, ?, ?)",
+            [
+                (
+                    "COR.SEM.1002897.01",
+                    "landjorden som et underlag man kan stå fast…",
+                    "90 pct. af alle drukneulykker sker mindre end 10 meter fra fast grund",
+                ),
+                (
+                    "COR.SEM.1002897.02",
+                    "grundlag som giver (u)sikkerhed; udgangspunkt hvorfra noget udvikler…",
+                    "alle tre talere holdt sig på sikker grund|Thomas Møller var på usikker grund|Christian bygger nu videre",
+                ),
+                (
+                    "COR.SEM.1002897.04",
+                    "grundlag som forårsager, motiverer el. forklarer et…",
+                    "Hvad er grunden til at du har valgt tysk som fag?|Jeg holder på at man altid skal sige sandheden",
+                ),
+                (
+                    "COR.SEM.1002898.01",
+                    "tænke nøje over",
+                    "[hun] tog et års arbejde på et posthus, mens hun grundede over fremtiden",
+                ),
+            ],
+        )
+        # 3. Insert cor_forms: include adjective 'grundede' that must NOT attach to 'grund' sb.
+        conn.executemany(
+            "INSERT INTO cor_forms (lemma_id, lemma, gloss, gram, pos, fullform, norm_status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("COR.17760", "grund", "", "adj.", "adj.", "grundede", ""),
+                ("COR.43648", "grund", "", "sb.", "sb.", "grund", ""),
+                ("COR.43648", "grund", "", "sb.", "sb.", "grunden", ""),
+                ("COR.43648", "grund", "", "sb.", "sb.", "grunde", ""),
+                ("COR.43648", "grund", "", "sb.", "sb.", "grund-", ""),
+                ("COR.31633", "grunde", "", "vb.", "vb.", "grunde", ""),
+                ("COR.31633", "grunde", "", "vb.", "vb.", "grundede", ""),
+                ("COR.31633", "grunde", "", "vb.", "vb.", "grundet", ""),
+            ],
+        )
+    conn.close()
+
+    db = Database(datasets_path=db_path)
+    output_dir = tmp_path / "output_test"
+    pipeline = Pipeline(
+        db=db,
+        output_dir=output_dir,
+        bookname="Test Grundede StarDict",
+    )
+    result = pipeline.run(
+        custom_words=["grundede", "grund"],
+        include_seeds=False,
+        full_dictionary=True,
+        allow_network=False,
+    )
+
+    reader = StarDictReader(result.files["ifo"])
+
+    # --- Verification 1: 'grundede' MUST resolve to 'grunde' (vb.), NOT 'grund sb.' ---
+    html_grundede = reader.lookup("grundede")
+    assert html_grundede is not None, "Lookup for 'grundede' in compiled StarDict returned None!"
+    assert "<b>grunde</b>" in html_grundede, f"Expected 'grundede' to resolve to 'grunde', but got: {html_grundede}"
+    assert "<i>vb.</i>" in html_grundede
+    assert "<b>grund</b> <i>sb.</i>" not in html_grundede
+
+    # Verify meaning about thinking deeply / gruble / fundere is included
+    assert any(term in html_grundede for term in ["tænke", "gruble", "fundere", "overveje"]), (
+        f"Missing thinking/pondering sense in 'grunde': {html_grundede}"
+    )
+
+    # Verify no raw | separator in quotes
+    assert "|" not in html_grundede, f"Raw '|' quote separator leaked into 'grunde': {html_grundede}"
+
+    # Verify no disallowed ▸ symbol
+    assert "▸" not in html_grundede, f"Disallowed ▸ character found in 'grunde': {html_grundede}"
+
+    # --- Verification 2: 'grund' sb. must NOT contain 'grundede' in its inflections ---
+    html_grund = reader.lookup("grund")
+    assert html_grund is not None, "Lookup for 'grund' in compiled StarDict returned None!"
+    assert "<b>grund</b>" in html_grund
+    assert "<i>sb.</i>" in html_grund
+
+    # The header before the definitions (<ol>) must NOT include 'grundede'
+    header_html = html_grund.split("<ol>")[0]
+    assert "grundede" not in header_html, f"Nouns cannot have 'grundede'! Found in header: {header_html}"
+
+    # Verify definitions in 'grund' are completed and do not end in '…' or '...'
+    assert "…" not in html_grund, f"Truncated definition with '…' found in 'grund': {html_grund}"
+    assert "..." not in html_grund, f"Truncated definition with '...' found in 'grund': {html_grund}"
+    assert "landjorden som et underlag man kan stå fast, gå eller færdes på" in html_grund
+
+    # Verify quotes in 'grund' have no raw '|'
+    assert "|" not in html_grund, f"Raw '|' quote separator leaked into 'grund': {html_grund}"
+
+    # Verify no disallowed ▸ symbol in 'grund'
+    assert "▸" not in html_grund, f"Disallowed ▸ character found in 'grund': {html_grund}"
+
+    # Verify summary_hook does not repeat definition 1 + 2
+    assert "1) grundlag som" not in html_grund, f"Redundant concatenated summary hook found in 'grund': {html_grund}"
+

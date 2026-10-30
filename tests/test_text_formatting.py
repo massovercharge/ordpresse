@@ -79,7 +79,8 @@ def test_should_render_summary_hook_smart_handling():
     )
     assert should_render_summary_hook(entry_multiple) is True
     html_multi = render_canonical_html(entry_multiple)
-    assert "▸" in html_multi
+    assert "•" in html_multi
+    assert "▸" not in html_multi
     assert "1) møbel med plan flade; 2) serveret mad" in html_multi
 
     # Case 4: Single definition with distinct historical resume (e.g. curated 1800s entry) -> MUST BE SHOWN
@@ -98,7 +99,8 @@ def test_should_render_summary_hook_smart_handling():
     )
     assert should_render_summary_hook(entry_historical) is True
     html_hist = render_canonical_html(entry_historical)
-    assert "▸" in html_hist
+    assert "•" in html_hist
+    assert "▸" not in html_hist
     assert "Fattiglem tildelt et bestemt lægd" in html_hist
 
 

@@ -329,20 +329,8 @@ class Pipeline:
                     unresolved_after_cor.append(t)
                     continue
 
-                # 1. Match against existing entry by lemma
+                # 1. Match against existing entry by lemma_id (e.g. COR.31633 -> grunde, or moder -> mor)
                 attached = False
-                for m in matches:
-                    lem = m["lemma"].lower()
-                    if lem in resolved_entries:
-                        resolved_entries[lem].synonyms.append(t)
-                        known_surface_strings.add(t)
-                        cor_attached_count += 1
-                        attached = True
-                        break
-                if attached:
-                    continue
-
-                # 2. Match against existing entry by lemma_id (e.g. moder -> mor)
                 for m in matches:
                     lid = m.get("lemma_id")
                     if lid and lid in cor_id_to_headword:
@@ -353,6 +341,24 @@ class Pipeline:
                             cor_attached_count += 1
                             attached = True
                             break
+                if attached:
+                    continue
+
+                # 2. Match against existing entry by lemma and POS compatibility
+                for m in matches:
+                    lem = m["lemma"].lower()
+                    m_pos = normalize_pos(m.get("pos", ""))
+                    if lem in resolved_entries:
+                        entry = resolved_entries[lem]
+                        # Invariant: A noun ('sb.') can NEVER take verbal inflections (-ede, -te, -ende, -des)
+                        if t.endswith(("ede", "te", "ende", "des")) and not lem.endswith(("ede", "te")):
+                            if m_pos.startswith("vb") or not m_pos.startswith("sb"):
+                                continue
+                        entry.synonyms.append(t)
+                        known_surface_strings.add(t)
+                        cor_attached_count += 1
+                        attached = True
+                        break
                 if attached:
                     continue
 
@@ -369,7 +375,7 @@ class Pipeline:
                 lem = best_match["lemma"].lower()
                 pos_raw = best_match.get("pos", "")
                 pos_norm = normalize_pos(pos_raw)
-                cor_infs = db.lookup_cor_inflections(lem) if db else []
+                cor_infs = db.lookup_cor_inflections(lem, pos_norm) if db else []
 
                 if lem not in cor_pending_metadata:
                     cor_pending_metadata[lem] = {

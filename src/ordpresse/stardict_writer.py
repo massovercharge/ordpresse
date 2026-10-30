@@ -73,7 +73,7 @@ class StarDictWriter:
             html = (e.html_content or "").strip()
             if not html:
                 continue
-            if not any(marker in html for marker in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"]):
+            if not any(marker in html for marker in ["<ol>", "<li>", "▸", "•", "<p>", "[Historisk kontekst]"]):
                 continue
 
             hw_lower = raw_hw.lower()

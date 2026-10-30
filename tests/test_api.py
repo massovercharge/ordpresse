@@ -41,7 +41,7 @@ def test_api_preview_endpoint(client):
     data = res.json()
     assert data["found"] is True
     assert "lægdslem" in data["html"]
-    assert "HISTORISK BETYDNING" in data["html"] or "▸" in data["html"]
+    assert "HISTORISK BETYDNING" in data["html"] or "•" in data["html"]
 
     # Test html format param
     res_html = client.get("/api/preview?q=lægdslemmer&format=html")

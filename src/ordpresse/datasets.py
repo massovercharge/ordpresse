@@ -153,6 +153,8 @@ def stream_cor_sem_ext(file_path: Path) -> Generator[Tuple[str, str, str], None,
             if sense_id in COR_SEM_ID_COMPLETIONS and (definition.endswith("…") or definition.endswith("...")):
                 definition = COR_SEM_ID_COMPLETIONS[sense_id]
             examples = row[2].strip() if len(row) > 2 else ""
+            if examples and "|" in examples:
+                examples = examples.split("|")[0].strip()
             yield (sense_id, definition, examples)
 
 
