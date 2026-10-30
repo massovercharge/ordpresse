@@ -152,13 +152,14 @@ def preview_lookup(request: Request, q: str, format: Optional[str] = None):
         try:
             from ordpresse.stardict_reader import StarDictReader
             reader = StarDictReader(ifo)
-            html = reader.lookup(word)
-            if html:
+            entry = reader.lookup_entry(word)
+            if entry:
+                hw, html = entry
                 if format == "html":
                     return HTMLResponse(content=html)
                 return {
                     "word": q,
-                    "headword": word,
+                    "headword": hw,
                     "found": True,
                     "html": html,
                     "source": "stardict_binary",

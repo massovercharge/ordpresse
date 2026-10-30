@@ -122,8 +122,8 @@ class StarDictReader:
 
         return None
 
-    def lookup(self, query: str) -> Optional[str]:
-        """Look up word in .idx, or fall back to .syn, returning HTML definition."""
+    def lookup_entry(self, query: str) -> Optional[Tuple[str, str]]:
+        """Look up word in .idx, or fall back to .syn, returning (headword, html_definition)."""
         q = query.strip()
         if not q:
             return None
@@ -131,27 +131,32 @@ class StarDictReader:
         # 1. Direct .idx lookup
         res = self.binary_search_idx(q)
         if res:
-            _, offset, size = res
-            return self._dict_bytes[offset : offset + size].decode("utf-8")
+            hw, offset, size = res
+            return (hw, self._dict_bytes[offset : offset + size].decode("utf-8"))
 
         # 2. Case-folded .idx lookup (lowercase)
         if q != q.lower():
             res_lower = self.binary_search_idx(q.lower())
             if res_lower:
-                _, offset, size = res_lower
-                return self._dict_bytes[offset : offset + size].decode("utf-8")
+                hw, offset, size = res_lower
+                return (hw, self._dict_bytes[offset : offset + size].decode("utf-8"))
 
         # 3. Direct .syn lookup
         entry_idx = self.binary_search_syn(q)
         if entry_idx is not None and 0 <= entry_idx < len(self.idx_entries):
-            _, offset, size = self.idx_entries[entry_idx]
-            return self._dict_bytes[offset : offset + size].decode("utf-8")
+            hw, offset, size = self.idx_entries[entry_idx]
+            return (hw, self._dict_bytes[offset : offset + size].decode("utf-8"))
 
         # 4. Case-folded .syn lookup (lowercase)
         if q != q.lower():
             entry_idx_lower = self.binary_search_syn(q.lower())
             if entry_idx_lower is not None and 0 <= entry_idx_lower < len(self.idx_entries):
-                _, offset, size = self.idx_entries[entry_idx_lower]
-                return self._dict_bytes[offset : offset + size].decode("utf-8")
+                hw, offset, size = self.idx_entries[entry_idx_lower]
+                return (hw, self._dict_bytes[offset : offset + size].decode("utf-8"))
 
         return None
+
+    def lookup(self, query: str) -> Optional[str]:
+        """Look up word in .idx, or fall back to .syn, returning HTML definition."""
+        entry = self.lookup_entry(query)
+        return entry[1] if entry else None
