@@ -122,12 +122,18 @@ def is_valid_definition(text: str) -> bool:
             return False
 
     # Reject bibliographic / publication citations (e.g. "Goldschm.. Aakj..", "Jydske Tidende.")
-    if re.search(r"\.\.", clean_no_label) or re.search(r"\b(?:Saml|Tidende|Ugeskr|Aarb|Oversk)\.", clean_no_label):
+    if (
+        re.search(r"\b[A-ZÆØÅ][a-zæøå]*\.\.", clean_no_label)
+        or re.search(r"\.\.\s*$", clean_no_label)
+        or re.search(r"\b(?:Saml|Tidende|Ugeskr|Aarb|Oversk)\.", clean_no_label)
+    ):
         return False
 
-    # If short (< 45 chars) and has no common Danish functional/def words, and looks like a name or title
-    words_in_text = set(re.findall(r"\b[a-zæøåA-ZÆØÅ.]+\b", clean_no_label.lower()))
-    if len(clean_no_label) < 45 and not (words_in_text & COMMON_DANISH_DEF_WORDS):
+    # Reject if string is solely an author signature or citation title (e.g. "Anna Larssen Bjørner", "Romneya Coulteri.")
+    author_or_title_pattern = re.compile(
+        r"^[A-ZÆØÅ][a-zæøåA-ZÆØÅ0-9.\-]+(?:\s+[A-ZÆØÅ][a-zæøåA-ZÆØÅ0-9.\-]+)+\.?$"
+    )
+    if author_or_title_pattern.match(clean_no_label):
         return False
 
     return True
@@ -200,14 +206,12 @@ class ODSScraper:
         if not articles:
             return None
 
-        # Check for DDO dummy/placeholder text (Phase 3.1)
-        page_text = soup.get_text(" ", strip=True)
-        if any(bad in page_text for bad in [
+        # Check for DDO dummy/placeholder text inside the article nodes (Phase 3.1)
+        art_text = " ".join(a.get_text(" ", strip=True) for a in articles)
+        if any(bad in art_text for bad in [
             "ingen betydningsangivelse",
             "Dette ord har foreløbig ingen betydningsangivelse",
             "Historisk opslag for »",
-            "ORD I NÆRHEDEN",
-            "Mente du:",
         ]):
             from ordpresse.orthography import synthesize_compound_entry
             synth = synthesize_compound_entry(w_clean)

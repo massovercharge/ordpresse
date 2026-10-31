@@ -266,6 +266,9 @@ class Pipeline:
                 existing_entry.synonyms = generate_orthographic_synonyms(
                     primary_hw, list(set(existing_entry.synonyms) | all_forms)
                 )
+                # Overwrite empty COR definition with rich scraped/cached definition
+                if c_item.get("html_content") and "Historisk opslag for »" not in c_item["html_content"]:
+                    existing_entry.html_content = c_item["html_content"]
             else:
                 syns = generate_orthographic_synonyms(primary_hw, list(all_forms))
                 resolved_entries[primary_hw] = StarDictEntry(
@@ -431,10 +434,12 @@ class Pipeline:
                 if match_hw_pos:
                     hw, pos = match_hw_pos
                     hw = hw.lower()
-                    if hw in resolved_entries:
-                        resolved_entries[hw].synonyms.append(t)
+                    hw_alt = hw.replace("aa", "å") if "aa" in hw else hw.replace("å", "aa")
+                    target_hw = hw if hw in resolved_entries else (hw_alt if hw_alt in resolved_entries else hw)
+                    if target_hw in resolved_entries:
+                        resolved_entries[target_hw].synonyms.append(t)
                         if cor_lem and cor_lem in cor_pending_metadata:
-                            resolved_entries[hw].synonyms.extend(cor_pending_metadata[cor_lem]["inflections"])
+                            resolved_entries[target_hw].synonyms.extend(cor_pending_metadata[cor_lem]["inflections"])
                         known_surface_strings.add(t)
                         ods_attached_count += 1
                     else:
@@ -517,17 +522,21 @@ class Pipeline:
                     w = c.get("word", "").lower().strip()
                     hw = c.get("headword", "").lower().strip()
                     clean_hw = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", hw, flags=re.I).replace("-", "").strip()
-                    if w:
-                        cached_map[w] = c
-                    if hw:
-                        cached_map[hw] = c
-                    if clean_hw:
-                        cached_map[clean_hw] = c
-                    for s in c.get("synonyms", []):
-                        if s:
-                            cached_map[s.lower().strip()] = c
+                    for key in [w, hw, clean_hw] + [s.lower().strip() for s in c.get("synonyms", []) if s]:
+                        if key:
+                            cached_map[key] = c
+                            if "aa" in key:
+                                cached_map[key.replace("aa", "å")] = c
+                            elif "å" in key:
+                                cached_map[key.replace("å", "aa")] = c
 
-            not_found_words = db.get_not_found_words() if db else set()
+            not_found_words_raw = db.get_not_found_words() if db else set()
+            not_found_words: set[str] = set(not_found_words_raw)
+            for nfw in not_found_words_raw:
+                if "aa" in nfw:
+                    not_found_words.add(nfw.replace("aa", "å"))
+                elif "å" in nfw:
+                    not_found_words.add(nfw.replace("å", "aa"))
 
             from ordpresse.scrapers import HistoricalScraper
             scraper = HistoricalScraper(db) if db else None
@@ -535,13 +544,17 @@ class Pipeline:
             total_ods = len(new_ods_words)
             uncached_words = [
                 hw for hw in new_ods_words
-                if hw not in cached_map and hw not in not_found_words
+                if hw not in cached_map and (hw.replace("aa", "å") if "aa" in hw else hw.replace("å", "aa")) not in cached_map
+                and hw not in not_found_words and (hw.replace("aa", "å") if "aa" in hw else hw.replace("å", "aa")) not in not_found_words
             ]
-            cached_words = [hw for hw in new_ods_words if hw in cached_map]
+            cached_words = [
+                hw for hw in new_ods_words
+                if hw in cached_map or (hw.replace("aa", "å") if "aa" in hw else hw.replace("å", "aa")) in cached_map
+            ]
 
             # 1. Instantly resolve all already-cached words
             for hw in cached_words:
-                c_item = cached_map[hw]
+                c_item = cached_map.get(hw) or cached_map.get(hw.replace("aa", "å") if "aa" in hw else hw.replace("å", "aa"))
                 raw_hw = c_item.get("headword", "").strip()
                 raw_word = c_item.get("word", "").strip().lower()
                 clean_hw, extra_syns = sanitize_headword(raw_hw or raw_word)
@@ -609,8 +622,9 @@ class Pipeline:
 
             for hw in candidate_headwords:
                 prio = classify_external_lookup_priority(resolved_canonical[hw])
+                hw_alt = hw.replace("aa", "å") if "aa" in hw else hw.replace("å", "aa")
                 if prio == 1:
-                    if hw not in cached_map and hw not in not_found_words:
+                    if hw not in cached_map and hw_alt not in cached_map and hw not in not_found_words and hw_alt not in not_found_words:
                         priority_1_items.append({
                             "word": hw,
                             "target": "ddo",
@@ -619,13 +633,18 @@ class Pipeline:
                             "is_custom": hw in custom_tokens_set,
                         })
                 elif prio == 2:
-                    # Priority 2: Cliffhanger truncation — check cache first to resolve offline
-                    cached_item = db.get_cached_definition(hw) if db else None
+                    # Skip if word or its aa-å spelling variant is already known to have no article
+                    if hw in not_found_words or hw_alt in not_found_words:
+                        continue
+                    # Priority 2: Cliffhanger truncation — check cached_map & DB first to resolve offline
+                    cached_item = cached_map.get(hw) or cached_map.get(hw_alt)
+                    if not cached_item and db:
+                        cached_item = db.get_cached_definition(hw) or db.get_cached_definition(hw_alt)
                     if cached_item and "Historisk opslag for »" not in cached_item.get("html_content", ""):
                         c_html = cached_item.get("html_content", "")
                         if len(c_html) > 50 and not c_html.strip().endswith(("...", "…")):
                             actual_hw = cached_item.get("headword", hw).lower()
-                            cur_entry = resolved_entries.get(actual_hw)
+                            cur_entry = resolved_entries.get(actual_hw) or resolved_entries.get(hw)
                             syns = cur_entry.synonyms if cur_entry else [actual_hw]
                             resolved_entries[actual_hw] = StarDictEntry(
                                 headword=actual_hw,

@@ -533,7 +533,8 @@ async def submit_cache(payload: CacheSubmitPayload):
         raise HTTPException(status_code=400, detail="Ugyldigt 'html'")
 
     db = Database()
-    is_ddo = "ddo/ordbog" in html or "modern-definition" in html or "Den Danske Ordbog" in html
+    is_ods = "ods/ordbog" in html or "Ordbog over det danske Sprog" in html
+    is_ddo = ("ddo/ordbog" in html or "modern-definition" in html or "class=\"definitionBox\"" in html) and not is_ods
     parsed = None
     if is_ddo:
         try:
@@ -562,9 +563,31 @@ async def submit_cache(payload: CacheSubmitPayload):
                 html_content=parsed["html_content"],
                 synonyms=parsed.get("synonyms", []),
             )
-        else:
-            # Negative cache: word was looked up on ordnet.dk and has no article
-            db.set_not_found(word=word.lower())
+        elif not is_ddo:
+            try:
+                from ordpresse.sources.ddo_scraper import parse_ddo_html
+                parsed = parse_ddo_html(word, html)
+                if parsed:
+                    db.set_cached(
+                        word=word.lower(),
+                        source="ddo",
+                        headword=parsed["headword"],
+                        html_content=parsed["html_content"],
+                        synonyms=parsed.get("synonyms", []),
+                    )
+                    if parsed.get("definitions"):
+                        db.update_cor_definition(word, parsed["definitions"][0])
+            except Exception as e:
+                logger.debug(f"parse_ddo_html fallback failed: {e}")
+
+    if not parsed:
+        # Negative cache: word was looked up on ordnet.dk and has no article
+        w_low = word.lower().strip()
+        db.set_not_found(word=w_low)
+        if "aa" in w_low:
+            db.set_not_found(word=w_low.replace("aa", "å"))
+        elif "å" in w_low:
+            db.set_not_found(word=w_low.replace("å", "aa"))
 
     coordinator.mark_word_resolved(word, build_id)
     remaining = len(coordinator.get_pending_words(build_id)) if build_id else 0
@@ -693,7 +716,7 @@ async def get_worker_js():
     try {
       await fetch(host + "/api/build/" + bid + "/skip-queue", { method: "POST" });
     } catch(e) {}
-    box.innerHTML = "<b>✅ Færdig!</b> Alle " + words.length + " ord er sendt til Ordpresse.<br>Serveren kompilerer nu din ordbog færdig.";
+    box.innerHTML = "<b>✅ Færdig!</b> Alle " + items.length + " ord er sendt til Ordpresse.<br>Serveren kompilerer nu din ordbog færdig.";
   }
 })();
 '''
