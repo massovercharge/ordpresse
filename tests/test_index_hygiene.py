@@ -14,6 +14,8 @@ def test_sanitize_headword_rules():
     assert sanitize_headword("iii. kvarre")[0] == "kvarre"
     assert sanitize_headword("iii. skøtte")[0] == "skøtte"
     assert sanitize_headword("i. taag")[0] == "taag"
+    assert sanitize_headword("ii.pirk")[0] == "pirk"
+    assert sanitize_headword("i.døve")[0] == "døve"
     clean_hw, syns = sanitize_headword("i. slave-lænke")
     assert clean_hw == "slavelænke"
     assert "slave-lænke" in syns
@@ -51,6 +53,12 @@ def test_sanitize_headword_rules():
     hw_loft, syns_loft = sanitize_headword("loft(s)rum")
     assert hw_loft == "loftsrum"
     assert "loftrum" in syns_loft
+
+    hw_lu, syns_lu = sanitize_headword("lu(l)lu(lu)")
+    assert hw_lu == "lullulu"
+    assert "lulu" in syns_lu
+    assert "lululu" in syns_lu
+    assert "lullu" in syns_lu
 
     # 4. Strip ® Symbol
     assert sanitize_headword("eternit®")[0] == "eternit"

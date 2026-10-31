@@ -103,6 +103,22 @@ def should_keep_hyphen(w: str) -> bool:
     return False
 
 
+def _expand_parentheses(text: str) -> Set[str]:
+    """Expands optional parts in parentheses, e.g. 'fyrstik(ke)' -> {'fyrstik', 'fyrstikke'},
+    'lu(l)lu(lu)' -> {'lulu', 'lullu', 'lululu', 'lullulu'}.
+    """
+    if "(" not in text or ")" not in text:
+        return {text}
+    parts = re.split(r"\(([^()]+)\)", text)
+    forms = {""}
+    for i, piece in enumerate(parts):
+        if i % 2 == 0:
+            forms = {f + piece for f in forms}
+        else:
+            forms = {f + piece for f in forms} | forms
+    return {f.strip() for f in forms if f.strip()}
+
+
 def sanitize_headword(raw_hw: str) -> tuple[str, Set[str]]:
     """Sanitize raw headwords from ODS, DDO, COR, and cache.
     
@@ -144,36 +160,31 @@ def sanitize_headword(raw_hw: str) -> tuple[str, Set[str]]:
     # Strip leading Roman numerals and homograph markers (unless ordinal like "1. g'er")
     is_ordinal = bool(re.match(r"^\d+\.\s+[a-zæøåA-ZÆØÅ]('er|\b)", raw))
     if not is_ordinal:
-        raw = re.sub(r"^(?:[ivxlcdm]+\.|\d+\.|i\.)\s+", "", raw, flags=re.I).strip()
+        raw = re.sub(r"^(?:[ivxlcdm]+\.|\d+\.|i\.)\s*", "", raw, flags=re.I).strip()
 
     # Clean Roman numerals in extra synonyms as well
     cleaned_syns = set()
     for s in extra_synonyms:
-        s_c = re.sub(r"^(?:[ivxlcdm]+\.|\d+\.|i\.)\s+", "", s, flags=re.I).strip()
+        s_c = re.sub(r"^(?:[ivxlcdm]+\.|\d+\.|i\.)\s*", "", s, flags=re.I).strip()
         if s_c and not re.match(r"^(?:[ivxlcdm]+\.|\d+\.)$", s_c, re.I):
             cleaned_syns.add(s_c)
     extra_synonyms = cleaned_syns
 
-    # Expand parenthetical optional letters: e.g. "fyrstik(ke)", "k(j)øbenhavn", "bark(e)brød"
-    m_paren = re.match(r"^([^()]*)\(([^()]+)\)([^()]*)$", raw)
-    if m_paren:
-        pfx, inside, sfx = m_paren.group(1).strip(), m_paren.group(2).strip(), m_paren.group(3).strip()
-        short_form = pfx + sfx
-        long_form = pfx + inside + sfx
-        extra_synonyms.add(short_form)
-        extra_synonyms.add(long_form)
-        if inside.lower() == "j" and pfx.lower().endswith(("k", "g")):
-            raw = short_form
+    # Expand parenthetical optional letters: e.g. "fyrstik(ke)", "k(j)øbenhavn", "bark(e)brød", "lu(l)lu(lu)"
+    if "(" in raw and ")" in raw:
+        variants = _expand_parentheses(raw)
+        extra_synonyms.update(variants)
+        if re.search(r"([kg])\(j\)", raw, re.I):
+            raw = re.sub(r"([kg])\(j\)", r"\1", raw, flags=re.I)
+            raw = re.sub(r"[\(\)]", "", raw).strip()
         else:
-            raw = long_form
+            raw = re.sub(r"[\(\)]", "", raw).strip()
 
     # Expand parentheses in extra synonyms as well
     expanded_syns = set()
     for s in extra_synonyms:
-        m_p = re.match(r"^([^()]*)\(([^()]+)\)([^()]*)$", s)
-        if m_p:
-            expanded_syns.add(m_p.group(1) + m_p.group(3))
-            expanded_syns.add(m_p.group(1) + m_p.group(2) + m_p.group(3))
+        if "(" in s and ")" in s:
+            expanded_syns.update(_expand_parentheses(s))
         else:
             expanded_syns.add(s)
     extra_synonyms = expanded_syns
