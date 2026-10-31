@@ -13,6 +13,8 @@ def test_sanitize_headword_rules():
     # 1. Strip Leading Roman Numerals & Sense Markers
     assert sanitize_headword("iii. kvarre")[0] == "kvarre"
     assert sanitize_headword("iii. skøtte")[0] == "skøtte"
+    assert sanitize_headword("i-ii. kvarre")[0] == "kvarre"
+    assert sanitize_headword("i-ii. skøtte")[0] == "skøtte"
     assert sanitize_headword("i. taag")[0] == "taag"
     assert sanitize_headword("ii.pirk")[0] == "pirk"
     assert sanitize_headword("i.døve")[0] == "døve"
@@ -23,6 +25,7 @@ def test_sanitize_headword_rules():
     # Discard standalone "i." or roman numerals
     assert sanitize_headword("i.") == ("", set())
     assert sanitize_headword("iii.") == ("", set())
+    assert sanitize_headword("i-ii.") == ("", set())
 
     # Ordinal exceptions
     assert sanitize_headword("1. g'er")[0] == "1. g'er"

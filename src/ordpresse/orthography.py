@@ -138,8 +138,8 @@ def sanitize_headword(raw_hw: str) -> tuple[str, Set[str]]:
     if not raw:
         return ("", set())
 
-    # Standalone Roman numeral or sense marker (e.g. 'i.', 'ii.')
-    if re.match(r"^(?:[ivxlcdm]+\.|\d+\.)$", raw, re.I):
+    # Standalone Roman numeral or sense marker (e.g. 'i.', 'ii.', 'i-ii.')
+    if re.match(r"^(?:[ivxlcdm]+(?:-[ivxlcdm]+)?\.|\d+\.)$", raw, re.I):
         return ("", set())
 
     extra_synonyms: Set[str] = set()
@@ -160,13 +160,13 @@ def sanitize_headword(raw_hw: str) -> tuple[str, Set[str]]:
     # Strip leading Roman numerals and homograph markers (unless ordinal like "1. g'er")
     is_ordinal = bool(re.match(r"^\d+\.\s+[a-zæøåA-ZÆØÅ]('er|\b)", raw))
     if not is_ordinal:
-        raw = re.sub(r"^(?:[ivxlcdm]+\.|\d+\.|i\.)\s*", "", raw, flags=re.I).strip()
+        raw = re.sub(r"^(?:[iIvVxX]+(?:-[iIvVxX]+)?\.\s*|\d+\.\s+)", "", raw, flags=re.I).strip()
 
     # Clean Roman numerals in extra synonyms as well
     cleaned_syns = set()
     for s in extra_synonyms:
-        s_c = re.sub(r"^(?:[ivxlcdm]+\.|\d+\.|i\.)\s*", "", s, flags=re.I).strip()
-        if s_c and not re.match(r"^(?:[ivxlcdm]+\.|\d+\.)$", s_c, re.I):
+        s_c = re.sub(r"^(?:[iIvVxX]+(?:-[iIvVxX]+)?\.\s*|\d+\.\s+)", "", s, flags=re.I).strip()
+        if s_c and not re.match(r"^(?:[ivxlcdm]+(?:-[ivxlcdm]+)?\.|\d+\.)$", s_c, re.I):
             cleaned_syns.add(s_c)
     extra_synonyms = cleaned_syns
 
