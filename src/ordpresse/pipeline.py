@@ -847,10 +847,10 @@ class Pipeline:
                                 def_data.setdefault("synonyms", []).extend(extra_syns)
                             if target == "ddo":
                                 if db:
-                                    db.save_cached_definition(
+                                    db.set_cached(
                                         word=hw,
+                                        source="ddo",
                                         headword=def_data["headword"],
-                                        pos=def_data.get("pos", ""),
                                         html_content=def_data["html_content"],
                                         synonyms=def_data.get("synonyms", []),
                                     )

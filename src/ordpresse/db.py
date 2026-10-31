@@ -356,6 +356,24 @@ class Database:
                     ),
                 )
 
+    def save_cached_definition(
+        self,
+        word: str,
+        headword: str,
+        html_content: str,
+        synonyms: list[str] | None = None,
+        source: str = "ddo",
+        pos: str = "",
+    ) -> None:
+        """Alias for set_cached with backwards compatibility."""
+        self.set_cached(
+            word=word,
+            source=source,
+            headword=headword,
+            html_content=html_content,
+            synonyms=synonyms or [],
+        )
+
     def get_all_cached_definitions(self) -> list[dict]:
         """Fetch all previously scraped or cached definitions from cache.sqlite3."""
         if not self.cache_path.exists():

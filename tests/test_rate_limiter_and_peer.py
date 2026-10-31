@@ -299,3 +299,72 @@ def test_missing_words_endpoint_all_exceeds_1000():
     assert len(data_1000["words"]) == 1000
 
     coordinator.unregister_build(build_id)
+
+
+def test_save_cached_definition_alias_and_pipeline_server_scrape(tmp_path, monkeypatch):
+    """Verify Database.save_cached_definition alias works and pipeline server scrape saves DDO without error."""
+    from pathlib import Path
+    from ordpresse.pipeline import Pipeline
+    from ordpresse.sources.ddo_scraper import DDOScraper
+
+    db_path = tmp_path / "cache.sqlite3"
+    db = Database(cache_path=db_path)
+
+    # 1. Direct alias check
+    assert hasattr(db, "save_cached_definition")
+    db.save_cached_definition(
+        word="testord",
+        headword="testord",
+        html_content="<p>test definition</p>",
+        synonyms=["testordet"],
+        source="ddo",
+    )
+    cached = db.get_cached("testord")
+    assert cached is not None
+    assert cached["headword"] == "testord"
+    assert cached["source"] == "ddo"
+    assert "testordet" in cached["synonyms"]
+
+    # 2. Pipeline server scrape with DDO mock
+    from ordpresse.models import CanonicalEntry
+    output_dir = tmp_path / "out"
+    pipeline = Pipeline(db=db, output_dir=output_dir, bookname="Test Server Scrape")
+
+    fake_ddo = {
+        "headword": "cleare",
+        "html_content": "<div class='canonical-entry'><ol><li>at afklare</li></ol></div>",
+        "synonyms": ["cleare", "clearede"],
+        "definitions": ["at afklare eller gøre klar"],
+        "source": "ddo",
+    }
+    monkeypatch.setattr(DDOScraper, "scrape_ddo", lambda self, w: fake_ddo)
+    coordinator.tokens = 10.0
+    coordinator.refill_interval = 0.01
+
+    # Inject an empty skeleton into NORDIC_1800S_ENTRIES so cleare is classified as Priority 1 with target="ddo"
+    from ordpresse.sources.nordic_1800s import NORDIC_1800S_ENTRIES
+    monkeypatch.setitem(
+        NORDIC_1800S_ENTRIES,
+        "cleare",
+        CanonicalEntry(
+            headword="cleare",
+            pos="vb.",
+            inflections={"cleare"},
+            summary_hook="",
+            modern_senses=[],
+            historical_senses=[],
+        ),
+    )
+
+    res = pipeline.run(
+        custom_words=["cleare", "uforløst_testord_123"],
+        include_seeds=True,
+        full_dictionary=False,
+        allow_network=True,
+        scrape_mode="server",
+    )
+    assert res.entry_count >= 1
+    cached_cleare = db.get_cached("cleare")
+    assert cached_cleare is not None
+    assert cached_cleare["headword"] == "cleare"
+    assert cached_cleare["source"] == "ddo"
