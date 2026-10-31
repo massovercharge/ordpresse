@@ -56,3 +56,9 @@ data/ordpresse-moberg-eksempel/
 .vscode/
 *.swp
 *~
+
+# Local deployment configurations and private server notes
+DEPLOYMENT_LOCAL.md
+*deployment.local*
+*.local.md
+.env.local
