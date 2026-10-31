@@ -27,16 +27,19 @@ GENITIVE_WHITELIST: Set[str] = {
     "almindeligvis", "dags", "års", "aars", "slags", "tilfreds",
     "tids", "livs", "lands", "havs", "bords", "steds",
 }
-REGULAR_GENITIVE_ENDINGS: Tuple[str, ...] = ("ens", "enes", "ernes", "ets", "ers", "'s", "s'")
-
-
 def is_regular_genitive(hw_low: str, s_low: str) -> bool:
-    """Check if form is a regular inflected possessive genitive that should be excluded from .syn."""
+    """Check if form is a trivial headword + 's' / apostrophe genitive that should be excluded from .syn.
+    
+    CrossPoint Reader (Xteink X4 Pro) and KOReader automatically strip single trailing '-s'
+    and match headword in .idx directly.
+    Therefore, ONLY trivial headword + 's' (e.g. 'abbeds', 'bils', 'konges', 'abehus'') are pruned.
+    Inflected genitives (-ens, -ets, -enes, -ernes, -ers, irregular plural genitives like 'mænds', 'børnenes')
+    MUST be preserved in .syn for 100% direct hit-rate.
+    """
     if s_low in GENITIVE_WHITELIST:
         return False
-    for end in REGULAR_GENITIVE_ENDINGS:
-        if s_low.endswith(end) and not hw_low.endswith(end) and len(s_low) > len(end) + 2:
-            return True
+    if s_low == hw_low + "s" or s_low == hw_low + "'" or s_low == hw_low + "'s":
+        return True
     return False
 
 

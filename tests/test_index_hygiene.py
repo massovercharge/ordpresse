@@ -99,7 +99,12 @@ def test_compiled_syn_and_idx_hygiene(tmp_path: Path):
         StarDictEntry(
             headword="abbed",
             html_content="<ol><li>Forstander for et kloster.</li></ol>",
-            synonyms=["abbeden", "Abbeden", "abbederne", "abbedernes", "abbedens"],
+            synonyms=["abbeden", "Abbeden", "abbederne", "abbedernes", "abbedens", "abbeds"],
+        ),
+        StarDictEntry(
+            headword="barn",
+            html_content="<ol><li>Menneske i barndommen.</li></ol>",
+            synonyms=["børnenes", "børns", "barns"],
         ),
         StarDictEntry(
             headword="åbning",
@@ -109,7 +114,7 @@ def test_compiled_syn_and_idx_hygiene(tmp_path: Path):
         StarDictEntry(
             headword="æble",
             html_content="<ol><li>Frugt fra æbletræet.</li></ol>",
-            synonyms=["æblet", "Æblet", "æbler", "æblerne", "æblernes"],
+            synonyms=["æblet", "Æblet", "æbler", "æblerne", "æblernes", "æbles"],
         ),
         StarDictEntry(
             headword="agtsom",
@@ -189,10 +194,17 @@ def test_compiled_syn_and_idx_hygiene(tmp_path: Path):
     assert "Æblet" in syn_words
     assert "æblet" in syn_words
 
-    # Regular possessive genitives MUST NOT be present
-    assert "abbedernes" not in syn_words
-    assert "abbedens" not in syn_words
-    assert "æblernes" not in syn_words
+    # Patch V6.1: Inflected genitives (-ens, -ets, -enes, -ernes, -ers, and irregular like 'børnenes', 'børns') MUST be present in .syn
+    assert "abbedens" in syn_words
+    assert "abbedernes" in syn_words
+    assert "æblernes" in syn_words
+    assert "børnenes" in syn_words
+    assert "børns" in syn_words
+
+    # Trivial headword + "s" MUST NOT be present in .syn
+    assert "abbeds" not in syn_words
+    assert "barns" not in syn_words
+    assert "æbles" not in syn_words
 
     # Synthetic comparative/superlative forms MUST NOT be present
     assert "agtsommere" not in syn_words
@@ -215,3 +227,6 @@ def test_compiled_syn_and_idx_hygiene(tmp_path: Path):
     assert reader.lookup("dvæl") is not None
     assert reader.lookup("fyrstik") is not None
     assert reader.lookup("aarvaagen-hed") is not None
+    assert reader.lookup("abbedens") is not None
+    assert reader.lookup("abbedernes") is not None
+    assert reader.lookup("børnenes") is not None

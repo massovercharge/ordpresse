@@ -649,7 +649,7 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
         headword="tællelys",
         historical_spellings=["Tællelys", "Tællelyset"],
         pos="sb. itk.",
-        inflections={"tællelys", "tællelyset", "tællelysene", "Tællelys", "Tællelyset"},
+        inflections={"tællelys", "tællelyset", "tællelysene", "tællelysenes", "Tællelys", "Tællelyset"},
         summary_hook="Lys støbt eller dyppet af smeltet dyrefedt (tælle/talg fra kvæg eller får); datidens almindelige belysning i bondehjem før stearin- og parafinlys.",
         historical_senses=[
             SenseItem(
