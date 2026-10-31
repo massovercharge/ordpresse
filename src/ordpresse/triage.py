@@ -19,7 +19,11 @@ from bs4 import BeautifulSoup
 
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
-from ordpresse.orthography import generate_orthographic_synonyms, synthesize_compound_entry
+from ordpresse.orthography import (
+    generate_orthographic_synonyms,
+    sanitize_headword,
+    synthesize_compound_entry,
+)
 from ordpresse.sources.molbech_1859 import get_molbech_1859_entry
 from ordpresse.sources.nordic_1800s import get_nordic_1800s_entry
 from ordpresse.synthesizer import truncate_summary_hook
@@ -126,6 +130,14 @@ def is_clean_keep_row(word: str, headword: str, html_content: str) -> bool:
         li_txt = re.sub(r"^\([^)]+\)\s*", "", li.get_text(" ", strip=True)).strip()
         if not is_valid_definition(li_txt):
             return False
+
+    # 9. Headword hygiene: Must not contain Roman numeral prefixes, '®', unexpanded '()', etymological hyphens, etc.
+    clean_hw, _ = sanitize_headword(headword or word)
+    clean_w, _ = sanitize_headword(word)
+    if not clean_hw and not clean_w:
+        return False
+    if headword and clean_hw != headword:
+        return False
 
     return True
 
@@ -236,6 +248,30 @@ def attempt_salvage(
             )
             html = render_canonical_html(canonical)
             return canonical, html
+
+    # --- Case C: Headword Sanitization Salvage ---
+    clean_hw, extra_syns = sanitize_headword(headword or word)
+    clean_w, _ = sanitize_headword(word)
+    effective_hw = clean_hw or clean_w
+    if not effective_hw:
+        return None  # Unsalvageable (e.g. standalone 'i.')
+
+    if effective_hw != headword and html_content:
+        repaired_html = re.sub(r"(<div><b>)[^<]+(</b>)", rf"\g<1>{effective_hw}\g<2>", html_content)
+        if is_clean_keep_row(word, effective_hw, repaired_html):
+            pos = ""
+            m_pos = re.search(r"<i>([^<]+)</i>", repaired_html)
+            if m_pos:
+                pos = normalize_pos(m_pos.group(1))
+            canonical = CanonicalEntry(
+                headword=effective_hw,
+                pos=pos or "sb.",
+                inflections=set(synonyms) | extra_syns | {w_clean, effective_hw.lower()},
+                summary_hook="",
+                historical_senses=[],
+                sources_used=[source.upper() if source else "CACHE"],
+            )
+            return canonical, repaired_html
 
     return None
 

@@ -277,9 +277,11 @@ class ODSScraper:
         if not historical_senses:
             return None
 
-        # Clean headword (remove hyphens like 'u-efterrettelig' -> 'uefterrettelig' if user searched without hyphen)
-        headword_norm = headword.lower()
-        all_synonyms = {w_clean, headword_norm, headword_norm.replace("-", "")}
+        from ordpresse.orthography import sanitize_headword
+        clean_hw, extra_syns = sanitize_headword(headword)
+        headword_norm = (clean_hw or w_clean).lower()
+        all_synonyms = {w_clean, headword_norm, headword_norm.replace("-", "")} | extra_syns
+        all_synonyms.discard("")
 
         if len(historical_senses) > 1:
             summary_hook = truncate_summary_hook(historical_senses[0].definition, max_chars=165)

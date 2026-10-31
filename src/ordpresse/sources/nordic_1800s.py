@@ -627,11 +627,11 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
         realia_note="Fra 1850 til 1920 udvandrede over 300.000 danskere og 1,2 millioner svenskere til USA, drevet af jordmangel, fattigdom og religiøs undertrykkelse.",
         sources_used=["ODS", "COR-SEM"],
     ),
-    "amerika-feber": CanonicalEntry(
-        headword="amerika-feber",
-        historical_spellings=["Amerikafeber", "Amerika-feber"],
+    "amerikafeber": CanonicalEntry(
+        headword="amerikafeber",
+        historical_spellings=["amerika-feber", "Amerikafeber", "Amerika-feber"],
         pos="sb. fk.",
-        inflections={"amerikafeber", "amerikafeberen", "Amerika-feber", "Amerikafeber"},
+        inflections={"amerikafeber", "amerikafeberen", "amerika-feber", "Amerika-feber", "Amerikafeber"},
         summary_hook="Bølgen af udvandringslyst til USA i midten og slutningen af 1800-tallet, ansporet af Amerikabrevene.",
         historical_senses=[
             SenseItem(
@@ -649,7 +649,7 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
         headword="tællelys",
         historical_spellings=["Tællelys", "Tællelyset"],
         pos="sb. itk.",
-        inflections={"tællelys", "tællelyset", "tællelysene", "tællelysenes", "Tællelys", "Tællelyset"},
+        inflections={"tællelys", "tællelyset", "tællelysene", "Tællelys", "Tællelyset"},
         summary_hook="Lys støbt eller dyppet af smeltet dyrefedt (tælle/talg fra kvæg eller får); datidens almindelige belysning i bondehjem før stearin- og parafinlys.",
         historical_senses=[
             SenseItem(

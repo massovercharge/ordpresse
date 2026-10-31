@@ -69,6 +69,135 @@ def extract_word_tokens(text: str) -> List[str]:
     return [t.lower() for t in tokens if len(t) >= 2]
 
 
+MODERN_HYPHEN_INITIALISMS = {
+    "tv", "cd", "dvd", "edb", "pc", "wc", "vm", "em", "dm", "ef", "eu", "fn", "fm",
+    "bmx", "din", "dna", "hiv", "mbd", "mdf", "vhf", "uhf", "usb", "rem", "sos",
+    "abs", "aids", "bz", "kz", "ok", "ct", "mr", "id", "ic3", "bh"
+}
+MODERN_HYPHEN_WORDS = {
+    "køkken-alrum", "walkie-talkie", "sort-hvid", "rød-hvid", "rød-blå",
+    "mave-tarm-kanal", "mave-tarm-sygdom", "hjerte-kar-sygdom", "læbe-gane-spalte",
+    "lørdag-søndag", "finsk-ugrisk", "had-kærlighed", "øre-næse-hals-læge",
+    "enten-eller", "log-in", "snabel-a", "pret-a-porter", "tete-a-tete", "tai-chi",
+    "cha-cha-cha", "deja-vu", "de-facto", "dum-dum-kugle", "hula-hula-pige",
+    "nikkel-cadmium-batteri", "olie-eddike-dressing", "savoir-vivre",
+    "science-fiction-roman", "thousand-island-dressing"
+}
+
+
+def should_keep_hyphen(w: str) -> bool:
+    """Return True if word is a modern hyphenated compound, acronym, or numeral."""
+    w_low = w.lower().strip()
+    if " " in w_low:
+        return True
+    if re.search(r"\d", w_low):
+        return True
+    if w_low in MODERN_HYPHEN_WORDS:
+        return True
+    # Single-letter prefix compounds: a-aktie, e-mail, u-båd, v-formet
+    if re.match(r"^[a-zæøåA-ZÆØÅ]-", w_low):
+        return True
+    first_part = w_low.split("-")[0]
+    if first_part in MODERN_HYPHEN_INITIALISMS:
+        return True
+    return False
+
+
+def sanitize_headword(raw_hw: str) -> tuple[str, Set[str]]:
+    """Sanitize raw headwords from ODS, DDO, COR, and cache.
+    
+    Returns (clean_headword, extra_synonyms_for_syn):
+    1. Strip ® registered trademark symbol and zero-width artifacts.
+    2. Strip leading Roman numerals and homograph markers ('iii. kvarre' -> 'kvarre', 'i. slave-lænke' -> 'slavelænke').
+       Discard standalone 'i.' or Roman numerals.
+    3. Split comma-separated & 'i.' variant headwords ('dvæl, i. dvæle' -> 'dvæle', 'ingensteds, intetsteds' -> 'ingensteds').
+    4. Expand parenthetical optional letters ('fyrstik(ke)' -> 'fyrstikke' + 'fyrstik', 'k(j)øbenhavn' -> 'københavn' + 'kjøbenhavn').
+    5. De-hyphenate historical ODS etymological hyphens ('aarvaagen-hed' -> 'aarvaagenhed' + 'aarvaagen-hed').
+    """
+    if not raw_hw:
+        return ("", set())
+
+    raw = raw_hw.strip().replace("\u00ad", "").replace("\u200b", "").replace("\ufeff", "")
+    raw = raw.replace("®", "").strip()
+    if not raw:
+        return ("", set())
+
+    # Standalone Roman numeral or sense marker (e.g. 'i.', 'ii.')
+    if re.match(r"^(?:[ivxlcdm]+\.|\d+\.)$", raw, re.I):
+        return ("", set())
+
+    extra_synonyms: Set[str] = set()
+
+    # Comma variants (e.g. 'dvæl, i. dvæle', 'ingensteds, intetsteds', 'kumpan, kumpen')
+    m_ref = re.match(r"^(.+?),\s*(?:i\.|se|jf\.)\s*(.+)$", raw, re.I)
+    if m_ref:
+        alt_part = m_ref.group(1).strip()
+        primary_part = m_ref.group(2).strip()
+        extra_synonyms.add(alt_part)
+        raw = primary_part
+    elif "," in raw:
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        raw = parts[0]
+        for p in parts[1:]:
+            extra_synonyms.add(p)
+
+    # Strip leading Roman numerals and homograph markers (unless ordinal like "1. g'er")
+    is_ordinal = bool(re.match(r"^\d+\.\s+[a-zæøåA-ZÆØÅ]('er|\b)", raw))
+    if not is_ordinal:
+        raw = re.sub(r"^(?:[ivxlcdm]+\.|\d+\.|i\.)\s+", "", raw, flags=re.I).strip()
+
+    # Clean Roman numerals in extra synonyms as well
+    cleaned_syns = set()
+    for s in extra_synonyms:
+        s_c = re.sub(r"^(?:[ivxlcdm]+\.|\d+\.|i\.)\s+", "", s, flags=re.I).strip()
+        if s_c and not re.match(r"^(?:[ivxlcdm]+\.|\d+\.)$", s_c, re.I):
+            cleaned_syns.add(s_c)
+    extra_synonyms = cleaned_syns
+
+    # Expand parenthetical optional letters: e.g. "fyrstik(ke)", "k(j)øbenhavn", "bark(e)brød"
+    m_paren = re.match(r"^([^()]*)\(([^()]+)\)([^()]*)$", raw)
+    if m_paren:
+        pfx, inside, sfx = m_paren.group(1).strip(), m_paren.group(2).strip(), m_paren.group(3).strip()
+        short_form = pfx + sfx
+        long_form = pfx + inside + sfx
+        extra_synonyms.add(short_form)
+        extra_synonyms.add(long_form)
+        if inside.lower() == "j" and pfx.lower().endswith(("k", "g")):
+            raw = short_form
+        else:
+            raw = long_form
+
+    # Expand parentheses in extra synonyms as well
+    expanded_syns = set()
+    for s in extra_synonyms:
+        m_p = re.match(r"^([^()]*)\(([^()]+)\)([^()]*)$", s)
+        if m_p:
+            expanded_syns.add(m_p.group(1) + m_p.group(3))
+            expanded_syns.add(m_p.group(1) + m_p.group(2) + m_p.group(3))
+        else:
+            expanded_syns.add(s)
+    extra_synonyms = expanded_syns
+
+    # Strip trailing compounding hyphen if not prefix (e.g. 'spyt-', 'hobe-', 'syd-ost-')
+    if raw.endswith("-") and len(raw) > 3 and not should_keep_hyphen(raw):
+        raw = raw.rstrip("-").strip()
+
+    # De-hyphenate historical ODS etymological hyphens (e.g. 'aarvaagen-hed', 'enfoldig-hed', 'ihjel-slaa')
+    if "-" in raw and not should_keep_hyphen(raw):
+        unhyphenated = raw.replace("-", "")
+        extra_synonyms.add(raw)
+        raw = unhyphenated
+
+    for s in list(extra_synonyms):
+        if "-" in s and not should_keep_hyphen(s):
+            extra_synonyms.add(s.replace("-", ""))
+
+    extra_synonyms.discard(raw)
+    extra_synonyms.discard(raw.lower())
+    extra_synonyms.discard("")
+    return (raw, extra_synonyms)
+
+
 def modern_to_historical_aa(word: str) -> List[str]:
     """Convert modern words containing 'å'/'Å' into pre-1948 'aa'/'Aa' variants."""
     if "å" not in word.lower():
@@ -78,7 +207,6 @@ def modern_to_historical_aa(word: str) -> List[str]:
     aa_lower = word.replace("å", "aa").replace("Å", "aa")
     # Titlecase / capitalized variant
     aa_cap = aa_lower.capitalize()
-    # If first letter was capitalized
     if word and word[0].isupper():
         aa_lead = "Aa" + aa_lower[2:] if aa_lower.startswith("aa") else aa_lower.capitalize()
         variants = [aa_lower, aa_cap, aa_lead]
@@ -111,8 +239,8 @@ def generate_orthographic_synonyms(headword: str, existing_synonyms: List[str] =
     
     Includes:
     - Lowercase version for capitalized nouns (e.g., 'Jordebog' -> 'jordebog')
-    - Capitalized version for lowercase entries
-    - Pre-1948 'aa' / 'Aa' variants if headword contains 'å'
+    - Capitalized version ONLY for non-ASCII entries (e.g., 'æble' -> 'Æble', 'åbning' -> 'Åbning')
+    - Pre-1948 'aa' variants if headword contains 'å'
     - Modern 'å' / 'Å' variants if headword contains 'aa'
     - De-hyphenated forms ('Lægds-lem' -> 'lægdslem')
     """
@@ -124,28 +252,35 @@ def generate_orthographic_synonyms(headword: str, existing_synonyms: List[str] =
     for w in candidates:
         if not w:
             continue
-        # Case variants
-        synonyms.add(w.lower())
-        synonyms.add(w.capitalize())
+        w_clean = w.strip()
+        if not w_clean:
+            continue
+
+        # Case variants: Lowercase is always added
+        synonyms.add(w_clean.lower())
+        # Capitalized variant is ONLY added when the first character is non-ASCII (ord > 127)
+        # Because g_ascii_strcasecmp already folds ASCII A-Z case-insensitively!
+        if ord(w_clean[0]) > 127:
+            synonyms.add(w_clean.capitalize())
 
         # Hyphen stripping
-        if "-" in w:
-            stripped = w.replace("-", "")
-            synonyms.add(stripped)
+        if "-" in w_clean and not should_keep_hyphen(w_clean):
+            stripped = w_clean.replace("-", "")
             synonyms.add(stripped.lower())
-            synonyms.add(stripped.capitalize())
+            if ord(stripped[0]) > 127:
+                synonyms.add(stripped.capitalize())
 
         # aa <-> å mappings
-        if "å" in w or "Å" in w:
-            for aa_var in modern_to_historical_aa(w):
-                synonyms.add(aa_var)
+        if "å" in w_clean or "Å" in w_clean:
+            for aa_var in modern_to_historical_aa(w_clean):
                 synonyms.add(aa_var.lower())
-                synonyms.add(aa_var.capitalize())
-        if "aa" in w.lower():
-            mod = historical_aa_to_modern(w)
-            synonyms.add(mod)
+                if ord(aa_var[0]) > 127:
+                    synonyms.add(aa_var.capitalize())
+        if "aa" in w_clean.lower():
+            mod = historical_aa_to_modern(w_clean)
             synonyms.add(mod.lower())
-            synonyms.add(mod.capitalize())
+            if ord(mod[0]) > 127:
+                synonyms.add(mod.capitalize())
 
     # Do not include the headword itself in the synonym list
     synonyms.discard(headword)

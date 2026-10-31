@@ -191,9 +191,13 @@ class DDOScraper:
             return None
 
         # Build canonical entry
-        all_syns = {w_clean, detected_headword}
+        from ordpresse.orthography import sanitize_headword
+        clean_hw, extra_syns = sanitize_headword(detected_headword)
+        final_hw = (clean_hw or w_clean).lower()
+        all_syns = {w_clean, final_hw} | extra_syns
+        all_syns.discard("")
         canonical = CanonicalEntry(
-            headword=detected_headword,
+            headword=final_hw,
             pos=pos or "adj.",
             inflections=all_syns,
             summary_hook="",  # Rule: No synthesized summary hook for modern DDO entries
@@ -203,7 +207,7 @@ class DDOScraper:
 
         canonical_html = render_canonical_html(canonical)
         return {
-            "headword": detected_headword,
+            "headword": final_hw,
             "html_content": canonical_html,
             "synonyms": sorted(list(all_syns)),
             "canonical_entry": canonical,

@@ -18,8 +18,59 @@ from typing import Dict, List, Optional, Set, Tuple
 
 # Re-export StarDictReader and stardict_sort_key for backwards compatibility
 from ordpresse.models import CanonicalEntry
+from ordpresse.orthography import sanitize_headword
 from ordpresse.stardict_reader import StarDictReader, stardict_sort_key  # noqa: F401
 from ordpresse.synthesizer import is_valid_canonical_entry
+
+
+GENITIVE_WHITELIST: Set[str] = {
+    "almindeligvis", "dags", "års", "aars", "slags", "tilfreds",
+    "tids", "livs", "lands", "havs", "bords", "steds",
+}
+REGULAR_GENITIVE_ENDINGS: Tuple[str, ...] = ("ens", "enes", "ernes", "ets", "ers", "'s", "s'")
+
+
+def is_regular_genitive(hw_low: str, s_low: str) -> bool:
+    """Check if form is a regular inflected possessive genitive that should be excluded from .syn."""
+    if s_low in GENITIVE_WHITELIST:
+        return False
+    for end in REGULAR_GENITIVE_ENDINGS:
+        if s_low.endswith(end) and not hw_low.endswith(end) and len(s_low) > len(end) + 2:
+            return True
+    return False
+
+
+def is_invalid_synthetic_form(hw_low: str, form_low: str) -> bool:
+    """Filter out synthetic -ere/-est forms for:
+    - Adjectives ending in -som (agtsommere, agtsomst, arbejdsommere)
+    - Adjectives ending in -isk, -et, -ende
+    - Nouns ending in -er (never attach -ere, e.g. aabnere, åbnere)
+    """
+    if hw_low == form_low:
+        return False
+
+    # 1. Adjectives ending in -som (agtsom, arbejdsom, etc.)
+    if hw_low.endswith("som"):
+        if form_low.startswith(hw_low):
+            rest = form_low[len(hw_low):]
+            if rest in ("mere", "mest", "meste", "st", "ste", "ere"):
+                return True
+            if rest.startswith("m") and rest[1:] in ("ere", "est", "este", "mere", "mest", "meste"):
+                return True
+
+    # 2. Adjectives ending in -isk, -et, -ende
+    if hw_low.endswith(("isk", "et", "ende")):
+        if form_low.startswith(hw_low):
+            rest = form_low[len(hw_low):]
+            if rest in ("ere", "est", "este", "mere", "mest", "meste"):
+                return True
+
+    # 3. Nouns like aabner/åbner where -ere is an invalid synthetic comparative
+    if hw_low in ("aabner", "åbner") or hw_low.endswith("åbner") or hw_low.endswith("aabner"):
+        if form_low in (hw_low + "e", hw_low.replace("å", "aa") + "e", hw_low.replace("aa", "å") + "e"):
+            return True
+
+    return False
 
 
 @dataclass
@@ -64,6 +115,10 @@ class StarDictWriter:
             if not raw_hw:
                 continue
 
+            clean_hw, extra_syns = sanitize_headword(raw_hw)
+            if not clean_hw:
+                continue
+
             # Check canonical entry validity if available
             if getattr(e, "canonical_entry", None) is not None:
                 if not is_valid_canonical_entry(e.canonical_entry):
@@ -76,12 +131,12 @@ class StarDictWriter:
             if not any(marker in html for marker in ["<ol>", "<li>", "▸", "•", "<p>", "[Historisk kontekst]"]):
                 continue
 
-            hw_lower = raw_hw.lower()
+            hw_lower = clean_hw.lower()
 
             # Preserve capitalized or original casing in synonyms if different
-            orig_syns: List[str] = list(e.synonyms)
-            if raw_hw != hw_lower and raw_hw not in orig_syns:
-                orig_syns.append(raw_hw)
+            orig_syns: List[str] = list(e.synonyms) + list(extra_syns)
+            if clean_hw != hw_lower and clean_hw not in orig_syns:
+                orig_syns.append(clean_hw)
 
             if hw_lower in merged:
                 existing = merged[hw_lower]
@@ -122,13 +177,33 @@ class StarDictWriter:
         syn_records_list: List[Tuple[str, int]] = []
         for i, entry in enumerate(sorted_entries):
             seen_syns: Set[str] = set()
+            hw_low = entry.headword.lower()
             for s in entry.synonyms:
                 s_clean = s.strip()
+                if not s_clean:
+                    continue
                 # Invariant #2: Intet headword må optræde i sit eget .syn-sæt
-                if not s_clean or s_clean.lower() == entry.headword.lower() or s_clean in seen_syns:
+                if s_clean.lower() == hw_low or s_clean in seen_syns:
                     continue
                 if s_clean.startswith("-") or s_clean.endswith("-"):
                     continue
+
+                # 1. Eliminate ASCII Title-Case Duplicates in .syn:
+                # If first char is ASCII letter, only keep lowercase form in .syn!
+                if ord(s_clean[0]) <= 127 and s_clean[0].isalpha():
+                    s_clean = s_clean.lower()
+                    if s_clean == hw_low or s_clean in seen_syns:
+                        continue
+
+                # 2. Prune Regular Possessive Genitives from .syn:
+                s_low = s_clean.lower()
+                if is_regular_genitive(hw_low, s_low):
+                    continue
+
+                # 3. Purge Synthetic -ere/-est Forms from .syn:
+                if is_invalid_synthetic_form(hw_low, s_low):
+                    continue
+
                 seen_syns.add(s_clean)
                 syn_records_list.append((s_clean, i))
 

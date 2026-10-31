@@ -28,6 +28,7 @@ from ordpresse.epub_scanner import scan_epub_token_counts, scan_epub_tokens
 from ordpresse.orthography import (
     classify_external_lookup_priority,
     generate_orthographic_synonyms,
+    sanitize_headword,
     synthesize_compound_entry,
 )
 from ordpresse.formatter import normalize_pos, render_canonical_html
@@ -154,8 +155,12 @@ class Pipeline:
             cor_entries = db.get_all_cor_lemmas_with_definitions()
             cor_count = len(cor_entries)
             for item in cor_entries:
-                hw = item["headword"]
-                syns = generate_orthographic_synonyms(hw, item["synonyms"])
+                raw_hw = item["headword"]
+                clean_hw, extra_syns = sanitize_headword(raw_hw)
+                if not clean_hw:
+                    continue
+                hw = clean_hw.lower()
+                syns = generate_orthographic_synonyms(hw, list(item["synonyms"]) + list(extra_syns))
                 resolved_entries[hw] = StarDictEntry(
                     headword=hw,
                     html_content=item["html_content"],
@@ -174,8 +179,12 @@ class Pipeline:
                 cor_entries = db.get_all_cor_lemmas_with_definitions()
                 cor_count = len(cor_entries)
                 for item in cor_entries:
-                    hw = item["headword"]
-                    syns = generate_orthographic_synonyms(hw, item["synonyms"])
+                    raw_hw = item["headword"]
+                    clean_hw, extra_syns = sanitize_headword(raw_hw)
+                    if not clean_hw:
+                        continue
+                    hw = clean_hw.lower()
+                    syns = generate_orthographic_synonyms(hw, list(item["synonyms"]) + list(extra_syns))
                     resolved_entries[hw] = StarDictEntry(
                         headword=hw,
                         html_content=item["html_content"],
@@ -192,10 +201,14 @@ class Pipeline:
         # b) Always merge all curated entries from nordic_1800s.py and molbech_1859.py
         historical_lexicons = list(MOLBECH_1859_ENTRIES.values()) + list(NORDIC_1800S_ENTRIES.values())
         for canonical_seed in historical_lexicons:
-            hw = canonical_seed.headword.lower()
+            clean_hw, extra_syns = sanitize_headword(canonical_seed.headword)
+            if not clean_hw:
+                continue
+            canonical_seed.headword = clean_hw
+            hw = clean_hw.lower()
             historical_headwords.add(hw)
             ods_infs = db.lookup_ods_headword_inflections(canonical_seed.headword) if db else []
-            all_inflections = set(canonical_seed.inflections) | set(ods_infs) | set(canonical_seed.historical_spellings)
+            all_inflections = set(canonical_seed.inflections) | set(ods_infs) | set(canonical_seed.historical_spellings) | extra_syns
             canonical_seed.inflections = all_inflections
             resolved_canonical[hw] = canonical_seed
 
@@ -224,13 +237,19 @@ class Pipeline:
             raw_word = c_item.get("word", "").strip().lower()
             if not raw_hw:
                 raw_hw = raw_word
-            clean_hw = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", raw_hw, flags=re.I).replace("-", "").strip().lower()
-            primary_hw = clean_hw if clean_hw else raw_hw.lower()
+            clean_hw, extra_syns = sanitize_headword(raw_hw)
+            clean_w, _ = sanitize_headword(raw_word)
+            if not clean_hw and not clean_w:
+                continue
+            primary_hw = (clean_hw or clean_w or raw_word).lower()
 
-            all_forms = {raw_word, raw_hw.lower(), primary_hw}
+            all_forms = {raw_word, raw_hw.lower(), primary_hw} | extra_syns
             for s in c_item.get("synonyms", []):
                 if s:
-                    all_forms.add(s.strip().lower())
+                    s_clean, s_extra = sanitize_headword(s)
+                    if s_clean:
+                        all_forms.add(s_clean.lower())
+                    all_forms.update(s_extra)
             all_forms.discard("")
 
             if c_item.get("source") == "seed" or primary_hw in NORDIC_1800S_ENTRIES:
@@ -525,10 +544,12 @@ class Pipeline:
                 c_item = cached_map[hw]
                 raw_hw = c_item.get("headword", "").strip()
                 raw_word = c_item.get("word", "").strip().lower()
-                clean_hw = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", raw_hw, flags=re.I).replace("-", "").strip().lower()
-                actual_hw = clean_hw if clean_hw else (raw_hw.lower() if raw_hw else hw)
+                clean_hw, extra_syns = sanitize_headword(raw_hw or raw_word)
+                if not clean_hw:
+                    clean_hw = hw
+                actual_hw = clean_hw.lower()
 
-                all_forms = set(new_ods_words[hw]["inflections"]) | set(c_item.get("synonyms", [])) | {hw, actual_hw, raw_word}
+                all_forms = set(new_ods_words[hw]["inflections"]) | set(c_item.get("synonyms", [])) | {hw, actual_hw, raw_word} | extra_syns
                 all_forms.discard("")
                 syns = generate_orthographic_synonyms(actual_hw, list(all_forms))
                 resolved_entries[actual_hw] = StarDictEntry(
@@ -709,13 +730,14 @@ class Pipeline:
                             c_html = cached_entry.get("html_content", "")
                             if (prio == 1 and len(c_html) > 20) or (prio == 2 and len(c_html) > 50 and not c_html.strip().endswith(("...", "…"))):
                                 coordinator.mark_word_resolved(hw, actual_build_id)
-                                actual_hw = cached_entry["headword"].lower()
+                                clean_hw, extra_syns = sanitize_headword(cached_entry.get("headword", ""))
+                                actual_hw = (clean_hw or hw).lower()
                                 infs = list(new_ods_words.get(hw, {}).get("inflections", []))
                                 if not infs and actual_hw in resolved_entries:
                                     infs = list(resolved_entries[actual_hw].synonyms)
                                 syns = generate_orthographic_synonyms(
                                     actual_hw,
-                                    infs + cached_entry.get("synonyms", []) + [hw],
+                                    infs + cached_entry.get("synonyms", []) + list(extra_syns) + [hw],
                                 )
                                 resolved_entries[actual_hw] = StarDictEntry(
                                     headword=actual_hw,
@@ -765,13 +787,14 @@ class Pipeline:
                             # Resolved by peer or skipped
                             cached_entry = db.get_cached_definition(hw) if db else None
                             if cached_entry:
-                                actual_hw = cached_entry["headword"].lower()
+                                clean_hw, extra_syns = sanitize_headword(cached_entry.get("headword", ""))
+                                actual_hw = (clean_hw or hw).lower()
                                 infs = list(new_ods_words.get(hw, {}).get("inflections", []))
                                 if not infs and actual_hw in resolved_entries:
                                     infs = list(resolved_entries[actual_hw].synonyms)
                                 syns = generate_orthographic_synonyms(
                                     actual_hw,
-                                    infs + cached_entry.get("synonyms", []) + [hw],
+                                    infs + cached_entry.get("synonyms", []) + list(extra_syns) + [hw],
                                 )
                                 resolved_entries[actual_hw] = StarDictEntry(
                                     headword=actual_hw,
@@ -817,7 +840,11 @@ class Pipeline:
 
                         if def_data:
                             coordinator.mark_word_resolved(hw, actual_build_id)
-                            actual_hw = def_data["headword"].lower()
+                            clean_hw, extra_syns = sanitize_headword(def_data.get("headword", ""))
+                            actual_hw = (clean_hw or hw).lower()
+                            def_data["headword"] = clean_hw or hw
+                            if extra_syns:
+                                def_data.setdefault("synonyms", []).extend(extra_syns)
                             if target == "ddo":
                                 if db:
                                     db.save_cached_definition(

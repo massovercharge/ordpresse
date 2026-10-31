@@ -10,6 +10,8 @@ from typing import Any, Optional
 from ordpresse.config import CACHE_DB_PATH, DATASETS_DB_PATH
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
+from ordpresse.orthography import sanitize_headword
+from ordpresse.stardict_writer import is_invalid_synthetic_form, is_regular_genitive
 from ordpresse.synthesizer import (
     COR_SEM_DEFINITION_COMPLETIONS,
     COR_SEM_ID_COMPLETIONS,
@@ -110,12 +112,23 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
         )
         deleted = cur.rowcount
 
-        cur = conn.execute("SELECT word, html_content FROM definitions")
+        cur = conn.execute("SELECT word, headword, html_content, synonyms_json FROM definitions")
         to_delete = []
         to_update = []
         for row in cur.fetchall():
             word = row[0]
-            html = (row[1] or "").strip()
+            raw_hw = row[1] or ""
+            html = (row[2] or "").strip()
+            syn_json = row[3] or "[]"
+
+            clean_hw, extra_syns = sanitize_headword(raw_hw or word)
+            clean_w, _ = sanitize_headword(word)
+            if not clean_hw and not clean_w:
+                to_delete.append(word)
+                continue
+
+            effective_hw = clean_hw or clean_w or word
+
             if not html:
                 to_delete.append(word)
                 continue
@@ -152,15 +165,27 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
                 repaired_html = re.sub(r"\b(jf\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", repaired_html)
                 repaired_html = re.sub(r"\b(m\.)([a-zæøåA-ZÆØÅ0-9])", r"\1 \2", repaired_html)
 
-            if repaired_html != html:
-                to_update.append((repaired_html, word))
+            # Update headword in HTML header if changed
+            if effective_hw != raw_hw:
+                repaired_html = re.sub(r"(<div><b>)[^<]+(</b>)", rf"\g<1>{effective_hw}\g<2>", repaired_html)
+
+            try:
+                syn_list = json.loads(syn_json)
+            except Exception:
+                syn_list = []
+            if extra_syns:
+                syn_list = list(set(syn_list) | extra_syns)
+                syn_json = json.dumps(syn_list, ensure_ascii=False)
+
+            if repaired_html != html or effective_hw != raw_hw or extra_syns:
+                to_update.append((repaired_html, effective_hw, syn_json, word))
 
         if to_delete:
             conn.executemany("DELETE FROM definitions WHERE word = ?", [(w,) for w in to_delete])
             deleted += len(to_delete)
 
         if to_update:
-            conn.executemany("UPDATE definitions SET html_content = ? WHERE word = ?", to_update)
+            conn.executemany("UPDATE definitions SET html_content = ?, headword = ?, synonyms_json = ? WHERE word = ?", to_update)
 
         return deleted
 
@@ -384,7 +409,13 @@ class Database:
             """,
             (headword,),
         )
-        return [r[0] for r in cur.fetchall()]
+        hw_low = headword.lower()
+        return [
+            r[0]
+            for r in cur.fetchall()
+            if not is_regular_genitive(hw_low, r[0].lower())
+            and not is_invalid_synthetic_form(hw_low, r[0].lower())
+        ]
 
     def lookup_ods_forms_batch(self, words: list[str]) -> dict[str, tuple[str, str]]:
         """Bulk-lookup inflected words to find their ODS headwords and POS in SQLite."""
@@ -518,6 +549,12 @@ class Database:
                 added = ff[len(lemma):].lower()
                 if added in ("ede", "te", "ende", "des"):
                     continue
+
+            ff_low = ff.lower()
+            lem_low = lemma.lower()
+            if is_regular_genitive(lem_low, ff_low) or is_invalid_synthetic_form(lem_low, ff_low):
+                continue
+
             results.append(ff)
         return results
 
@@ -615,6 +652,11 @@ class Database:
                         continue
                     if row_pos and not row_pos.startswith("sb"):
                         continue
+
+                # Filter out regular genitives and synthetic -ere/-est forms
+                ff_low = fullform.lower()
+                if is_regular_genitive(target_lem, ff_low) or is_invalid_synthetic_form(target_lem, ff_low):
+                    continue
 
                 if target_lem not in inflections_map:
                     inflections_map[target_lem] = set()
