@@ -104,6 +104,94 @@ def sanitize_ods_text(text: str) -> str:
     return text
 
 
+GRAMMATICAL_ROUTING_RE = re.compile(
+    r"\b(?:som\s+(?:verbum|adjektiv|substantiv|adverbium|vb|adj|sb|adv)\.?|"
+    r"brugt\s+som\s+(?:adjektiv|substantiv|verbum|adverbium|adj|sb|vb|adv)\.?|"
+    r"(?:i\s+)?perf\.?\s*part\.?|(?:i\s+)?præs\.?\s*part\.?|"
+    r"i\s+pass\.?|refl\.?|abs\.?|intr\.?|tr\.?|part\.?|"
+    r"jf\.\s*(?:dial\.|u\.|under|se)?|"
+    r"som\s+part\.?)\b",
+    re.IGNORECASE,
+)
+
+
+USAGE_LABELS_RE = re.compile(
+    r"\b(?:hist|nu\s+sj|foræld|dial|sj|egl|overf|fig|bogst|vulg|poet|sjæld)\.?",
+    re.IGNORECASE,
+)
+
+
+def is_meta_header_not_definition(text: str) -> bool:
+    """Return True if text is a grammatical section header or routing phrase rather than a definition."""
+    if not text:
+        return True
+    t = text.strip()
+    if not t:
+        return True
+
+    cleaned = re.sub(r"^[0-9]+[.)]\s*", "", t)
+    # Strip trailing unclosed reference parentheses like '(jf.'
+    cleaned = re.sub(r"\(\s*(?:jf\.|se)\b.*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned_words = cleaned.replace("(", " ").replace(")", " ").strip()
+
+    has_routing = bool(GRAMMATICAL_ROUTING_RE.search(cleaned_words))
+    lexical = GRAMMATICAL_ROUTING_RE.sub("", cleaned_words)
+    lexical = USAGE_LABELS_RE.sub("", lexical)
+    lexical = re.sub(r"[^\w\s]", "", lexical).strip()
+
+    if has_routing and len(lexical) < 12:
+        return True
+
+    if len(lexical) < 4:
+        return True
+
+    return False
+
+
+def clean_ods_definition_text(text: str) -> str:
+    """Clean grammatical prefixes, strip trailing cross-references, and ensure balanced parentheses."""
+    if not text:
+        return ""
+    t = text.strip()
+
+    # Strip leading routing prefixes like 'part. udlevet brugt som adj., (jf. aflevet)'
+    t = re.sub(
+        r"^(?:part\.?\s+)?(?:[a-zæøåA-ZÆØÅ\-]+\s+)?brugt\s+som\s+(?:adj\.|sb\.|adjektiv|substantiv)[,;]?\s*(?:\([^)]*\))?\s*",
+        "",
+        t,
+        flags=re.IGNORECASE,
+    )
+    # Strip leading 'til II. arm 2:'
+    t = re.sub(r"^til\s+[IVXLCDM\d.]+\s+[a-zæøåA-ZÆØÅ\-]+\s+\d+:\s*", "", t, flags=re.IGNORECASE)
+    # Strip leading '(jf. ...)'
+    t = re.sub(r"^\(\s*(?:jf\.|se)\b[^)]*\)\s*", "", t, flags=re.IGNORECASE)
+
+    # Strip trailing cross-reference parentheses like (jf. ...) or (jf.
+    while True:
+        prev = t
+        t = re.sub(r"[,;]?\s*\(\s*(?:jf\.|se\b)[^)]*\)?\s*$", "", t, flags=re.IGNORECASE).strip()
+        t = re.sub(r"[,;]?\s*\(\s*(?:jf\.|se\b).*$", "", t, flags=re.IGNORECASE).strip()
+        t = re.sub(r"[,;]?\s*jf\.\s*$", "", t, flags=re.IGNORECASE).strip()
+        if t == prev:
+            break
+
+    # Strip any dangling opening parenthesis at the end
+    t = re.sub(r"[,;]?\s*\([^)]*$", "", t).strip()
+
+    # Balance parentheses if any unclosed '(' remains
+    open_count = t.count("(")
+    close_count = t.count(")")
+    if open_count > close_count:
+        t += ")" * (open_count - close_count)
+    elif close_count > open_count:
+        while t.startswith(")"):
+            t = t[1:].lstrip()
+
+    # Trim trailing punctuation and ensure proper ending if needed
+    t = re.sub(r"\s+([,.;:!)])", r"\1", t).strip()
+    return t
+
+
 def is_valid_definition(text: str) -> bool:
     """Check if candidate definition is genuine explanatory text and not an author or citation."""
     if not text:
@@ -142,6 +230,7 @@ def is_valid_definition(text: str) -> bool:
 class ODSScraperRateLimitError(Exception):
     """Raised when ordnet.dk returns HTTP 429 or a Cloudflare challenge."""
     pass
+
 
 
 class ODSScraper:
@@ -225,9 +314,30 @@ class ODSScraper:
                 }
             return None
 
-        # Detect headword
-        hw_elem = soup.find("span", class_="match") or soup.find("h1") or soup.find("span", class_="headline")
-        headword_raw = hw_elem.get_text(" ", strip=True) if hw_elem else w_clean.capitalize()
+        # Detect headword and select matching article if page contains multiple entries
+        from ordpresse.orthography import sanitize_headword
+        matching_article = None
+        for art in articles:
+            m = art.find("span", class_="match") or art.find("span", class_="headline") or art.find("h1")
+            if m:
+                art_hw = re.sub(r"^[0-9.]+\s*", "", m.get_text(" ", strip=True)).rstrip(",").strip().lower()
+                clean_art_hw, _ = sanitize_headword(art_hw)
+                if (
+                    art_hw == w_clean
+                    or art_hw.replace("-", "") == w_clean.replace("-", "")
+                    or clean_art_hw == w_clean
+                    or clean_art_hw.replace("-", "") == w_clean.replace("-", "")
+                ):
+                    matching_article = art
+                    hw_elem = m
+                    break
+
+        if matching_article:
+            articles = [matching_article]
+            headword_raw = hw_elem.get_text(" ", strip=True)
+        else:
+            hw_elem = soup.find("span", class_="match") or soup.find("h1") or soup.find("span", class_="headline")
+            headword_raw = hw_elem.get_text(" ", strip=True) if hw_elem else w_clean.capitalize()
         headword = re.sub(r"^[0-9.]+\s*", "", headword_raw)
         headword = re.sub(r"[,\s\d]+$", "", headword).strip()
         if not headword:
@@ -261,8 +371,19 @@ class ODSScraper:
         visited_refs: Set[str] = {w_clean, headword.lower()}
 
         for sp in all_soups:
-            # Extract definitions from .artikel nodes
+            # Extract definitions from .artikel nodes matching headword
             for art in sp.find_all("div", class_="artikel"):
+                m = art.find("span", class_="match") or art.find("span", class_="headline") or art.find("h1")
+                if m:
+                    art_hw = re.sub(r"^[0-9.]+\s*", "", m.get_text(" ", strip=True)).rstrip(",").strip().lower()
+                    clean_art_hw, _ = sanitize_headword(art_hw)
+                    if not (
+                        art_hw == headword.lower()
+                        or art_hw.replace("-", "") == headword.lower().replace("-", "")
+                        or clean_art_hw == headword.lower()
+                        or clean_art_hw.replace("-", "") == headword.lower().replace("-", "")
+                    ):
+                        continue
                 parsed_senses, art_pos, spellings = self._parse_article(art, visited_refs)
                 if not detected_pos and art_pos:
                     detected_pos = art_pos
@@ -398,75 +519,99 @@ class ODSScraper:
         if headword_match:
             headword_match.decompose()
 
-        # 4. Extract structured definitions from .betydning
-        betyd_nodes = art.find_all(class_=re.compile(r"\bbetydning\b"))
-        if betyd_nodes:
-            for bn in betyd_nodes:
-                clean_def = sanitize_ods_text(bn.get_text(" ", strip=True))
-                if is_valid_definition(clean_def) and not clean_def.lower().startswith("se "):
-                    label = self._extract_label(clean_def)
-                    if label:
-                        clean_def = re.sub(r"^\([^)]+\)\s*", "", clean_def).strip()
-                    senses.append(SenseItem(definition=clean_def, label=label or "hist.", source_tag="ODS"))
-
-        # 5. Extract structured definitions from .semem / .semdel
-        if not senses:
-            semems = art.find_all(class_="semem")
+        # 4. Extract structured definitions from .semem / .subsem
+        semems = art.find_all(class_="semem")
+        if semems:
             for s in semems:
-                quote_text = None
-                quote_author = None
-                def_text = ""
-                last_text = None
+                subsems = s.find_all(class_="subsem")
+                candidate_nodes = subsems if subsems else [s]
+                for c_node in candidate_nodes:
+                    c_soup = BeautifulSoup(str(c_node), "html.parser").find(True)
+                    if not c_soup:
+                        continue
+                    for num in c_soup.find_all(class_=re.compile(r"(?:hovedbetydning|underbetydning)")):
+                        num.decompose()
+                    for sub in c_soup.find_all(class_="subsem"):
+                        sub.decompose()
 
-                # Extract definition and quote by inspecting children in sequence
-                for child in s.children:
-                    tag_name = getattr(child, "name", None)
-                    if tag_name == "i":
-                        txt = sanitize_ods_text(child.get_text(" ", strip=True))
-                        # First substantial non-citation italic tag is definition
-                        if not def_text and is_valid_definition(txt) and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", txt):
-                            def_text = txt
-                        elif def_text and last_text and not quote_text:
-                            # Check if this italic element contains an author citation for last_text
-                            for p, author_name in AUTHOR_EXPANSIONS:
-                                if p.search(txt):
-                                    quote_text = last_text
-                                    quote_author = author_name
+                    def_tokens = []
+                    quote_text = None
+                    quote_author = None
+                    hit_cit = False
+
+                    for ch in c_soup.children:
+                        tag_name = getattr(ch, "name", None)
+                        txt = ch.get_text(" ", strip=True) if hasattr(ch, "get_text") else str(ch).strip()
+                        if not txt:
+                            continue
+                        if txt.startswith("*") or hit_cit:
+                            hit_cit = True
+                            if not quote_text and txt.startswith("*"):
+                                quote_text = txt.lstrip("*").strip()
+                            elif not quote_author:
+                                for p, author_name in AUTHOR_EXPANSIONS:
+                                    if p.search(txt):
+                                        quote_author = author_name
+                                        break
+                            continue
+
+                        if tag_name is None:
+                            if len(txt) > 20 and not txt.startswith("III.") and not txt.startswith("II.") and not txt.startswith("I."):
+                                hit_cit = True
+                                if not quote_text:
+                                    quote_text = txt
+                                continue
+
+                        def_tokens.append(txt)
+
+                    raw_def = sanitize_ods_text(" ".join(def_tokens))
+                    clean_def = clean_ods_definition_text(raw_def)
+
+                    if not is_meta_header_not_definition(clean_def) and is_valid_definition(clean_def) and not clean_def.lower().startswith("se "):
+                        label = self._extract_label(clean_def)
+                        if label:
+                            clean_def = re.sub(r"^\([^)]+\)\s*", "", clean_def).strip()
+                        clean_def = clean_ods_definition_text(clean_def)
+                        if clean_def and not is_meta_header_not_definition(clean_def):
+                            if not any(clean_def == existing.definition for existing in senses):
+                                senses.append(
+                                    SenseItem(
+                                        definition=clean_def,
+                                        label=label or "hist.",
+                                        quote=quote_text,
+                                        quote_author=quote_author,
+                                        source_tag="ODS",
+                                    )
+                                )
+                                if len(senses) >= 4:
                                     break
-                    elif tag_name is None:
-                        # Text node
-                        node_str = sanitize_ods_text(str(child))
-                        if len(node_str) > 10:
-                            last_text = node_str
+                if len(senses) >= 4:
+                    break
 
-                if not def_text:
-                    full_s = sanitize_ods_text(s.get_text(" ", strip=True))
-                    full_s = re.sub(r"^[0-9]+[.)]\s*", "", full_s)
-                    def_text = full_s
-
-                if is_valid_definition(def_text) and not def_text.lower().startswith("se "):
-                    label = self._extract_label(def_text)
-                    if label:
-                        def_text = re.sub(r"^\([^)]+\)\s*", "", def_text).strip()
-
-                    senses.append(
-                        SenseItem(
-                            definition=def_text,
-                            label=label or "hist.",
-                            quote=quote_text,
-                            quote_author=quote_author,
-                            source_tag="ODS",
-                        )
-                    )
+        # 5. Fallback: Extract from .betydning or .definition
+        if not senses:
+            betyd_nodes = art.find_all(class_=re.compile(r"\b(?:betydning|definition)\b"))
+            if betyd_nodes:
+                for bn in betyd_nodes:
+                    clean_def = clean_ods_definition_text(sanitize_ods_text(bn.get_text(" ", strip=True)))
+                    if not is_meta_header_not_definition(clean_def) and is_valid_definition(clean_def) and not clean_def.lower().startswith("se "):
+                        label = self._extract_label(clean_def)
+                        if label:
+                            clean_def = re.sub(r"^\([^)]+\)\s*", "", clean_def).strip()
+                        clean_def = clean_ods_definition_text(clean_def)
+                        if clean_def and not is_meta_header_not_definition(clean_def):
+                            if not any(clean_def == existing.definition for existing in senses):
+                                senses.append(SenseItem(definition=clean_def, label=label or "hist.", source_tag="ODS"))
+                                if len(senses) >= 4:
+                                    break
 
         # 6. Fallback: Check for inline editorial gloss (: ...) or body text
         if not senses:
-            # Phase 3.2: Check for editorial gloss pattern r"\(\s*:\s*([^)]+)\)"
             gloss_match = re.search(r"\(\s*:\s*([^)]+)\)", raw_text)
             if gloss_match:
                 gloss_text = gloss_match.group(1).strip()
-                gloss_text = sanitize_ods_text(gloss_text)
-                if is_valid_definition(gloss_text):
+                gloss_text = clean_ods_definition_text(sanitize_ods_text(gloss_text))
+                if not is_meta_header_not_definition(gloss_text) and is_valid_definition(gloss_text):
                     label = self._extract_label(gloss_text)
                     if label:
                         gloss_text = re.sub(r"^\([^)]+\)\s*", "", gloss_text).strip()
@@ -490,10 +635,9 @@ class ODSScraper:
                     )
 
         if not senses:
-            # Check <i> tags across article
             for it in art.find_all("i"):
-                t = sanitize_ods_text(it.get_text(" ", strip=True))
-                if is_valid_definition(t) and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", t):
+                t = clean_ods_definition_text(sanitize_ods_text(it.get_text(" ", strip=True)))
+                if not is_meta_header_not_definition(t) and is_valid_definition(t) and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", t):
                     label = self._extract_label(t)
                     if label:
                         t = re.sub(r"^\([^)]+\)\s*", "", t).strip()
@@ -501,11 +645,9 @@ class ODSScraper:
                     break
 
             if not senses:
-                art_text = sanitize_ods_text(art.get_text(" ", strip=True))
-                # Clean leading POS like 'en .', 'adj .'
+                art_text = clean_ods_definition_text(sanitize_ods_text(art.get_text(" ", strip=True)))
                 art_text = re.sub(r"^(?:en|et|adj\.|sb\.|v\.|adv\.)\s*[.]?\s*", "", art_text).strip()
-                if is_valid_definition(art_text) and not art_text.lower().startswith("se "):
-                    # Ensure it's not a raw citation
+                if not is_meta_header_not_definition(art_text) and is_valid_definition(art_text) and not art_text.lower().startswith("se "):
                     if not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", art_text):
                         label = self._extract_label(art_text)
                         if label:

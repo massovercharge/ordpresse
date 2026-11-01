@@ -212,16 +212,27 @@ class Pipeline:
             canonical_seed.inflections = all_inflections
             resolved_canonical[hw] = canonical_seed
 
-            # If entry already exists from COR-SEM, enrich it
+            # If entry already exists from COR-SEM, enrich it without losing modern senses
             if hw in resolved_entries:
                 existing_entry = resolved_entries[hw]
-                canonical_seed.sources_used = list(dict.fromkeys(canonical_seed.sources_used + ["COR-SEM"]))
-                merged_syns = generate_orthographic_synonyms(hw, list(all_inflections) + existing_entry.synonyms)
-                resolved_entries[hw] = StarDictEntry(
-                    headword=hw,
-                    html_content=render_canonical_html(canonical_seed),
-                    synonyms=merged_syns,
-                )
+                existing_can = resolved_canonical.get(hw)
+                if existing_can and existing_can.modern_senses:
+                    merged_can = enrich_canonical_entry_with_historical(existing_can, canonical_seed)
+                    resolved_canonical[hw] = merged_can
+                    merged_syns = generate_orthographic_synonyms(hw, list(all_inflections) + existing_entry.synonyms)
+                    resolved_entries[hw] = StarDictEntry(
+                        headword=hw,
+                        html_content=render_canonical_html(merged_can),
+                        synonyms=merged_syns,
+                    )
+                else:
+                    canonical_seed.sources_used = list(dict.fromkeys(canonical_seed.sources_used + ["COR-SEM"]))
+                    merged_syns = generate_orthographic_synonyms(hw, list(all_inflections) + existing_entry.synonyms)
+                    resolved_entries[hw] = StarDictEntry(
+                        headword=hw,
+                        html_content=render_canonical_html(canonical_seed),
+                        synonyms=merged_syns,
+                    )
             else:
                 syns = generate_orthographic_synonyms(hw, list(all_inflections))
                 resolved_entries[hw] = StarDictEntry(
@@ -266,9 +277,22 @@ class Pipeline:
                 existing_entry.synonyms = generate_orthographic_synonyms(
                     primary_hw, list(set(existing_entry.synonyms) | all_forms)
                 )
-                # Overwrite empty COR definition with rich scraped/cached definition
+                # If existing entry has modern senses, merge with cached historical senses
                 if c_item.get("html_content") and "Historisk opslag for »" not in c_item["html_content"]:
-                    existing_entry.html_content = c_item["html_content"]
+                    existing_can = resolved_canonical.get(primary_hw)
+                    if existing_can and existing_can.modern_senses:
+                        from ordpresse.sources.ods_scraper import parse_ods_html
+                        parsed_cached = parse_ods_html(primary_hw, c_item["html_content"])
+                        if parsed_cached and parsed_cached.get("canonical_entry"):
+                            merged_can = enrich_canonical_entry_with_historical(
+                                existing_can, parsed_cached["canonical_entry"]
+                            )
+                            resolved_canonical[primary_hw] = merged_can
+                            existing_entry.html_content = render_canonical_html(merged_can)
+                        else:
+                            existing_entry.html_content = c_item["html_content"]
+                    else:
+                        existing_entry.html_content = c_item["html_content"]
             else:
                 syns = generate_orthographic_synonyms(primary_hw, list(all_forms))
                 resolved_entries[primary_hw] = StarDictEntry(

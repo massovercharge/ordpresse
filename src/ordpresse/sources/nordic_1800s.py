@@ -793,6 +793,89 @@ NORDIC_1800S_ENTRIES: Dict[str, CanonicalEntry] = {
         realia_note="Juridisk og samfundsmæssigt begreb i ældre ret om formuefællesskab mellem ægtefæller eller kollektivt ejerskab i landsbyfællesskaber før udskiftningen.",
         sources_used=["ODS"],
     ),
+    "forarme": CanonicalEntry(
+        headword="forarme",
+        historical_spellings=["Forarme"],
+        pos="vb.",
+        inflections={"forarmer", "forarmede", "forarmet", "forarmedes", "Forarme", "Forarmet"},
+        summary_hook="Gøre fattig; bringe i armod og forfald; udpine (f.eks. jord eller befolkning).",
+        historical_senses=[
+            SenseItem(
+                definition="Bringe i armod og forfald; udpine (f.eks. jord, befolkning el. gods); ruinere.",
+                label="hist.",
+                quote="Du mager, at mit Gods forbliver u-beskaaren, | Og de, som gierne vil, kand ey forarme mig.",
+                quote_author="St. St. Blicher",
+                source_tag="ODS",
+            ),
+            SenseItem(
+                definition="(i pass. forarmes) Bringe til armod; forfalde til dyb fattigdom; udmagres eller udpines.",
+                label="hist.",
+                source_tag="ODS",
+            ),
+        ],
+        realia_note="Klassisk 1800-talslitterært udtryk (bl.a. hos Blicher og Brandes) for økonomisk ruin, udpint agerbrug eller befolkning bragt til armod.",
+        sources_used=["ODS", "Molbech"],
+    ),
+    "forarmet": CanonicalEntry(
+        headword="forarmet",
+        historical_spellings=["Forarmet"],
+        pos="adj.",
+        inflections={"forarmede", "Forarmet", "Forarmede"},
+        summary_hook="Bragt til dyb fattigdom og armod; udpint, forfalden eller ribbet for ressourcer.",
+        historical_senses=[
+            SenseItem(
+                definition="Udpint, forfalden eller ribbet for midler; bragt i dyb armod og nød.",
+                label="hist.",
+                quote="en forarmet Skuespillertrup.",
+                quote_author="C. Bernhard",
+                source_tag="ODS",
+            ),
+        ],
+        realia_note="Perfektum participium brugt adjektivisk i 1800-talslitteraturen (bl.a. hos Moberg og Blicher) om personer eller egne ramt af ruin og armod.",
+        sources_used=["ODS", "Molbech"],
+    ),
+    "udleve": CanonicalEntry(
+        headword="udleve",
+        historical_spellings=["Udleve"],
+        pos="vb.",
+        inflections={"udlever", "udlevede", "udlevet", "Udleve", "Udlevede"},
+        summary_hook="Omsætte sine drømme, lyster eller følelser i handling; historisk: leve sit liv til ende.",
+        modern_senses=[
+            SenseItem(
+                definition="Omsætte sine drømme, lyster eller følelser i handling; gennemleve fuldt ud.",
+                source_tag="COR-SEM",
+            ),
+        ],
+        historical_senses=[
+            SenseItem(
+                definition="Leve til ende; tilbringe eller afslutte sit liv; i perf. part. »udlevet« (pl. »udlevede«): svækket af høj alder, slid eller udsvævelser; affældig, udslidt.",
+                label="hist.",
+                quote="Min Fader havde nu sin Leve-Tid udlevet.",
+                quote_author="ODS",
+                source_tag="ODS",
+            ),
+        ],
+        realia_note="I 1700- og 1800-tallets litteratur betød udleve primært 'at leve sit liv til ende' og som participium 'affældig/udslidt'. I moderne dansk primært brugt om at realisere indre impulser eller fantasier.",
+        sources_used=["ODS", "COR-SEM"],
+    ),
+    "udlevet": CanonicalEntry(
+        headword="udlevet",
+        historical_spellings=["Udlevet"],
+        pos="adj.",
+        inflections={"udlevede", "Udlevet", "Udlevede"},
+        summary_hook="Svækket af høj alder, slid eller udsvævelser; affældig, udslidt.",
+        historical_senses=[
+            SenseItem(
+                definition="Affældig, udslidt og svækket (især af alderdom el. et udsvævende levned); som har levet sit liv til ende.",
+                label="hist.",
+                quote="I ere udlevede mænd.",
+                quote_author="Bibelen (Job 32,6)",
+                source_tag="ODS",
+            ),
+        ],
+        realia_note="Perfektum participium af udleve brugt som adjektiv om svækkede, affældige oldinge eller udslidte brugsgenstande i 1700- og 1800-tallet.",
+        sources_used=["ODS"],
+    ),
 }
 
 

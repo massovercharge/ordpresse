@@ -17,6 +17,8 @@ COR_SEM_DEFINITION_COMPLETIONS: dict[str, str] = {
     "søskende": "personer som er børn af samme forældre, dvs. brødre og søstre",
     "grund": "landjorden som et underlag man kan stå fast, gå eller færdes på",
     "grunde": "tænke dybt og grundigt over noget; gruble; fundere",
+    "forarbejde": "behandle et råmateriale så der dannes et anvendeligt produkt; bearbejde",
+    "forarbejdning": "behandling af et råmateriale så der dannes et anvendeligt produkt; bearbejdning",
 }
 
 # Mapping by exact COR.SEM ID
@@ -30,13 +32,22 @@ COR_SEM_ID_COMPLETIONS: dict[str, str] = {
     "COR.SEM.1002897.03": "landområde (hvorpå noget bygges)",
     "COR.SEM.1002897.04": "grundlag som forårsager, motiverer eller forklarer et fænomen, en handling, holdning e.l.; årsag",
     "COR.SEM.1002898.01": "tænke dybt og grundigt over noget; gruble; fundere",
+    "COR.SEM.35019.01": "behandle et råmateriale så der dannes et anvendeligt produkt; bearbejde",
+    "COR.SEM.35019.02": "arbejde mentalt med noget; analysere og forholde sig til",
+    "COR.SEM.84184.01": "behandling af et råmateriale så der dannes et anvendeligt produkt; bearbejdning",
 }
+
+ABBREVIATIONS_RE = re.compile(
+    r"\b(?:jf|bl\.a|f\.eks|fx|dvs|osv|m\.m|el|ell|alm|egl|især|navnlig|ofte|sj|nr|sp|s|st|ca|bl|a|o\.lign|o\.a)\s*$",
+    re.IGNORECASE,
+)
 
 
 def truncate_summary_hook(text: str, max_chars: int = 165) -> str:
     """Shorten summary hook ONLY at a natural sentence period (.) or semicolon (;).
 
     NEVER truncate mid-sentence after an arbitrary character limit.
+    NEVER split or truncate at a period belonging to an abbreviation (jf., bl.a., f.eks., fx., dvs., osv., m.m., etc.).
     """
     if not text:
         return ""
@@ -48,23 +59,55 @@ def truncate_summary_hook(text: str, max_chars: int = 165) -> str:
     candidates: List[str] = []
     for m in re.finditer(r"[.;](\s+|$)", text[: max_chars + 1]):
         end_idx = m.start()
-        candidate = text[:end_idx].strip()
-        if len(candidate) > 15:
-            candidates.append(candidate)
+        prefix = text[:end_idx].strip()
+        punct = text[end_idx]
+
+        # Never split at a period belonging to an abbreviation
+        if punct == "." and ABBREVIATIONS_RE.search(prefix):
+            continue
+
+        # Never split if inside unclosed parentheses
+        if prefix.count("(") > prefix.count(")"):
+            continue
+
+        if len(prefix) > 15:
+            candidates.append(prefix)
 
     if candidates:
         best = candidates[-1]
+        best = re.sub(r"[,;]?\s*\(\s*(?:jf\.|se\b)[^)]*\)?\s*$", "", best, flags=re.I).strip()
+        best = re.sub(r"[,;]?\s*\([^)]*$", "", best).strip()
+        open_c = best.count("(")
+        close_c = best.count(")")
+        if open_c > close_c:
+            best += ")" * (open_c - close_c)
         if not best.endswith("."):
             best += "."
         return best
 
     # If no period or semicolon exists within max_chars, check for the first natural boundary beyond
-    first_punct = re.search(r"[.;](\s+|$)", text)
-    if first_punct and first_punct.start() > 15:
-        clause = text[: first_punct.start()].strip()
-        if not clause.endswith("."):
-            clause += "."
-        return clause
+    for m in re.finditer(r"[.;](\s+|$)", text):
+        end_idx = m.start()
+        prefix = text[:end_idx].strip()
+        punct = text[end_idx]
+
+        if punct == "." and ABBREVIATIONS_RE.search(prefix):
+            continue
+
+        if prefix.count("(") > prefix.count(")"):
+            continue
+
+        if len(prefix) > 15:
+            clause = prefix
+            clause = re.sub(r"[,;]?\s*\(\s*(?:jf\.|se\b)[^)]*\)?\s*$", "", clause, flags=re.I).strip()
+            clause = re.sub(r"[,;]?\s*\([^)]*$", "", clause).strip()
+            open_c = clause.count("(")
+            close_c = clause.count(")")
+            if open_c > close_c:
+                clause += ")" * (open_c - close_c)
+            if not clause.endswith("."):
+                clause += "."
+            return clause
 
     # If no natural punctuation exists, strictly FORBID arbitrary mid-sentence slicing with "...".
     # Preserve the full sentence intact.

@@ -124,10 +124,20 @@ def is_clean_keep_row(word: str, headword: str, html_content: str) -> bool:
         if re.match(r"^\(:\s*[^)]+\)$", li_txt):
             return False
 
-    # 8. Must contain at least one genuine definition and not be merely an author signature
-    from ordpresse.sources.ods_scraper import is_valid_definition
+    # 8. Must NOT contain grammatical meta-headers, unclosed '(jf.', or unmatched parentheses
+    from ordpresse.sources.ods_scraper import is_meta_header_not_definition, is_valid_definition
     lis = soup.find_all("li")
     if lis:
+        for li in lis:
+            t = li.get_text(" ", strip=True)
+            t_no_quote = re.split(r"[»«]", t)[0].strip()
+            # Check for unclosed (jf. or (se reference stub
+            if re.search(r"\(\s*(?:jf|se)\.?[^)]*$", t_no_quote, re.IGNORECASE):
+                return False
+            t_clean = re.sub(r"^\([^)]+\)\s*", "", t_no_quote).strip()
+            if is_meta_header_not_definition(t_clean):
+                return False
+
         has_valid_sense = any(
             is_valid_definition(re.sub(r"^\([^)]+\)\s*", "", li.get_text(" ", strip=True)).strip())
             for li in lis
@@ -179,6 +189,15 @@ def attempt_salvage(
     if synth:
         html = render_canonical_html(synth)
         return synth, html
+
+    # 4. Clean entry from COR-SEM database (e.g. forarbejde, udleve)
+    if db:
+        cor_entries = db.lookup_cor_word(w_clean) or db.lookup_cor_word(hw_clean)
+        if cor_entries:
+            for c_res in cor_entries:
+                can = c_res.get("canonical_entry")
+                if can and is_clean_keep_row(w_clean, can.headword, c_res["html_content"]):
+                    return can, c_res["html_content"]
 
     # --- Case A: NAOB / ODS SITATER or Glued POS Repair ---
     if html_content and ("SITATER" in html_content or GLUED_POS_PATTERN.search(html_content)):
