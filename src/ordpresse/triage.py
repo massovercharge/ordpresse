@@ -190,14 +190,28 @@ def attempt_salvage(
         html = render_canonical_html(synth)
         return synth, html
 
-    # 4. Clean entry from COR-SEM database (e.g. forarbejde, udleve)
-    if db:
-        cor_entries = db.lookup_cor_word(w_clean) or db.lookup_cor_word(hw_clean)
-        if cor_entries:
-            for c_res in cor_entries:
-                can = c_res.get("canonical_entry")
-                if can and is_clean_keep_row(w_clean, can.headword, c_res["html_content"]):
-                    return can, c_res["html_content"]
+    # 4. Clean entry from COR-SEM database (e.g. forarbejde)
+    if db and hasattr(db, "lookup_cor_lemma_definitions"):
+        cor_defs = db.lookup_cor_lemma_definitions(w_clean) or db.lookup_cor_lemma_definitions(hw_clean)
+        if cor_defs:
+            from ordpresse.synthesizer import synthesize_cor_sem_summary_hook
+            modern_senses = [
+                SenseItem(definition=d["definition"], quote=d.get("examples"), source_tag="COR-SEM")
+                for d in cor_defs[:4]
+                if d.get("definition")
+            ]
+            if modern_senses:
+                can_pos = normalize_pos(cor_defs[0].get("pos", ""))
+                can_entry = CanonicalEntry(
+                    headword=hw_clean or w_clean,
+                    pos=can_pos,
+                    modern_senses=modern_senses,
+                    summary_hook=synthesize_cor_sem_summary_hook([s.definition for s in modern_senses]),
+                    sources_used=["COR-SEM"],
+                )
+                can_html = render_canonical_html(can_entry)
+                if is_clean_keep_row(w_clean, can_entry.headword, can_html):
+                    return can_entry, can_html
 
     # --- Case A: NAOB / ODS SITATER or Glued POS Repair ---
     if html_content and ("SITATER" in html_content or GLUED_POS_PATTERN.search(html_content)):
