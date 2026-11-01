@@ -18,62 +18,16 @@ from typing import Dict, List, Optional, Set, Tuple
 
 # Re-export StarDictReader and stardict_sort_key for backwards compatibility
 from ordpresse.models import CanonicalEntry
-from ordpresse.orthography import sanitize_headword
+from ordpresse.orthography import (
+    GENITIVE_WHITELIST,
+    historical_aa_to_modern,
+    is_invalid_synthetic_form,
+    is_redundant_genitive,
+    is_regular_genitive,
+    sanitize_headword,
+)
 from ordpresse.stardict_reader import StarDictReader, stardict_sort_key  # noqa: F401
 from ordpresse.synthesizer import is_valid_canonical_entry
-
-
-GENITIVE_WHITELIST: Set[str] = {
-    "almindeligvis", "dags", "års", "aars", "slags", "tilfreds",
-    "tids", "livs", "lands", "havs", "bords", "steds",
-}
-def is_regular_genitive(hw_low: str, s_low: str) -> bool:
-    """Check if form is a trivial headword + 's' / apostrophe genitive that should be excluded from .syn.
-    
-    CrossPoint Reader (Xteink X4 Pro) and KOReader automatically strip single trailing '-s'
-    and match headword in .idx directly.
-    Therefore, ONLY trivial headword + 's' (e.g. 'abbeds', 'bils', 'konges', 'abehus'') are pruned.
-    Inflected genitives (-ens, -ets, -enes, -ernes, -ers, irregular plural genitives like 'mænds', 'børnenes')
-    MUST be preserved in .syn for 100% direct hit-rate.
-    """
-    if s_low in GENITIVE_WHITELIST:
-        return False
-    if s_low == hw_low + "s" or s_low == hw_low + "'" or s_low == hw_low + "'s":
-        return True
-    return False
-
-
-def is_invalid_synthetic_form(hw_low: str, form_low: str) -> bool:
-    """Filter out synthetic -ere/-est forms for:
-    - Adjectives ending in -som (agtsommere, agtsomst, arbejdsommere)
-    - Adjectives ending in -isk, -et, -ende
-    - Nouns ending in -er (never attach -ere, e.g. aabnere, åbnere)
-    """
-    if hw_low == form_low:
-        return False
-
-    # 1. Adjectives ending in -som (agtsom, arbejdsom, etc.)
-    if hw_low.endswith("som"):
-        if form_low.startswith(hw_low):
-            rest = form_low[len(hw_low):]
-            if rest in ("mere", "mest", "meste", "st", "ste", "ere"):
-                return True
-            if rest.startswith("m") and rest[1:] in ("ere", "est", "este", "mere", "mest", "meste"):
-                return True
-
-    # 2. Adjectives ending in -isk, -et, -ende
-    if hw_low.endswith(("isk", "et", "ende")):
-        if form_low.startswith(hw_low):
-            rest = form_low[len(hw_low):]
-            if rest in ("ere", "est", "este", "mere", "mest", "meste"):
-                return True
-
-    # 3. Nouns like aabner/åbner where -ere is an invalid synthetic comparative
-    if hw_low in ("aabner", "åbner") or hw_low.endswith("åbner") or hw_low.endswith("aabner"):
-        if form_low in (hw_low + "e", hw_low.replace("å", "aa") + "e", hw_low.replace("aa", "å") + "e"):
-            return True
-
-    return False
 
 
 @dataclass
@@ -149,11 +103,14 @@ class StarDictWriter:
                 for s in orig_syns:
                     if s not in existing.synonyms:
                         existing.synonyms.append(s)
+                if not existing.canonical_entry and e.canonical_entry:
+                    existing.canonical_entry = e.canonical_entry
             else:
                 merged[hw_lower] = StarDictEntry(
                     headword=hw_lower,
                     html_content=e.html_content,
                     synonyms=orig_syns,
+                    canonical_entry=e.canonical_entry,
                 )
 
         # 2. Sort entries by stardict_sort_key(headword) (Invariant #3)
@@ -181,32 +138,80 @@ class StarDictWriter:
         for i, entry in enumerate(sorted_entries):
             seen_syns: Set[str] = set()
             hw_low = entry.headword.lower()
-            for s in entry.synonyms:
+            pos = ""
+            if entry.canonical_entry and entry.canonical_entry.pos:
+                pos = entry.canonical_entry.pos
+
+            raw_forms: List[str] = list(entry.synonyms)
+            if entry.canonical_entry and entry.canonical_entry.inflections:
+                for inf in entry.canonical_entry.inflections:
+                    if inf not in raw_forms:
+                        raw_forms.append(inf)
+
+            kept_forms: List[str] = []
+            for s in raw_forms:
                 s_clean = s.strip()
                 if not s_clean:
                     continue
                 # Invariant #2: Intet headword må optræde i sit eget .syn-sæt
-                if s_clean.lower() == hw_low or s_clean in seen_syns:
+                if s_clean.lower() == hw_low:
                     continue
                 if s_clean.startswith("-") or s_clean.endswith("-"):
+                    continue
+
+                # Task 2.2: Abbreviation & Fragment Filter:
+                # Never emit a .syn key that ends with a period '.' (e.g. "adm.", "afd.", "bl.a.")
+                # or is the truncated fragment "aarh"
+                if s_clean.endswith(".") or s_clean.lower() == "aarh":
                     continue
 
                 # 1. Eliminate ASCII Title-Case Duplicates in .syn:
                 # If first char is ASCII letter, only keep lowercase form in .syn!
                 if ord(s_clean[0]) <= 127 and s_clean[0].isalpha():
                     s_clean = s_clean.lower()
-                    if s_clean == hw_low or s_clean in seen_syns:
+                    if s_clean == hw_low:
                         continue
 
-                # 2. Prune Regular Possessive Genitives from .syn:
-                s_low = s_clean.lower()
-                if is_regular_genitive(hw_low, s_low):
+                # Task 2.1: Prune Regular Possessive Genitives from .syn:
+                if is_redundant_genitive(form=s_clean, headword=hw_low, pos=pos):
                     continue
 
-                # 3. Purge Synthetic -ere/-est Forms from .syn:
-                if is_invalid_synthetic_form(hw_low, s_low):
+                # Purge Synthetic -ere/-est Forms from .syn:
+                if is_invalid_synthetic_form(hw_low, s_clean.lower()):
                     continue
 
+                if s_clean not in kept_forms:
+                    kept_forms.append(s_clean)
+
+            # Task 1: Generate aa synonym variants for headword itself AND every kept inflection
+            # If the string contains "å" (anywhere in the word), generate aa_form = form.replace("å", "aa") (lowercase)
+            # Ensure we do NOT generate redundant genitives of aa_form either.
+            all_for_aa = [entry.headword] + list(kept_forms)
+            for form in all_for_aa:
+                f_low = form.lower()
+                if "å" in f_low:
+                    aa_form = f_low.replace("å", "aa")
+                    if aa_form == hw_low:
+                        continue
+                    if aa_form.endswith(".") or aa_form == "aarh":
+                        continue
+                    if is_redundant_genitive(form=aa_form, headword=hw_low, pos=pos):
+                        continue
+                    if is_invalid_synthetic_form(hw_low, aa_form):
+                        continue
+                    if aa_form not in kept_forms:
+                        kept_forms.append(aa_form)
+                elif "aa" in f_low:
+                    ao_form = historical_aa_to_modern(f_low).lower()
+                    if ao_form != hw_low and not ao_form.endswith(".") and ao_form != "aarh":
+                        if not is_redundant_genitive(form=ao_form, headword=hw_low, pos=pos):
+                            if not is_invalid_synthetic_form(hw_low, ao_form):
+                                if ao_form not in kept_forms:
+                                    kept_forms.append(ao_form)
+
+            for s_clean in kept_forms:
+                if s_clean in seen_syns or s_clean.lower() == hw_low:
+                    continue
                 seen_syns.add(s_clean)
                 syn_records_list.append((s_clean, i))
 

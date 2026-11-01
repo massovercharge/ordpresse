@@ -165,6 +165,7 @@ class Pipeline:
                     headword=hw,
                     html_content=item["html_content"],
                     synonyms=syns,
+                    canonical_entry=item.get("canonical_entry"),
                 )
                 if item.get("canonical_entry"):
                     resolved_canonical[hw] = item["canonical_entry"]
@@ -189,6 +190,7 @@ class Pipeline:
                         headword=hw,
                         html_content=item["html_content"],
                         synonyms=syns,
+                        canonical_entry=item.get("canonical_entry"),
                     )
                     if item.get("canonical_entry"):
                         resolved_canonical[hw] = item["canonical_entry"]
@@ -224,6 +226,7 @@ class Pipeline:
                         headword=hw,
                         html_content=render_canonical_html(merged_can),
                         synonyms=merged_syns,
+                        canonical_entry=merged_can,
                     )
                 else:
                     canonical_seed.sources_used = list(dict.fromkeys(canonical_seed.sources_used + ["COR-SEM"]))
@@ -232,6 +235,7 @@ class Pipeline:
                         headword=hw,
                         html_content=render_canonical_html(canonical_seed),
                         synonyms=merged_syns,
+                        canonical_entry=canonical_seed,
                     )
             else:
                 syns = generate_orthographic_synonyms(hw, list(all_inflections))
@@ -239,6 +243,7 @@ class Pipeline:
                     headword=hw,
                     html_content=render_canonical_html(canonical_seed),
                     synonyms=syns,
+                    canonical_entry=canonical_seed,
                 )
 
         # c) Always merge all previously cached historical definitions from cache.sqlite3

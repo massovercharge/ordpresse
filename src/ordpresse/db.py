@@ -11,7 +11,11 @@ from ordpresse.config import CACHE_DB_PATH, DATASETS_DB_PATH
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
 from ordpresse.orthography import sanitize_headword
-from ordpresse.stardict_writer import is_invalid_synthetic_form, is_regular_genitive
+from ordpresse.stardict_writer import (
+    is_invalid_synthetic_form,
+    is_redundant_genitive,
+    is_regular_genitive,
+)
 from ordpresse.synthesizer import (
     COR_SEM_DEFINITION_COMPLETIONS,
     COR_SEM_ID_COMPLETIONS,
@@ -431,8 +435,10 @@ class Database:
         return [
             r[0]
             for r in cur.fetchall()
-            if not is_regular_genitive(hw_low, r[0].lower())
+            if not is_redundant_genitive(r[0].lower(), hw_low)
             and not is_invalid_synthetic_form(hw_low, r[0].lower())
+            and not r[0].endswith(".")
+            and r[0].lower() != "aarh"
         ]
 
     def lookup_ods_forms_batch(self, words: list[str]) -> dict[str, tuple[str, str]]:
@@ -570,7 +576,9 @@ class Database:
 
             ff_low = ff.lower()
             lem_low = lemma.lower()
-            if is_regular_genitive(lem_low, ff_low) or is_invalid_synthetic_form(lem_low, ff_low):
+            if ff.endswith(".") or ff_low == "aarh":
+                continue
+            if is_redundant_genitive(ff_low, lem_low, pos=norm_filter_pos) or is_invalid_synthetic_form(lem_low, ff_low):
                 continue
 
             results.append(ff)
@@ -650,7 +658,7 @@ class Database:
 
             if norm_status == "U":
                 continue
-            if fullform.startswith("-") or fullform.endswith("-"):
+            if fullform.startswith("-") or fullform.endswith("-") or fullform.endswith(".") or fullform.lower() == "aarh":
                 continue
 
             target_lem = None
@@ -673,7 +681,8 @@ class Database:
 
                 # Filter out regular genitives and synthetic -ere/-est forms
                 ff_low = fullform.lower()
-                if is_regular_genitive(target_lem, ff_low) or is_invalid_synthetic_form(target_lem, ff_low):
+                target_pos = " / ".join(target_poses) if target_poses else row_pos
+                if is_redundant_genitive(ff_low, target_lem, pos=target_pos) or is_invalid_synthetic_form(target_lem, ff_low):
                     continue
 
                 if target_lem not in inflections_map:

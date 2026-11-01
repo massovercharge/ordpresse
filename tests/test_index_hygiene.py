@@ -197,11 +197,11 @@ def test_compiled_syn_and_idx_hygiene(tmp_path: Path):
     assert "Æblet" in syn_words
     assert "æblet" in syn_words
 
-    # Patch V6.1: Inflected genitives (-ens, -ets, -enes, -ernes, -ers, and irregular like 'børnenes', 'børns') MUST be present in .syn
-    assert "abbedens" in syn_words
-    assert "abbedernes" in syn_words
-    assert "æblernes" in syn_words
-    assert "børnenes" in syn_words
+    # V8: Regular possessive genitives (-ens, -enes, -ernes, -ets, -ers) are pruned from .syn
+    assert "abbedens" not in syn_words
+    assert "abbedernes" not in syn_words
+    assert "æblernes" not in syn_words
+    assert "børnenes" not in syn_words
     assert "børns" in syn_words
 
     # Trivial headword + "s" MUST NOT be present in .syn
@@ -230,6 +230,5 @@ def test_compiled_syn_and_idx_hygiene(tmp_path: Path):
     assert reader.lookup("dvæl") is not None
     assert reader.lookup("fyrstik") is not None
     assert reader.lookup("aarvaagen-hed") is not None
-    assert reader.lookup("abbedens") is not None
-    assert reader.lookup("abbedernes") is not None
-    assert reader.lookup("børnenes") is not None
+    assert reader.lookup("abbeden") is not None
+    assert reader.lookup("børns") is not None

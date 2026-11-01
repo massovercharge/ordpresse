@@ -245,6 +245,100 @@ def historical_aa_to_modern(word: str) -> str:
     return res
 
 
+GENITIVE_WHITELIST: Set[str] = {
+    "almindeligvis", "dags", "års", "aars", "slags", "tilfreds",
+    "tids", "livs", "lands", "havs", "bords", "steds",
+    "fredags", "mandags", "tirsdags", "onsdags", "torsdags", "lørdags", "søndags",
+}
+
+GENITIVE_ENDINGS = ("ens", "enes", "ernes", "ets", "ers", "'s", "s'")
+
+
+def is_redundant_genitive(form: str, headword: str, pos: Optional[str] = None) -> bool:
+    """Check if form is a regular genitive that should be excluded from .syn.
+    
+    CrossPoint Reader (Xteink X4 Pro) and KOReader automatically strip trailing possessive '-s'
+    during lookup.
+    """
+    form_low = form.lower().strip()
+    hw_low = headword.lower().strip()
+
+    if not form_low or not hw_low:
+        return False
+
+    # 1. Exact match to headword or whitelist
+    if form_low == hw_low or form_low in GENITIVE_WHITELIST:
+        return False
+
+    # 2. Endings in ("ens", "enes", "ernes", "ets", "ers", "'s", "s'")
+    # Skip if not headword.lower().endswith(form[-3:])
+    for ending in GENITIVE_ENDINGS:
+        if form_low.endswith(ending):
+            stem_check = form_low[-3:] if len(form_low) >= 3 else ending
+            if not hw_low.endswith(stem_check) and not hw_low.endswith(ending):
+                return True
+
+    # 3. Regular indefinite singular genitive headword + s / apostrophe
+    if form_low.endswith("s"):
+        base = form_low[:-1]
+        base_matches = (
+            base == hw_low
+            or base == hw_low.replace("å", "aa")
+            or base == hw_low.replace("aa", "å")
+        )
+        if base_matches:
+            # If pos is explicitly known as a verb (e.g. "vb."), keep passive form (e.g. "spises")
+            if pos and any(p.strip().startswith("vb") for p in pos.split("/")):
+                return False
+            # Otherwise (sb., None, empty), it is a redundant noun genitive (e.g. "abbeds", "bils", "gårds")
+            return True
+
+    if form_low.endswith("'") or form_low.endswith("'s"):
+        base = form_low.rstrip("'s").rstrip("'")
+        if base == hw_low or base == hw_low.replace("å", "aa") or base == hw_low.replace("aa", "å"):
+            return True
+
+    return False
+
+
+def is_regular_genitive(hw_low: str, s_low: str) -> bool:
+    """Backwards-compatible wrapper for is_redundant_genitive."""
+    return is_redundant_genitive(form=s_low, headword=hw_low)
+
+
+def is_invalid_synthetic_form(hw_low: str, form_low: str) -> bool:
+    """Filter out synthetic -ere/-est forms for:
+    - Adjectives ending in -som (agtsommere, agtsomst, arbejdsommere)
+    - Adjectives ending in -isk, -et, -ende
+    - Nouns ending in -er (never attach -ere, e.g. aabnere, åbnere)
+    """
+    if hw_low == form_low:
+        return False
+
+    # 1. Adjectives ending in -som (agtsom, arbejdsom, etc.)
+    if hw_low.endswith("som"):
+        if form_low.startswith(hw_low):
+            rest = form_low[len(hw_low):]
+            if rest in ("mere", "mest", "meste", "st", "ste", "ere"):
+                return True
+            if rest.startswith("m") and rest[1:] in ("ere", "est", "este", "mere", "mest", "meste"):
+                return True
+
+    # 2. Adjectives ending in -isk, -et, -ende
+    if hw_low.endswith(("isk", "et", "ende")):
+        if form_low.startswith(hw_low):
+            rest = form_low[len(hw_low):]
+            if rest in ("ere", "est", "este", "mere", "mest", "meste"):
+                return True
+
+    # 3. Nouns like aabner/åbner where -ere is an invalid synthetic comparative
+    if hw_low in ("aabner", "åbner") or hw_low.endswith("åbner") or hw_low.endswith("aabner"):
+        if form_low in (hw_low + "e", hw_low.replace("å", "aa") + "e", hw_low.replace("aa", "å") + "e"):
+            return True
+
+    return False
+
+
 def generate_orthographic_synonyms(headword: str, existing_synonyms: List[str] = None) -> List[str]:
     """Generate all standard Danish orthographical variants for .syn file.
     
@@ -254,48 +348,92 @@ def generate_orthographic_synonyms(headword: str, existing_synonyms: List[str] =
     - Pre-1948 'aa' variants if headword contains 'å'
     - Modern 'å' / 'Å' variants if headword contains 'aa'
     - De-hyphenated forms ('Lægds-lem' -> 'lægdslem')
+    - Pruning of regular genitives, abbreviations ending in '.', and truncated fragment 'aarh'
     """
     synonyms: Set[str] = set()
-    if existing_synonyms:
-        synonyms.update(existing_synonyms)
+    hw_low = headword.lower().strip()
 
-    candidates = [headword] + list(synonyms)
+    if existing_synonyms:
+        for s in existing_synonyms:
+            if not s:
+                continue
+            s_clean = s.strip()
+            if not s_clean or s_clean.lower() == hw_low:
+                continue
+            if s_clean.endswith(".") or s_clean.lower() == "aarh":
+                continue
+            if is_redundant_genitive(s_clean, headword):
+                continue
+            if is_invalid_synthetic_form(hw_low, s_clean.lower()):
+                continue
+            synonyms.add(s_clean)
+
+    candidates = [headword.strip()] + list(synonyms)
     for w in candidates:
         if not w:
             continue
         w_clean = w.strip()
         if not w_clean:
             continue
+        if w_clean.endswith(".") or w_clean.lower() == "aarh":
+            continue
+
+        w_low = w_clean.lower()
 
         # Case variants: Lowercase is always added
-        synonyms.add(w_clean.lower())
+        if not is_redundant_genitive(w_low, headword):
+            synonyms.add(w_low)
+
         # Capitalized variant is ONLY added when the first character is non-ASCII (ord > 127)
         # Because g_ascii_strcasecmp already folds ASCII A-Z case-insensitively!
         if ord(w_clean[0]) > 127:
-            synonyms.add(w_clean.capitalize())
+            cap = w_clean.capitalize()
+            if not is_redundant_genitive(cap, headword):
+                synonyms.add(cap)
 
         # Hyphen stripping
         if "-" in w_clean and not should_keep_hyphen(w_clean):
             stripped = w_clean.replace("-", "")
-            synonyms.add(stripped.lower())
-            if ord(stripped[0]) > 127:
-                synonyms.add(stripped.capitalize())
+            s_low = stripped.lower()
+            if not is_redundant_genitive(s_low, headword):
+                synonyms.add(s_low)
+                if ord(stripped[0]) > 127:
+                    synonyms.add(stripped.capitalize())
 
         # aa <-> å mappings
         if "å" in w_clean or "Å" in w_clean:
             for aa_var in modern_to_historical_aa(w_clean):
-                synonyms.add(aa_var.lower())
-                if ord(aa_var[0]) > 127:
-                    synonyms.add(aa_var.capitalize())
+                aa_low = aa_var.lower()
+                if not is_redundant_genitive(aa_low, headword):
+                    synonyms.add(aa_low)
+                    if ord(aa_var[0]) > 127:
+                        synonyms.add(aa_var.capitalize())
         if "aa" in w_clean.lower():
             mod = historical_aa_to_modern(w_clean)
-            synonyms.add(mod.lower())
-            if ord(mod[0]) > 127:
-                synonyms.add(mod.capitalize())
+            mod_low = mod.lower()
+            if not is_redundant_genitive(mod_low, headword):
+                synonyms.add(mod_low)
+                if ord(mod[0]) > 127:
+                    synonyms.add(mod.capitalize())
 
-    # Do not include the headword itself in the synonym list
-    synonyms.discard(headword)
-    return sorted(list(synonyms))
+    # Final pruning pass
+    cleaned_syns = set()
+    for s in synonyms:
+        s_clean = s.strip()
+        if not s_clean:
+            continue
+        if s_clean == headword:
+            continue
+        if s_clean.endswith(".") or s_clean.lower() == "aarh":
+            continue
+        if is_redundant_genitive(s_clean, headword):
+            continue
+        if is_invalid_synthetic_form(hw_low, s_clean.lower()):
+            continue
+        cleaned_syns.add(s_clean)
+
+    cleaned_syns.discard(headword)
+    return sorted(list(cleaned_syns))
 
 
 # Known irregular stems and Dano-Norwegian loan equivalents
