@@ -297,11 +297,11 @@ data/output/
    - Kopier mappen `ordpresse/` til KOReaders ordbogsbibliotek:
      - **Kindle / Kobo / PocketBook:** `<Enhed>/koreader/data/dict/ordpresse/`
      - **Android enheder:** `/sdcard/koreader/data/dict/ordpresse/`
-4. **Aktivér ordbogen i KOReader:**
-   - Åbn KOReader på din e-bogslæser.
-   - Tryk øverst på skærmen for at åbne hovedmenuen &rarr; Vælg **Bog/Læseindstillinger** (eller tandhjulsikonet).
+4. **Genstart KOReader & aktivér ordbogen:**
+   - Genstart KOReader (eller genstart e-læseren), så KOReader scanner og indekserer den nye ordbogsmappe ved opstart.
+   - Åbn en bog i KOReader &rarr; tryk øverst på skærmen for at åbne hovedmenuen &rarr; Vælg **Bog/Læseindstillinger** (eller tandhjulsikonet).
    - Vælg **Ordbogsindstillinger** (*Dictionary settings*).
-   - Kontroller, at **Den Danske Ordpresse** fremgår af listen og er slået til (afkrydset).
+   - Kontroller, at **Den Danske Ordpresse** fremgår af listen og er slået til (afkrydset som primær ordbog).
 5. **Afprøv et opslag:**
    - Åbn en historisk bog i KOReader og hold fingeren nede på et ord som *lægdslemmer* eller *bissekræmmer*.
    - Ordbogsvinduet popper øjeblikkeligt op med den fulde historiske definition!
