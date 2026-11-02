@@ -5,6 +5,7 @@ import sqlite3
 import zipfile
 import pytest
 
+from ordpresse.orthography import is_artificial_ods_synonym
 from ordpresse.pipeline import Pipeline
 from ordpresse.stardict_writer import StarDictReader, is_redundant_genitive
 
@@ -136,9 +137,9 @@ def test_all_nordic_1800s_vocabulary_binary_lookup(tmp_path: Path):
         assert "HISTORISK BETYDNING" in res_hw, f"Layer 2A historical senses missing for '{hw}'"
         assert "[Historisk kontekst]:" in res_hw, f"Layer 3 realia note missing for '{hw}'"
 
-        # 2. Lookup inflected forms from .syn (excluding regular genitives pruned in V8)
+        # 2. Lookup inflected forms from .syn (excluding regular genitives and artificial ODS variants pruned in V8/V8.1)
         for inf in entry.inflections:
-            if inf.lower() != hw and not is_redundant_genitive(inf, hw):
+            if inf.lower() != hw and not is_redundant_genitive(inf, hw) and not is_artificial_ods_synonym(inf, hw):
                 res_inf = reader.lookup(inf)
                 assert res_inf is not None, f"Binary lookup for inflection '{inf}' of '{hw}' failed in .syn!"
                 valid_hws = {hw, inf.lower()}

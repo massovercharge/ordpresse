@@ -21,6 +21,7 @@ from ordpresse.models import CanonicalEntry
 from ordpresse.orthography import (
     GENITIVE_WHITELIST,
     historical_aa_to_modern,
+    is_artificial_ods_synonym,
     is_invalid_synthetic_form,
     is_redundant_genitive,
     is_regular_genitive,
@@ -159,6 +160,10 @@ class StarDictWriter:
                 if s_clean.startswith("-") or s_clean.endswith("-"):
                     continue
 
+                # Task 1 (V8.1): Filter Artificial Hyphens & Parentheses from .syn:
+                if is_artificial_ods_synonym(form=s_clean, headword=hw_low):
+                    continue
+
                 # Task 2.2: Abbreviation & Fragment Filter:
                 # Never emit a .syn key that ends with a period '.' (e.g. "adm.", "afd.", "bl.a.")
                 # or is the truncated fragment "aarh"
@@ -195,6 +200,8 @@ class StarDictWriter:
                         continue
                     if aa_form.endswith(".") or aa_form == "aarh":
                         continue
+                    if is_artificial_ods_synonym(form=aa_form, headword=hw_low):
+                        continue
                     if is_redundant_genitive(form=aa_form, headword=hw_low, pos=pos):
                         continue
                     if is_invalid_synthetic_form(hw_low, aa_form):
@@ -204,10 +211,11 @@ class StarDictWriter:
                 elif "aa" in f_low:
                     ao_form = historical_aa_to_modern(f_low).lower()
                     if ao_form != hw_low and not ao_form.endswith(".") and ao_form != "aarh":
-                        if not is_redundant_genitive(form=ao_form, headword=hw_low, pos=pos):
-                            if not is_invalid_synthetic_form(hw_low, ao_form):
-                                if ao_form not in kept_forms:
-                                    kept_forms.append(ao_form)
+                        if not is_artificial_ods_synonym(form=ao_form, headword=hw_low):
+                            if not is_redundant_genitive(form=ao_form, headword=hw_low, pos=pos):
+                                if not is_invalid_synthetic_form(hw_low, ao_form):
+                                    if ao_form not in kept_forms:
+                                        kept_forms.append(ao_form)
 
             for s_clean in kept_forms:
                 if s_clean in seen_syns or s_clean.lower() == hw_low:

@@ -7,7 +7,7 @@
 [![Sorting Law](https://img.shields.io/badge/sorting-GLib%20ASCII%20Law-success.svg)](#-stardict-og-glib-binærsortering)
 [![E-Reader](https://img.shields.io/badge/e--reader-KOReader%20Ready-emerald.svg)](#-installation-i-koreader)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-51%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
+[![Tests](https://img.shields.io/badge/tests-70%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
 
 ---
 
@@ -86,12 +86,12 @@ KOReader og ordbogsværktøjet `sdcv` benytter GLibs `g_ascii_strcasecmp` til bi
 - **Polite Server Queue:** En serverkø med en token-bucket hastighedsbegrænser (standard 200 forespørgsler/time) og Fair-Share Round-Robin koordinering, der skåner eksterne ordbogsservere mod overbelastning.
 - **⚡ Ordpresse Lyn-Henter (Bookmarklet):** Hent manglende ord direkte via din egen browsers IP (350 ms/ord) med adaptiv pacing, tilfældig forsinkelse (jitter) og automatisk pause ved HTTP 429. Serverens kvote bruges ikke, og ordbogen bygges på minutter!
 
-### 5. 📖 Skræddersyet 3-Lags E-Ink Layout
-Ordbogsartiklerne formatteres i et letlæseligt, højkontrast layout optimeret specifikt til e-blækskærme:
-- **Hovedord & Udtale:** Fremhævet med tydelig skriftstørrelse.
-- **Ordklasse & Bøjninger:** Kompakt oversigt over bøjningsformer.
-- **Historiske betydninger (ODS):** Fuldstændige historiske definitioner med citater.
-- **Moderne betydninger (COR-SEM):** Kontekstuelle moderne definitioner.
+### 5. 📖 Skræddersyet 3-Lags E-Ink Layout (Kanonisk E-Ink v2)
+Ordbogsartiklerne formatteres i et letlæseligt, højkontrast layout optimeret specifikt til e-blækskærme (f.eks. for *lægdslem*):
+- **Lag 1: Hovedord, ordklasse & bøjninger:** Fremhævet hovedord med udtale, ordklasse og relevante bøjnings- og stavevarianter (f.eks. `lægdslem sb. itk. (legdelem, legdelemmer, lægdslemmer; ældre: Lægdslem, Lejdslem)`).
+- **Hurtigkrog / definitionssammendrag:** Hurtigt overblik i første linje (`▸ Fattiglem tildelt et bestemt lægd til underhold og forsørgelse under den ældre fattiglovgivning.`).
+- **Lag 2: Historiske betydninger (ODS / 1700–1950):** ODS-betydninger med fagspecifikke markører `(hist., landbo.)` og litterære citater.
+- **Lag 3: Historisk kontekst & Kilder:** Samtidshistorisk baggrund (f.eks. omgangsforsørgelse, rotehjon) og autoritativ kildeangivelse (`Kilde: ODS · Molbech · Salmonsens`).
 
 ### 6. 💾 Hukommelsessikker Streaming (< 250 MB RAM)
 DSLs COR og ODS fuldformsregistre indeholder over 3 millioner rækker. Ordpresse streamer alle datasæt direkte ind i SQLite med WAL-tilstand (*Write-Ahead Logging*) i batches af 10.000 rækker, hvilket holder RAM-forbruget under 250 MB selv på små servere eller Raspberry Pi.
@@ -172,35 +172,45 @@ docker compose down
 Webinterfacet gør det utroligt nemt at bygge ordbøger og teste opslag:
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│  📖 Den Danske Ordpresse v0.2.0              [Datasæt: Klar] [GLib]     │
-├────────────────────────────────────────────────────────────────────────┤
-│  ⚡ Afprøv opslag (KOReader E-Ink Preview)                              │
-│  [ lægdslemmer ] [ jordebog ] [ bissekræmmer ] [ værkbrudne ] [ banco ] │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │ LÆGDSLEM sb. -met, -mer.                                         │  │
-│  │ Historisk (ODS): person (især fattigmand), som i henhold til     │  │
-│  │ forordningen af 1788 er udskreven til krigstjeneste i et lægd.   │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-├────────────────────────────────────────────────────────────────────────┤
-│  ⚡ Spring køen over: Ordpresse Lyn-Henter (Bookmarklet)                 │
-│  [ ⚡ Ordpresse Lyn-Henter ]  <-- Træk til bogmærkelinje                │
-├────────────────────────────────────────────────────────────────────────┤
-│  📤 Byg ny ordbog                                                      │
-│  [ Vælg EPUB-bøger... ]  (eller skriv ord: banco, skattekræver)         │
-│  (•) Vent på Bookmarklet (Anbefalet)   ( ) Server baggrundskø          │
-│  [  🚀 Start ordbogsbyg  ]                                             │
-└────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  📖 Den Danske Ordpresse v0.2.0    [Datasæt: Klar] [Ordbog: 36.963 opslag · 121.856 bøjninger]  │
+├─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  ⚡ Afprøv opslag (KOReader E-Ink Preview)                                                      │
+│  [ lægdslemmer ] [ jordebog ] [ bissekræmmer ] [ værkbrudne ] [ banco ] [ baad ] [ daabskjole ]  │
+│  ┌───────────────────────────────────────────────────────────────────────────────────────────┐  │
+│  │ Bøjningsopslag: lægdslemmer → lægdslem                                                    │  │
+│  │                                                                                           │  │
+│  │ lægdslem sb. itk. (legdelem, legdelemmer, lægdslemmer; ældre: Lægdslem, Lejdslem)         │  │
+│  │ ▸ Fattiglem tildelt et bestemt lægd til underhold og forsørgelse under                    │  │
+│  │   den ældre fattiglovgivning.                                                             │  │
+│  │                                                                                           │  │
+│  │ HISTORISK BETYDNING (ODS / 1700–1950)                                                     │  │
+│  │ 1. (hist., landbo.) Fattiglem el. almisselem på landet, der forsørgedes af               │  │
+│  │    lægdet, ofte ved omgangsforsørgelse fra gård til gård.                                │  │
+│  │                                                                                           │  │
+│  │ [Historisk kontekst]: I 1700- og 1800-tallets Danmark og Sverige (rotehjon) var          │  │
+│  │ fattigvæsenet inddelt i lægder eller roder. Arbejdsudygtige fattige gik på                │  │
+│  │ skift mellem sognets gårde til 'omgangsforsørgelse'.                                      │  │
+│  │                                                                                           │  │
+│  │ Kilde: ODS · Molbech · Salmonsens                                                         │  │
+│  └───────────────────────────────────────────────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  ⬇ Hent komplet StarDict-ordbog (.zip)     📚 Skræddersy med egne EPUB-bøger                    │
+├─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  📤 Byg ordbog (Vælg omfang: (•) Fokuseret EPUB-uddrag  ( ) Komplet ordbog)                     │
+│  [ 1. Vælg EPUB-bøger... ]  (eller 2. skriv specifikke ord)                                     │
+│  [ Metode: (•) ⚡ Vent på Bookmarklet (Lyn-Henter)   ( ) 🐢 Automatisk server-kø ]             │
+│  [ ⚙️ Byg StarDict-ordbog ]                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 1. Afprøv opslag (E-Ink Preview)
-Øverst på siden kan du teste ordbogens opslagsmotor. Klik på de forudindstillede chips (*lægdslemmer*, *jordebog*, *bissekræmmer*, *værkbrudne*, *banco*, *husforhør*, *rustholder*) eller skriv et ord i søgefeltet for at se præcis, hvordan definitionen vil se ud på din e-bogslæser.
+Øverst på siden kan du teste ordbogens opslagsmotor i realtid. Klik på de forudindstillede chips (*lægdslemmer*, *jordebog*, *bissekræmmer*, *værkbrudne*, *banco*, *husforhør*, *rustholder*, *lægd*, *baad*, *daabskjole*, *overstrøet*, *efteraarsferie*) eller skriv et ord i søgefeltet for at se præcis, hvordan den kanoniske 3-lags definition vil se ud på din e-bogslæser.
 
-### 2. Byg ordbog fra en EPUB-bog
-1. Træk en eller flere `.epub`-filer over på upload-feltet (f.eks. Mobergs *Udvandrerne*).
-2. Angiv eventuelt en titel til ordbogen (f.eks. *"Vilhelm Moberg Ordbog"*).
-3. Tryk på **"Start ordbogsbyg"**.
-4. Byggeprocessen kører asynkront i baggrunden via Server-Sent Events (SSE). Du kan følge hvert trin i realtid uden risiko for browser-timeout.
+### 2. 1-Kliks download eller skræddersyet byg
+- **1-Kliks download:** Hent øjeblikkeligt den komplette forudbyggede ordbog (`ordpresse.zip` med 36.963 opslagsord og 121.856 bøjningsformer) direkte fra Hero-sektionen eller navigationsbaren.
+- **Skræddersyet EPUB-byg:** Træk en eller flere `.epub`-filer over på upload-feltet (f.eks. Mobergs *Udvandrerne*).
+- **Procesovervågning:** Følg den pædagogiske 4-trins funnel og streaminglog i realtid via Server-Sent Events (SSE).
 
 ---
 
@@ -358,7 +368,7 @@ Hvis du benytter Cloudflare Tunnels (`cloudflared`):
 
 ## 🧪 Testsuite & Kvalitetssikring
 
-Projektet har en omfattende automatiseret testsuite med 50+ tests, der sikrer leksikalsk og binær integritet:
+Projektet har en omfattende automatiseret testsuite med 70 tests, der sikrer leksikalsk og binær integritet:
 
 ```bash
 # Kør hele testsuiten
@@ -372,6 +382,7 @@ pytest -v
 - **`tests/test_rate_limiter_and_peer.py`:** Verificerer token-bucket begrænser, fair-share kø, CORS headers og Ordpresse Lyn-Henter integration.
 - **`tests/test_moberg_words.py`:** End-to-end regressionstest af de klassiske Moberg-nøgleord i en simuleret EPUB.
 - **`tests/test_orthography.py`:** Verificerer `aa` <-> `å` konvertering, bløde bindestreger og bøjningsopløsning.
+- **`tests/test_ods_subsenses_and_coverage.py`:** Verificerer ODS underbetydninger, dækningsgrad, enkeltlags overstrø-polering og syntakshale-sanering.
 
 ---
 

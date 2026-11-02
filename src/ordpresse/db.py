@@ -10,7 +10,10 @@ from typing import Any, Optional
 from ordpresse.config import CACHE_DB_PATH, DATASETS_DB_PATH
 from ordpresse.formatter import normalize_pos, render_canonical_html
 from ordpresse.models import CanonicalEntry, SenseItem
-from ordpresse.orthography import sanitize_headword
+from ordpresse.orthography import (
+    is_artificial_ods_synonym,
+    sanitize_headword,
+)
 from ordpresse.stardict_writer import (
     is_invalid_synthetic_form,
     is_redundant_genitive,
@@ -172,6 +175,40 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
             # Update headword in HTML header if changed
             if effective_hw != raw_hw:
                 repaired_html = re.sub(r"(<div><b>)[^<]+(</b>)", rf"\g<1>{effective_hw}\g<2>", repaired_html)
+
+            # Polish single-layer ODS entries and suppress identical headword parentheses
+            m_header = re.search(r"<div><b>([^<]+)</b>(?:\s*<i>([^<]*)</i>)?\s*<small>\(([^)]+)\)</small></div>", repaired_html)
+            if m_header:
+                hw_text = m_header.group(1).strip()
+                pos_html = f" <i>{m_header.group(2).strip()}</i>" if m_header.group(2) else ""
+                paren_text = m_header.group(3).strip()
+                if (
+                    paren_text.lower() == hw_text.lower()
+                    or paren_text.replace("-", "").lower() == hw_text.replace("-", "").lower()
+                ):
+                    repaired_html = repaired_html.replace(
+                        m_header.group(0),
+                        f"<div><b>{hw_text}</b>{pos_html}</div>"
+                    )
+
+            # Strip dangling syntax tails caused by example removal in single-layer ODS entries
+            is_single_layer_ods = (
+                "Kilde: ODS" in repaired_html
+                and "•" not in repaired_html
+                and "[Historisk kontekst]" not in repaired_html
+            )
+            if is_single_layer_ods:
+                from ordpresse.sources.ods_scraper import DANGLING_SYNTAX_TAIL_RE
+                def _clean_tail(match):
+                    content = match.group(1)
+                    if DANGLING_SYNTAX_TAIL_RE.search(content):
+                        cleaned_content = DANGLING_SYNTAX_TAIL_RE.sub("", content).strip().rstrip(";,").strip()
+                        if cleaned_content and not cleaned_content.endswith((".", "!", "?")):
+                            cleaned_content += "."
+                        return f"<li>{cleaned_content}</li>"
+                    return match.group(0)
+
+                repaired_html = re.sub(r"<li>(.*?)</li>", _clean_tail, repaired_html)
 
             try:
                 syn_list = json.loads(syn_json)
@@ -437,6 +474,7 @@ class Database:
             for r in cur.fetchall()
             if not is_redundant_genitive(r[0].lower(), hw_low)
             and not is_invalid_synthetic_form(hw_low, r[0].lower())
+            and not is_artificial_ods_synonym(r[0], hw_low)
             and not r[0].endswith(".")
             and r[0].lower() != "aarh"
         ]
@@ -578,7 +616,11 @@ class Database:
             lem_low = lemma.lower()
             if ff.endswith(".") or ff_low == "aarh":
                 continue
-            if is_redundant_genitive(ff_low, lem_low, pos=norm_filter_pos) or is_invalid_synthetic_form(lem_low, ff_low):
+            if (
+                is_redundant_genitive(ff_low, lem_low, pos=norm_filter_pos)
+                or is_invalid_synthetic_form(lem_low, ff_low)
+                or is_artificial_ods_synonym(ff, lem_low)
+            ):
                 continue
 
             results.append(ff)
@@ -682,7 +724,11 @@ class Database:
                 # Filter out regular genitives and synthetic -ere/-est forms
                 ff_low = fullform.lower()
                 target_pos = " / ".join(target_poses) if target_poses else row_pos
-                if is_redundant_genitive(ff_low, target_lem, pos=target_pos) or is_invalid_synthetic_form(target_lem, ff_low):
+                if (
+                    is_redundant_genitive(ff_low, target_lem, pos=target_pos)
+                    or is_invalid_synthetic_form(target_lem, ff_low)
+                    or is_artificial_ods_synonym(fullform, target_lem)
+                ):
                     continue
 
                 if target_lem not in inflections_map:

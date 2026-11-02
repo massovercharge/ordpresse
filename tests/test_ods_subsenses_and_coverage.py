@@ -197,3 +197,98 @@ def test_ods_subsense_extraction_and_header_skipping():
     assert "leve sit liv fuldt ud til ende" in html_out
     assert "svækket af høj alder og udsvævelser" in html_out
     assert "Blicher" in html_out
+
+
+def test_overstroe_single_layer_polish_and_tail_stripping(tmp_path: Path):
+    """Task 3.2: Verify single-layer ODS tail polish and parenthetical suppression for overstrø."""
+    import sqlite3
+    from ordpresse.formatter import render_canonical_html
+    from ordpresse.models import CanonicalEntry, SenseItem
+    from ordpresse.db import clean_corrupted_cached_definitions
+
+    # 1. clean_ods_definition_text strips dangling syntax tails
+    t1 = clean_ods_definition_text("dække (helt ell. delvis) med noget, der strøs paa; bestrø (over det hele); især i forb. m. præp.")
+    assert t1 == "dække (helt ell. delvis) med noget, der strøs paa; bestrø (over det hele)."
+    assert "; især i forb. m. præp." not in t1
+
+    t2 = clean_ods_definition_text("dække med aske; især i forb. m.")
+    assert t2 == "dække med aske."
+    assert "; især i forb. m." not in t2
+
+    t3 = clean_ods_definition_text("udbrede noget; bl. a. i forb.")
+    assert t3 == "udbrede noget."
+    assert "; bl. a. i forb." not in t3
+
+    # 2. render_canonical_html suppresses parenthetical if 100% identical to headword
+    entry_overstroe = CanonicalEntry(
+        headword="overstrø",
+        pos="vb.",
+        inflections={"overstrø", "over-strø"},
+        historical_senses=[
+            SenseItem(
+                definition="dække (helt ell. delvis) med noget, der strøs paa; bestrø (over det hele).",
+                label="hist.",
+                source_tag="ODS",
+            )
+        ],
+        sources_used=["ODS"],
+    )
+    html_overstroe = render_canonical_html(entry_overstroe)
+    assert "<div><b>overstrø</b> <i>vb.</i></div>" in html_overstroe
+    assert "(overstrø)" not in html_overstroe
+    assert "(over-strø)" not in html_overstroe
+
+    # 3. 3-layer article like lægdslem preserves its full parenthetical and layers
+    entry_laegdslem = CanonicalEntry(
+        headword="lægdslem",
+        pos="sb. itk.",
+        inflections={"legdelem", "legdelemmer", "lægdslemmer"},
+        historical_spellings=["Lægdslem", "Lejdslem"],
+        summary_hook="Fattiglem tildelt et bestemt lægd til underhold og forsørgelse under den ældre fattiglovgivning.",
+        historical_senses=[
+            SenseItem(
+                definition="Fattiglem el. almisselem på landet, der forsørgedes af lægdet, ofte ved omgangsforsørgelse fra gård til gård.",
+                label="hist., landbo.",
+                source_tag="ODS",
+            )
+        ],
+        realia_note="I 1700- og 1800-tallets Danmark og Sverige (rotehjon) var fattigvæsenet inddelt i lægder eller roder.",
+        sources_used=["ODS", "Molbech", "Salmonsens"],
+    )
+    html_laegdslem = render_canonical_html(entry_laegdslem)
+    assert "<small>(legdelem, legdelemmer, lægdslemmer; ældre: Lægdslem, Lejdslem)</small>" in html_laegdslem
+    assert "<b>•</b>" in html_laegdslem
+    assert "[Historisk kontekst]" in html_laegdslem
+
+    # 4. clean_corrupted_cached_definitions cleans cached overstrø row while preserving lægdslem
+    db_file = tmp_path / "test_cache.sqlite3"
+    conn = sqlite3.connect(db_file)
+    conn.execute("CREATE TABLE definitions (word TEXT PRIMARY KEY, source TEXT, headword TEXT, html_content TEXT, synonyms_json TEXT)")
+
+    dirty_overstroe = (
+        '<div><b>overstrø</b> <i>vb.</i> <small>(overstrø)</small></div>'
+        '<div><small><b>HISTORISK BETYDNING (ODS / 1700–1950)</b></small><ol>'
+        '<li><i>(hist.)</i> dække (helt ell. delvis) med noget, der strøs paa; bestrø (over det hele); især i forb. m. præp.</li>'
+        '</ol></div><div><small style="color:#666;">Kilde: ODS</small></div>'
+    )
+    clean_laegdslem = html_laegdslem
+
+    conn.execute("INSERT INTO definitions VALUES ('overstrø', 'ods', 'overstrø', ?, '[]')", (dirty_overstroe,))
+    conn.execute("INSERT INTO definitions VALUES ('lægdslem', 'ods', 'lægdslem', ?, '[]')", (clean_laegdslem,))
+    conn.commit()
+
+    clean_corrupted_cached_definitions(conn)
+
+    cur = conn.cursor()
+    cur.execute("SELECT html_content FROM definitions WHERE word = 'overstrø'")
+    row_overstroe = cur.fetchone()[0]
+    assert "<small>(overstrø)</small>" not in row_overstroe
+    assert "; især i forb. m. præp." not in row_overstroe
+    assert "<div><b>overstrø</b> <i>vb.</i></div>" in row_overstroe
+    assert "bestrø (over det hele)." in row_overstroe
+
+    cur.execute("SELECT html_content FROM definitions WHERE word = 'lægdslem'")
+    row_laegdslem = cur.fetchone()[0]
+    assert row_laegdslem == clean_laegdslem, "Lægdslem was unexpectedly modified!"
+    conn.close()
+

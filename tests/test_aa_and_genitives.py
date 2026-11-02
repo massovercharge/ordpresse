@@ -6,6 +6,7 @@ import pytest
 from ordpresse.orthography import (
     GENITIVE_WHITELIST,
     generate_orthographic_synonyms,
+    is_artificial_ods_synonym,
     is_redundant_genitive,
 )
 from ordpresse.stardict_reader import StarDictReader
@@ -151,3 +152,132 @@ def test_abbreviations_and_genitives_pruned(tmp_path: Path):
     # Kept forms
     assert "abbeden" in syn_words
     assert "abbederne" in syn_words
+
+
+def test_is_artificial_ods_synonym_unit():
+    """Task 2.1: Verify is_artificial_ods_synonym rules individually."""
+    # 1. Parenthesis Rule: forms with '(' or ')' return True
+    assert is_artificial_ods_synonym("bark(e)brød", "barkebrød")
+    assert is_artificial_ods_synonym("bark-(e-)brød", "barkebrød")
+    assert is_artificial_ods_synonym("be(j)an", "bejan")
+    assert is_artificial_ods_synonym("befje(d)re", "befjedre")
+
+    # 2. Artificial Morpheme Hyphen Rule:
+    assert is_artificial_ods_synonym("bag-ben", "bagben")
+    assert is_artificial_ods_synonym("aar-gammel", "aargammel")
+    assert is_artificial_ods_synonym("aar-gammel", "årgammel")
+    assert is_artificial_ods_synonym("aarvaagen-hed", "aarvaagenhed")
+    assert is_artificial_ods_synonym("døds-angst", "dødsangst")
+    assert is_artificial_ods_synonym("efter-abe", "efterabe")
+    assert is_artificial_ods_synonym("bark-brød", "barkebrød")
+    assert is_artificial_ods_synonym("bark-e-brød", "barkebrød")
+    assert is_artificial_ods_synonym("avind-s-mand", "avindsmand")
+    assert is_artificial_ods_synonym("diske--springer", "diskenspringer")
+
+    # 3. Legitimate forms must NOT be pruned (return False)
+    assert not is_artificial_ods_synonym("a-indkomsten", "a-indkomst")
+    assert not is_artificial_ods_synonym("a-38", "a38")
+    assert not is_artificial_ods_synonym("co₂-afgift", "co₂afgift")
+    assert not is_artificial_ods_synonym("drive-in-biograf", "driveinbiograf")
+    assert not is_artificial_ods_synonym("baad", "båd")
+    assert not is_artificial_ods_synonym("baaden", "båd")
+    assert not is_artificial_ods_synonym("a conto-beløb", "acontobeløb")
+    assert not is_artificial_ods_synonym("clara frijs-pære", "clarafrijspære")
+    assert not is_artificial_ods_synonym("blonde-bh'en", "blondebh")
+
+
+def test_artificial_ods_synonyms_compilation(tmp_path: Path):
+    """Task 2.1: Verify compilation filters artificial ODS hyphens and parens, while preserving legitimate entries."""
+    writer = StarDictWriter(bookname="ODS Syn Cleanup Test")
+
+    entries = [
+        StarDictEntry(
+            headword="barkebrød",
+            html_content="<ol><li>Brød af bark.</li></ol>",
+            synonyms=["bark(e)brød", "bark-(e-)brød", "bark-brød", "bark-e-brød", "barkebrødet"],
+        ),
+        StarDictEntry(
+            headword="bagben",
+            html_content="<ol><li>Bagerste ben.</li></ol>",
+            synonyms=["bag-ben", "bagbenet"],
+        ),
+        StarDictEntry(
+            headword="bejan",
+            html_content="<ol><li>Grønskolling.</li></ol>",
+            synonyms=["be(j)an", "bejanen"],
+        ),
+        StarDictEntry(
+            headword="befjedre",
+            html_content="<ol><li>Forsyne med fjer.</li></ol>",
+            synonyms=["befje(d)re", "befjedrede"],
+        ),
+        StarDictEntry(
+            headword="dødsangst",
+            html_content="<ol><li>Angst for døden.</li></ol>",
+            synonyms=["døds-angst", "dødsangsten"],
+        ),
+        StarDictEntry(
+            headword="efterabe",
+            html_content="<ol><li>Efterligne.</li></ol>",
+            synonyms=["efter-abe", "efteraber"],
+        ),
+        StarDictEntry(
+            headword="a-indkomst",
+            html_content="<ol><li>Indkomst A.</li></ol>",
+            synonyms=["a-indkomsten"],
+        ),
+        StarDictEntry(
+            headword="a38",
+            html_content="<ol><li>Syrnet mælkeprodukt.</li></ol>",
+            synonyms=["a-38"],
+        ),
+        StarDictEntry(
+            headword="co₂afgift",
+            html_content="<ol><li>Klimaafgift.</li></ol>",
+            synonyms=["co₂-afgift"],
+        ),
+        StarDictEntry(
+            headword="driveinbiograf",
+            html_content="<ol><li>Biograf for biler.</li></ol>",
+            synonyms=["drive-in-biograf"],
+        ),
+        StarDictEntry(
+            headword="båd",
+            html_content="<ol><li>Fartøj.</li></ol>",
+            synonyms=["båden"],
+        ),
+    ]
+
+    compiled = writer.compile(entries, output_dir=tmp_path / "ods_cleanup_dict", compress_dict=False)
+    reader = StarDictReader(compiled["ifo"])
+
+    syn_words = {s[0] for s in reader.syn_entries}
+
+    # Artificial forms must NOT be emitted to .syn:
+    assert "bag-ben" not in syn_words
+    assert "aar-gammel" not in syn_words
+    assert "bark(e)brød" not in syn_words
+    assert "bark-(e-)brød" not in syn_words
+    assert "bark-brød" not in syn_words
+    assert "bark-e-brød" not in syn_words
+    assert "be(j)an" not in syn_words
+    assert "befje(d)re" not in syn_words
+    assert "døds-angst" not in syn_words
+    assert "efter-abe" not in syn_words
+
+    # Legitimate forms ARE emitted to .syn:
+    assert "a-indkomsten" in syn_words
+    assert "a-38" in syn_words
+    assert "co₂-afgift" in syn_words
+    assert "drive-in-biograf" in syn_words
+    assert "baad" in syn_words
+    assert "baaden" in syn_words
+
+    # Lookups resolve successfully
+    assert reader.lookup("a-38") is not None
+    assert reader.lookup("co₂-afgift") is not None
+    assert reader.lookup("drive-in-biograf") is not None
+    assert reader.lookup("baad") is not None
+    assert reader.lookup("baaden") is not None
+    assert reader.lookup("barkebrødet") is not None
+

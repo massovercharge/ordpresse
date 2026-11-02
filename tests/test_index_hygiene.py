@@ -221,7 +221,8 @@ def test_compiled_syn_and_idx_hygiene(tmp_path: Path):
     # Extra synonyms generated during sanitization MUST be present
     assert "dvæl" in syn_words
     assert "fyrstik" in syn_words
-    assert "aarvaagen-hed" in syn_words
+    # V8.1: Artificial ODS morpheme hyphens must NOT be in .syn
+    assert "aarvaagen-hed" not in syn_words
 
     # 3. Verify reader lookups
     # Looking up "Abbeden" resolves because KOReader / StarDict folds ASCII case
@@ -229,6 +230,7 @@ def test_compiled_syn_and_idx_hygiene(tmp_path: Path):
     assert reader.lookup("kvarre") is not None
     assert reader.lookup("dvæl") is not None
     assert reader.lookup("fyrstik") is not None
-    assert reader.lookup("aarvaagen-hed") is not None
+    assert reader.lookup("aarvaagenhed") is not None
+    assert reader.lookup("aarvaagen-hed") is None
     assert reader.lookup("abbeden") is not None
     assert reader.lookup("børns") is not None

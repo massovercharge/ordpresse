@@ -49,6 +49,11 @@ from ordpresse.stardict_writer import StarDictEntry, StarDictWriter
 logger = logging.getLogger(__name__)
 
 
+def fmt_da(n: int) -> str:
+    """Format integer with Danish thousand separator '.' (e.g. 13164 -> '13.164')."""
+    return f"{n:,}".replace(",", ".")
+
+
 @dataclass
 class BuildResult:
     build_id: str
@@ -134,11 +139,14 @@ class Pipeline:
         target_dir = self.output_dir / f"build_{actual_build_id}"
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        def emit(msg: str, pct: int):
+        def emit(msg: str, pct: int, telemetry: Optional[dict] = None):
             if is_cancelled and is_cancelled():
                 raise RuntimeError("Byggeprocessen blev afbrudt af brugeren.")
             if progress_cb:
-                progress_cb(msg, pct)
+                try:
+                    progress_cb(msg, pct, telemetry=telemetry)
+                except TypeError:
+                    progress_cb(msg, pct)
             logger.info(f"[{pct}%] {msg}")
 
         emit("Initialiserer ordbogsbygger...", 5)
@@ -324,12 +332,29 @@ class Pipeline:
                     token_counts[w] += 999999
 
         if epub_files:
-            emit(f"Scanner {len(epub_files)} EPUB fil(er)...", 38)
+            emit(f"Scanner {fmt_da(len(epub_files))} EPUB fil(er)...", 38)
             for idx, epub in enumerate(epub_files, start=1):
+                epub_name = Path(epub).name if isinstance(epub, (str, Path)) else f"EPUB #{idx}"
                 counts = scan_epub_token_counts(epub)
                 token_counts.update(counts)
                 all_tokens.update(counts.keys())
-                emit(f"Scannet EPUB #{idx}: Fandt {len(counts)} ord.", 38 + int(10 * (idx / len(epub_files))))
+                emit(
+                    f'📖 Scannet EPUB #{idx} ("{epub_name}"): Fandt {fmt_da(len(counts))} unikke ordformer.',
+                    38 + int(5 * (idx / len(epub_files))),
+                    telemetry={
+                        "books_count": idx,
+                        "scanned_words": len(all_tokens),
+                    },
+                )
+            emit(
+                f"📊 EPUB-scanning fuldført: Fandt i alt {fmt_da(len(all_tokens))} unikke ordformer på tværs af bøgerne "
+                f"(efter frasortering af almindelige småord og tal).",
+                44,
+                telemetry={
+                    "books_count": len(epub_files),
+                    "scanned_words": len(all_tokens),
+                },
+            )
 
         # Collect all existing headwords and synonyms
         known_surface_strings: set[str] = set(resolved_entries.keys())
@@ -339,7 +364,7 @@ class Pipeline:
 
         unresolved_tokens = [t for t in all_tokens if t not in known_surface_strings]
         if unresolved_tokens:
-            emit(f"Matcher {len(unresolved_tokens)} ord fra EPUBs mod COR & ODS...", 45)
+            emit("🔍 Analyserer bøjningsformer og slår op i lokal ordbogsbase (COR & ODS)...", 45)
 
             # Step 1: Check curated Nordic 1800s, Molbech 1859, and compound synthesis directly
             still_unresolved: list[str] = []
@@ -533,12 +558,6 @@ class Pipeline:
                 else:
                     non_danish_ignored += 1
 
-            emit(
-                f"SQLite-matching fuldført: {cor_attached_count} knyttet til COR, {ods_attached_count} knyttet til ODS, "
-                f"{len(new_ods_words)} nye historiske opslag fundet ({non_danish_ignored} egennavne/uindekserede sprunget over).",
-                60,
-            )
-
             # Step 4: Create canonical historical entries for new ODS headwords
             if db:
                 db.clean_corrupted_cached_definitions()
@@ -580,6 +599,24 @@ class Pipeline:
                 hw for hw in new_ods_words
                 if hw in cached_map or (hw.replace("aa", "å") if "aa" in hw else hw.replace("å", "aa")) in cached_map
             ]
+
+            local_summary = (
+                f"✅ Lokal analyse fuldført:\n"
+                f"   • {fmt_da(cor_attached_count)} bøjningsformer blev koblet til kendte grundord via Det Centrale Ordregister (COR).\n"
+                f"   • {fmt_da(len(cached_words))} ældre/historiske ord lå allerede færdighentet i den lokale ODS-cache.\n"
+                f"   • {fmt_da(len(new_ods_words))} ord blev identificeret som nye historiske opslagsord i ODS-registret (heraf {fmt_da(len(uncached_words))} prioriterede ord, som endnu ikke ligger i cachen).\n"
+                f"   • {fmt_da(non_danish_ignored)} ord blev sprunget over (egennavne, stednavne, slåfejl eller moderne hverdagsord uden historisk særstatus)."
+            )
+            emit(
+                local_summary,
+                60,
+                telemetry={
+                    "books_count": len(epub_files) if epub_files else 0,
+                    "scanned_words": len(all_tokens),
+                    "local_recognized": cor_attached_count + len(cached_words),
+                    "archaic_to_enrich": len(uncached_words),
+                },
+            )
 
             # 1. Instantly resolve all already-cached words
             for hw in cached_words:
@@ -728,14 +765,17 @@ class Pipeline:
 
                 if scrape_mode in ("bookmarklet", "wait_choice"):
                     emit(
-                        f"Klar til berigelse af op til {total_to_scrape} prioriterede ord "
-                        f"({p1_total} Prio 1, {p2_total} Prio 2). Vælg mængde og kør Lyn-Henter...",
+                        f"⚡ Klar til berigelse: {fmt_da(total_to_scrape)} nye historiske ord fra dine bøger kan nu hentes fra Ordbog over det danske Sprog (ordnet.dk).",
+                        60,
+                    )
+                    emit(
+                        "⏸️ Venter på dit valg ovenfor: Vælg hvor mange ord du vil hente (f.eks. Top 250 mest hyppige i bogen), og start Lyn-Henter eller server-kø.",
                         60,
                     )
                 else:
                     emit(
-                        f"Henter {total_to_scrape} prioriterede ord over nettet "
-                        f"({p1_total} Prio 1, {p2_total} Prio 2, {len(cached_words)} genbrugt fra cache)...",
+                        f"Henter {fmt_da(total_to_scrape)} prioriterede ord over nettet "
+                        f"({p1_total} Prio 1, {p2_total} Prio 2, {fmt_da(len(cached_words))} genbrugt fra cache)...",
                         60,
                     )
 
@@ -805,24 +845,22 @@ class Pipeline:
 
                             if cur_mode in ("bookmarklet", "wait_choice"):
                                 if resolved_cnt > 0:
-                                    if resolved_cnt != last_logged_resolved and (resolved_cnt % 5 == 0 or (now - last_wait_emit_time) >= 2.0):
+                                    if resolved_cnt != last_logged_resolved and (resolved_cnt % 5 == 0 or (now - last_wait_emit_time) >= 2.0 or resolved_cnt == total_to_scrape):
+                                        recent_items = coordinator.get_recently_resolved(actual_build_id, limit=2)
+                                        recent_str = f' (seneste: {", ".join(f"\"{w}\"" for w in recent_items)})' if recent_items else ""
                                         emit(
-                                            f"⚡ Lyn-Henter aktiv: {resolved_cnt} ord modtaget og gemt i ordbogen...",
+                                            f"🚀 Lyn-Henter aktiv: Hentet {fmt_da(resolved_cnt)} / {fmt_da(total_to_scrape)} historiske artikler{recent_str}...",
                                             current_pct,
                                         )
                                         last_logged_resolved = resolved_cnt
                                         last_wait_emit_time = now
                                 else:
-                                    if (now - last_wait_emit_time) >= 5.0 or last_wait_emit_time == 0.0:
-                                        emit(
-                                            "Venter på Lyn-Henter — kør Bookmarklet på ordnet.dk eller klik 'Start server-kø'!",
-                                            current_pct,
-                                        )
-                                        last_wait_emit_time = now
+                                    # Deduplicate! Don't spam repeated waiting lines
+                                    pass
                             else:
-                                if (now - last_wait_emit_time) >= 3.0:
+                                if (now - last_wait_emit_time) >= 5.0:
                                     emit(
-                                        f"Venter på server-kvote ({wait_s:.0f}s, {completed} ord hentet) — brug Bookmarklet for lyn-hentning!",
+                                        f"🐢 Venter på server-kvote ({wait_s:.0f}s, {completed} ord hentet) — brug Bookmarklet for lyn-hentning!",
                                         current_pct,
                                     )
                                     last_wait_emit_time = now
@@ -948,7 +986,7 @@ class Pipeline:
                 continue
             valid_entries.append(e)
 
-        emit(f"Opslag fuldført. Kompilerer {len(valid_entries)} ordbogsartikler til StarDict v2.4.2...", 80)
+        emit("🛠️ Kompilerer binære StarDict v2.4.2 filer (GLib-sorteret)...", 85)
 
         # 3. Compile StarDict binaries
         writer = StarDictWriter(
@@ -974,7 +1012,18 @@ class Pipeline:
 
         # Count total synonyms
         total_synonyms = sum(len(e.synonyms) for e in resolved_entries.values())
-        emit("Ordbogen er færdigbygget og klar til download!", 100)
+        emit(
+            f"🎉 Ordbog færdigbygget! Indeholder {fmt_da(len(valid_entries))} opslagsord (.idx) og {fmt_da(total_synonyms)} bøjningsformer (.syn) inkl. pre-1948 aa-retskrivning.",
+            100,
+            telemetry={
+                "books_count": len(epub_files) if epub_files else 0,
+                "scanned_words": len(all_tokens),
+                "local_recognized": cor_attached_count + len(cached_words) if unresolved_tokens else len(resolved_entries),
+                "archaic_to_enrich": len(uncached_words) if unresolved_tokens else 0,
+                "package_entries": len(valid_entries),
+                "package_synonyms": total_synonyms,
+            },
+        )
 
         return BuildResult(
             build_id=actual_build_id,

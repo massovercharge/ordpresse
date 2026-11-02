@@ -2,6 +2,7 @@
 
 import re
 from ordpresse.models import CanonicalEntry
+from ordpresse.orthography import is_artificial_ods_synonym
 from ordpresse.synthesizer import should_render_summary_hook, truncate_summary_hook
 
 
@@ -76,11 +77,13 @@ def select_display_inflections(
 
     Rules:
     - Never include forms starting or ending with a hyphen ('grund-', 'søskende-').
-    - Exclude forms identical to headword (case-insensitive).
+    - Exclude forms identical to headword (case-insensitive, with or without hyphens).
+    - Exclude artificial ODS synonyms (is_artificial_ods_synonym).
     - Deprioritize genitives (-ens, -ets, -enes, -ernes).
     - Sort by: (is_capitalized_variant, is_genitive, len(form), form.lower())
     """
     hw_lower = headword.strip().lower()
+    hw_dehyphen = hw_lower.replace("-", "")
     clean_forms = []
     seen = set()
 
@@ -90,11 +93,14 @@ def select_display_inflections(
             continue
         if f.startswith("-") or f.endswith("-"):
             continue
-        if f.lower() == hw_lower:
+        f_low = f.lower()
+        if f_low == hw_lower or f_low.replace("-", "") == hw_dehyphen:
             continue
-        if f.lower() in seen:
+        if is_artificial_ods_synonym(f, headword):
             continue
-        seen.add(f.lower())
+        if f_low in seen:
+            continue
+        seen.add(f_low)
 
         is_capitalized_variant = 1 if (f[0].isupper() and f.lower() != f) else 0
         is_genitive = 1 if f.lower().endswith(("ens", "ets", "enes", "ernes")) else 0
@@ -112,7 +118,17 @@ def render_canonical_html(entry: CanonicalEntry) -> str:
         meta_parts.append(", ".join(sample_forms))
     if entry.historical_spellings:
         meta_parts.append("ældre: " + ", ".join(entry.historical_spellings[:2]))
-    meta_str = f" <small>({'; '.join(meta_parts)})</small>" if meta_parts else ""
+
+    meta_inner = "; ".join(meta_parts).strip()
+    # Suppress parenthetical if empty or if entire content is identical to headword (e.g. 'overstrø vb. (overstrø)')
+    if (
+        meta_inner
+        and meta_inner.lower() != entry.headword.lower()
+        and meta_inner.replace("-", "").lower() != entry.headword.replace("-", "").lower()
+    ):
+        meta_str = f" <small>({meta_inner})</small>"
+    else:
+        meta_str = ""
 
     pos_str = f" <i>{entry.pos}</i>" if entry.pos else ""
     parts = [f"<div><b>{entry.headword}</b>{pos_str}{meta_str}</div>"]

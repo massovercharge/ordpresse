@@ -339,6 +339,64 @@ def is_invalid_synthetic_form(hw_low: str, form_low: str) -> bool:
     return False
 
 
+def is_artificial_ods_synonym(form: str, headword: str) -> bool:
+    """Detect and filter artificial ODS morpheme hyphens and parentheses in synonym candidates.
+
+    1. Parenthesis Rule:
+       Skip any candidate containing '(' or ')' (e.g., 'bark(e)brød', 'bark-(e-)brød', 'be(j)an', 'befje(d)re').
+    2. Artificial Morpheme Hyphen Rule:
+       If '-' in form and '-' not in headword:
+       - Keep forms containing spaces ('a conto-beløb', 'clara frijs-pære') or 'drive-in'.
+       - Keep forms containing digits or numerals ('a-38', 'co₂-afgift', '65-billet').
+       - If form stripped of hyphens equals headword (e.g. 'bag-ben' vs 'bagben', 'aar-gammel' vs 'aargammel',
+         'avind-s-mand' vs 'avindsmand', 'bark-e-brød' vs 'barkebrød', 'døds-angst' vs 'dødsangst'), skip it.
+       - If dehyphenated form starts with headword or headword starts with first 4 characters of dehyphenated form,
+         and all hyphen-split parts are words of length >= 2 (e.g. 'bark-brød' vs 'barkebrød'), skip it.
+    """
+    if not form:
+        return True
+
+    # 1. Parenthesis Rule
+    if "(" in form or ")" in form:
+        return True
+
+    # Double-hyphen artifact (e.g. 'diske--springer')
+    if "--" in form:
+        return True
+
+    # If form has no hyphen, or canonical headword legitimately has a hyphen (e.g. 'a-indkomst', 'tv-avis')
+    if "-" not in form or "-" in headword:
+        return False
+
+    form_low = form.lower().strip()
+    hw_low = headword.lower().strip()
+
+    # Legitimate multi-word compounds or idioms
+    if " " in form_low or "drive-in" in form_low:
+        return False
+
+    # Legitimate modern forms with digits / numerals (e.g. 'a-38', 'co₂-afgift', '45-knallerten')
+    if any(c.isdigit() or c in "₀₁₂₃₄₅₆₇₈₉" for c in form_low):
+        return False
+
+    norm_form = form_low.replace("å", "aa")
+    norm_hw = hw_low.replace("å", "aa")
+    dehyphenated = norm_form.replace("-", "")
+
+    # Dehyphenated form equals headword
+    if dehyphenated == norm_hw:
+        return True
+
+    # Prefix/stem matches where all hyphen-split parts are words of len >= 2
+    split_parts = norm_form.split("-")
+    if (dehyphenated.startswith(norm_hw) or norm_hw.startswith(dehyphenated[:4])) and all(
+        len(part) >= 2 and part.isalpha() for part in split_parts
+    ):
+        return True
+
+    return False
+
+
 def generate_orthographic_synonyms(headword: str, existing_synonyms: List[str] = None) -> List[str]:
     """Generate all standard Danish orthographical variants for .syn file.
     
@@ -349,6 +407,7 @@ def generate_orthographic_synonyms(headword: str, existing_synonyms: List[str] =
     - Modern 'å' / 'Å' variants if headword contains 'aa'
     - De-hyphenated forms ('Lægds-lem' -> 'lægdslem')
     - Pruning of regular genitives, abbreviations ending in '.', and truncated fragment 'aarh'
+    - Filtering of artificial ODS morpheme hyphens and parentheses
     """
     synonyms: Set[str] = set()
     hw_low = headword.lower().strip()
@@ -361,6 +420,8 @@ def generate_orthographic_synonyms(headword: str, existing_synonyms: List[str] =
             if not s_clean or s_clean.lower() == hw_low:
                 continue
             if s_clean.endswith(".") or s_clean.lower() == "aarh":
+                continue
+            if is_artificial_ods_synonym(s_clean, headword):
                 continue
             if is_redundant_genitive(s_clean, headword):
                 continue
@@ -425,6 +486,8 @@ def generate_orthographic_synonyms(headword: str, existing_synonyms: List[str] =
         if s_clean == headword:
             continue
         if s_clean.endswith(".") or s_clean.lower() == "aarh":
+            continue
+        if is_artificial_ods_synonym(s_clean, headword):
             continue
         if is_redundant_genitive(s_clean, headword):
             continue

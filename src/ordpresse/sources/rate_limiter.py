@@ -29,6 +29,7 @@ class ScrapeCoordinator:
         # Build mode tracking: "server", "bookmarklet", "wait_choice", "skip"
         self.build_modes: Dict[str, str] = {}
         self.mode_events: Dict[str, asyncio.Event] = {}
+        self.resolved_order: Dict[str, List[str]] = {}
 
         # Round-robin queue of build_ids waiting for a server scrape token
         self._rr_queue: deque[str] = deque()
@@ -110,6 +111,7 @@ class ScrapeCoordinator:
         self.missing_by_build.pop(build_id, None)
         self.missing_items_by_build.pop(build_id, None)
         self.resolved_words.pop(build_id, None)
+        self.resolved_order.pop(build_id, None)
         self.skip_remaining_flags.discard(build_id)
         self.word_resolved_events.pop(build_id, None)
         self.build_modes.pop(build_id, None)
@@ -131,6 +133,17 @@ class ScrapeCoordinator:
         """Return the number of unique words resolved so far for a specific build."""
         return len(self.resolved_words.get(build_id, set()))
 
+    def get_recently_resolved(self, build_id: str, limit: int = 2) -> List[str]:
+        """Return the last `limit` unique words resolved for this build."""
+        words = self.resolved_order.get(build_id, [])
+        recent: List[str] = []
+        for w in reversed(words):
+            if w not in recent:
+                recent.append(w)
+            if len(recent) >= limit:
+                break
+        return list(reversed(recent))
+
     def mark_word_resolved(self, word: str, build_id: Optional[str] = None) -> None:
         """Mark a word as resolved across builds (or for a specific build) and wake waiting loops."""
         w_low = word.strip().lower()
@@ -145,14 +158,17 @@ class ScrapeCoordinator:
             for candidate in words:
                 if candidate.lower() == w_low:
                     self.resolved_words.setdefault(bid, set()).add(candidate)
+                    self.resolved_order.setdefault(bid, []).append(candidate)
                     matched = True
             if matched or bid == build_id:
                 self.resolved_words.setdefault(bid, set()).add(word.strip())
+                self.resolved_order.setdefault(bid, []).append(word.strip())
             if bid in self.word_resolved_events:
                 self.word_resolved_events[bid].set()
 
         if build_id and build_id not in target_bids:
             self.resolved_words.setdefault(build_id, set()).add(word.strip())
+            self.resolved_order.setdefault(build_id, []).append(word.strip())
             if build_id in self.word_resolved_events:
                 self.word_resolved_events[build_id].set()
 

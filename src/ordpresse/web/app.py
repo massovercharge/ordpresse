@@ -157,12 +157,14 @@ def preview_lookup(request: Request, q: str, format: Optional[str] = None):
                 hw, html = entry
                 if format == "html":
                     return HTMLResponse(content=html)
+                resolution = f"Bøjningsopslag: {q} → {hw}" if q.strip().lower() != hw.strip().lower() else f"Direkte opslag: {hw}"
                 return {
                     "word": q,
                     "headword": hw,
                     "found": True,
                     "html": html,
                     "source": "stardict_binary",
+                    "resolution": resolution,
                 }
         except Exception as e:
             logger.debug(f"Reader failed on {ifo}: {e}")
@@ -175,12 +177,14 @@ def preview_lookup(request: Request, q: str, format: Optional[str] = None):
         html = render_canonical_html(nordic)
         if format == "html":
             return HTMLResponse(content=html)
+        resolution = f"Bøjningsopslag: {q} → {nordic.headword}" if q.strip().lower() != nordic.headword.strip().lower() else f"Direkte opslag: {nordic.headword}"
         return {
             "word": q,
             "headword": nordic.headword,
             "found": True,
             "html": html,
             "source": "nordic_1800s",
+            "resolution": resolution,
         }
 
     # 3. Fallback to Modern COR-SEM in Database
@@ -219,12 +223,14 @@ def preview_lookup(request: Request, q: str, format: Optional[str] = None):
             html = render_canonical_html(canonical)
             if format == "html":
                 return HTMLResponse(content=html)
+            resolution = f"Bøjningsopslag: {q} → {lemma}" if q.strip().lower() != lemma.strip().lower() else f"Direkte opslag: {lemma}"
             return {
                 "word": q,
                 "headword": lemma,
                 "found": True,
                 "html": html,
                 "source": "cor_sem",
+                "resolution": resolution,
             }
 
     # 4. Fallback to morphological compound synthesis (dernedefra, uefterrettelig)
@@ -234,12 +240,14 @@ def preview_lookup(request: Request, q: str, format: Optional[str] = None):
         html = render_canonical_html(synth)
         if format == "html":
             return HTMLResponse(content=html)
+        resolution = f"Morfologisk opslag: {q} → {synth.headword}" if q.strip().lower() != synth.headword.strip().lower() else f"Direkte opslag: {synth.headword}"
         return {
             "word": q,
             "headword": synth.headword,
             "found": True,
             "html": html,
             "source": "morphology",
+            "resolution": resolution,
         }
 
     # 5. Fallback to Scraper
@@ -250,12 +258,14 @@ def preview_lookup(request: Request, q: str, format: Optional[str] = None):
         html = res["html_content"]
         if format == "html":
             return HTMLResponse(content=html)
+        resolution = f"Opslag ({res.get('source', 'ODS')}): {res['headword']}"
         return {
             "word": q,
             "headword": res["headword"],
             "found": True,
             "html": html,
             "source": res.get("source", "scraper"),
+            "resolution": resolution,
         }
 
     fallback_html = f"<div style='color:#666;font-style:italic;'>Ingen definition fundet for »{q}«.</div>"
@@ -267,6 +277,7 @@ def preview_lookup(request: Request, q: str, format: Optional[str] = None):
         "found": False,
         "html": fallback_html,
         "source": "none",
+        "resolution": f"Ingen match fundet for »{q}«",
     }
 
 
@@ -283,10 +294,13 @@ def _run_background_build(
 ):
     """Worker function executed asynchronously to prevent Cloudflare 524 timeouts."""
 
-    def sync_progress(msg: str, pct: int):
+    def sync_progress(msg: str, pct: int, telemetry: Optional[dict] = None):
         job.progress = pct
         job.message = msg
-        data = json.dumps({"status": "progress", "percent": pct, "message": msg})
+        payload = {"status": "progress", "percent": pct, "message": msg}
+        if telemetry:
+            payload["telemetry"] = telemetry
+        data = json.dumps(payload)
         main_loop.call_soon_threadsafe(job.events.put_nowait, data)
 
     try:

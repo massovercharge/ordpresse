@@ -148,6 +148,12 @@ def is_meta_header_not_definition(text: str) -> bool:
     return False
 
 
+DANGLING_SYNTAX_TAIL_RE = re.compile(
+    r"[;,]\s*(?:især|bl\.?\s*a\.?|ofte|sjældnere)?\s*(?:og\s+egl\.\s*)?i\s+forb\.\s*(?:m\.)?(?:\s*præp\.?)?(?:\s+[a-zæøåA-ZÆØÅ\-]+)?\.?$",
+    re.IGNORECASE,
+)
+
+
 def clean_ods_definition_text(text: str) -> str:
     """Clean grammatical prefixes, strip trailing cross-references, and ensure balanced parentheses."""
     if not text:
@@ -177,6 +183,12 @@ def clean_ods_definition_text(text: str) -> str:
 
     # Strip any dangling opening parenthesis at the end
     t = re.sub(r"[,;]?\s*\([^)]*$", "", t).strip()
+
+    # Strip dangling syntax tails caused by example removal (; især i forb. m. præp., ; især i forb. m., ; bl. a. i forb.)
+    if DANGLING_SYNTAX_TAIL_RE.search(t):
+        t = DANGLING_SYNTAX_TAIL_RE.sub("", t).strip().rstrip(";,").strip()
+        if t and not t.endswith((".", "!", "?")):
+            t += "."
 
     # Balance parentheses if any unclosed '(' remains
     open_count = t.count("(")
