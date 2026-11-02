@@ -175,8 +175,8 @@ Webinterfacet gør det utroligt nemt at bygge ordbøger og teste opslag:
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
 │  📖 Den Danske Ordpresse v0.2.0    [Datasæt: Klar] [Ordbog: 36.963 opslag · 121.856 bøjninger]  │
 ├─────────────────────────────────────────────────────────────────────────────────────────────────┤
-│  ⚡ Afprøv opslag (KOReader E-Ink Preview)                                                      │
-│  [ lægdslemmer ] [ jordebog ] [ bissekræmmer ] [ værkbrudne ] [ banco ] [ baad ] [ daabskjole ]  │
+│  ⚡ Afprøv opslag (KOReader E-Ink Preview)                                                       │
+│  [ lægdslemmer ] [ jordebog ] [ bissekræmmer ] [ værkbrudne ] [ banco ] [ baad ] [ daabskjole ] │
 │  ┌───────────────────────────────────────────────────────────────────────────────────────────┐  │
 │  │ Bøjningsopslag: lægdslemmer → lægdslem                                                    │  │
 │  │                                                                                           │  │
@@ -185,10 +185,10 @@ Webinterfacet gør det utroligt nemt at bygge ordbøger og teste opslag:
 │  │   den ældre fattiglovgivning.                                                             │  │
 │  │                                                                                           │  │
 │  │ HISTORISK BETYDNING (ODS / 1700–1950)                                                     │  │
-│  │ 1. (hist., landbo.) Fattiglem el. almisselem på landet, der forsørgedes af               │  │
-│  │    lægdet, ofte ved omgangsforsørgelse fra gård til gård.                                │  │
+│  │ 1. (hist., landbo.) Fattiglem el. almisselem på landet, der forsørgedes af                │  │
+│  │    lægdet, ofte ved omgangsforsørgelse fra gård til gård.                                 │  │
 │  │                                                                                           │  │
-│  │ [Historisk kontekst]: I 1700- og 1800-tallets Danmark og Sverige (rotehjon) var          │  │
+│  │ [Historisk kontekst]: I 1700- og 1800-tallets Danmark og Sverige (rotehjon) var           │  │
 │  │ fattigvæsenet inddelt i lægder eller roder. Arbejdsudygtige fattige gik på                │  │
 │  │ skift mellem sognets gårde til 'omgangsforsørgelse'.                                      │  │
 │  │                                                                                           │  │
@@ -199,7 +199,7 @@ Webinterfacet gør det utroligt nemt at bygge ordbøger og teste opslag:
 ├─────────────────────────────────────────────────────────────────────────────────────────────────┤
 │  📤 Byg ordbog (Vælg omfang: (•) Fokuseret EPUB-uddrag  ( ) Komplet ordbog)                     │
 │  [ 1. Vælg EPUB-bøger... ]  (eller 2. skriv specifikke ord)                                     │
-│  [ Metode: (•) ⚡ Vent på Bookmarklet (Lyn-Henter)   ( ) 🐢 Automatisk server-kø ]             │
+│  [ Metode: (•) ⚡ Vent på Bookmarklet (Lyn-Henter)   ( ) 🐢 Automatisk server-kø ]               │
 │  [ ⚙️ Byg StarDict-ordbog ]                                                                     │
 └─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
