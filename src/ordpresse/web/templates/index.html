@@ -67,6 +67,9 @@
                 <a href="/api/download/latest" class="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95" title="Hent seneste komplette ordbog">
                     <span>⬇</span> <span>Hent komplet ordbog</span>
                 </a>
+                <button type="button" id="open-change-pwd-btn" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95" title="Skift administrator-adgangskode">
+                    <span>🔑</span> <span>Skift kode</span>
+                </button>
                 <a href="/logout" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95" title="Log ud af Ordpresse">
                     <span>🔒</span> <span>Log ud</span>
                 </a>
@@ -1385,6 +1388,121 @@
 
         // Initial load of keys
         loadApiKeys();
+
+        // Change Password Modal handling
+        const openChangePwdBtn = document.getElementById('open-change-pwd-btn');
+        const changePwdModal = document.getElementById('change-pwd-modal');
+        const closeChangePwdBtn = document.getElementById('close-change-pwd-btn');
+        const cancelChangePwdBtn = document.getElementById('cancel-change-pwd-btn');
+        const changePwdForm = document.getElementById('change-pwd-form');
+        const currentPwdInput = document.getElementById('current-pwd-input');
+        const newPwdInput = document.getElementById('new-pwd-input');
+        const confirmPwdInput = document.getElementById('confirm-pwd-input');
+        const changePwdFeedback = document.getElementById('change-pwd-feedback');
+        const saveChangePwdBtn = document.getElementById('save-change-pwd-btn');
+
+        function togglePasswordModal(show) {
+            if (!changePwdModal) return;
+            if (show) {
+                changePwdModal.classList.remove('hidden');
+                changePwdFeedback.className = 'hidden';
+                changePwdForm.reset();
+                currentPwdInput.focus();
+            } else {
+                changePwdModal.classList.add('hidden');
+            }
+        }
+
+        if (openChangePwdBtn) openChangePwdBtn.addEventListener('click', () => togglePasswordModal(true));
+        if (closeChangePwdBtn) closeChangePwdBtn.addEventListener('click', () => togglePasswordModal(false));
+        if (cancelChangePwdBtn) cancelChangePwdBtn.addEventListener('click', () => togglePasswordModal(false));
+
+        if (changePwdModal) {
+            changePwdModal.addEventListener('click', (e) => {
+                if (e.target === changePwdModal) togglePasswordModal(false);
+            });
+        }
+
+        if (changePwdForm) {
+            changePwdForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const curPwd = currentPwdInput.value;
+                const newPwd = newPwdInput.value;
+                const confPwd = confirmPwdInput.value;
+
+                if (newPwd !== confPwd) {
+                    changePwdFeedback.className = 'text-xs p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 block';
+                    changePwdFeedback.textContent = 'De to nye adgangskoder stemmer ikke overens.';
+                    return;
+                }
+
+                saveChangePwdBtn.disabled = true;
+                saveChangePwdBtn.classList.add('opacity-50');
+
+                try {
+                    const res = await fetch('/api/v1/auth/change-password', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            current_password: curPwd,
+                            new_password: newPwd,
+                            confirm_password: confPwd,
+                        })
+                    });
+
+                    const data = await res.json();
+                    if (!res.ok) {
+                        throw new Error(data.detail || 'Kunne ikke skifte adgangskode.');
+                    }
+
+                    changePwdFeedback.className = 'text-xs p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 block';
+                    changePwdFeedback.textContent = '✅ Adgangskoden er nu opdateret!';
+                    setTimeout(() => {
+                        togglePasswordModal(false);
+                    }, 1500);
+                } catch (err) {
+                    changePwdFeedback.className = 'text-xs p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 block';
+                    changePwdFeedback.textContent = err.message;
+                } finally {
+                    saveChangePwdBtn.disabled = false;
+                    saveChangePwdBtn.classList.remove('opacity-50');
+                }
+            });
+        }
     </script>
+
+    <!-- Change Password Modal -->
+    <div id="change-pwd-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <span>🔑</span> <span>Skift administrator-adgangskode</span>
+                </h3>
+                <button type="button" id="close-change-pwd-btn" class="text-slate-400 hover:text-slate-200 text-lg font-bold cursor-pointer">&times;</button>
+            </div>
+
+            <form id="change-pwd-form" class="space-y-3.5">
+                <div>
+                    <label for="current-pwd-input" class="block text-xs font-medium text-slate-300 mb-1">Nuværende adgangskode</label>
+                    <input type="password" id="current-pwd-input" required class="w-full px-3.5 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" placeholder="••••••••">
+                </div>
+                <div>
+                    <label for="new-pwd-input" class="block text-xs font-medium text-slate-300 mb-1">Ny adgangskode (min. 4 tegn)</label>
+                    <input type="password" id="new-pwd-input" required minlength="4" class="w-full px-3.5 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" placeholder="••••••••">
+                </div>
+                <div>
+                    <label for="confirm-pwd-input" class="block text-xs font-medium text-slate-300 mb-1">Gentag ny adgangskode</label>
+                    <input type="password" id="confirm-pwd-input" required minlength="4" class="w-full px-3.5 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" placeholder="••••••••">
+                </div>
+
+                <div id="change-pwd-feedback" class="hidden text-xs p-2.5 rounded-lg"></div>
+
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" id="cancel-change-pwd-btn" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer">Annuller</button>
+                    <button type="submit" id="save-change-pwd-btn" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer">Gem ny kode</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </body>
 </html>

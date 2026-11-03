@@ -116,3 +116,4 @@ def verify_api_key(raw_key: Optional[str], db: Database) -> dict:
 
     db.record_api_key_usage(key_row["id"])
     return key_row
+

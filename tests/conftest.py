@@ -24,3 +24,4 @@ def auto_auth_for_legacy_tests(request, monkeypatch):
         self.cookies.set("ordpresse_session", create_session_token())
 
     monkeypatch.setattr(TestClient, "__init__", patched_init)
+

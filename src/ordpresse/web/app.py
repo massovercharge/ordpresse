@@ -170,8 +170,9 @@ async def login_page(request: Request):
 
 @app.post("/login", response_class=HTMLResponse)
 async def login_submit(request: Request, password: str = Form("")):
-    """Verify admin password and issue signed session cookie."""
-    if hmac.compare_digest(password.encode("utf-8"), ORDPRESSE_ADMIN_PASSWORD.encode("utf-8")):
+    """Verify admin password (from database or environment) and issue signed session cookie."""
+    db = Database()
+    if db.verify_admin_password(password, fallback_password=ORDPRESSE_ADMIN_PASSWORD):
         token = create_session_token()
         resp = RedirectResponse(url="/", status_code=303)
         resp.set_cookie(
@@ -937,4 +938,25 @@ def delete_api_key_endpoint(key_id: int):
     db = Database()
     deleted = db.delete_api_key(key_id)
     return {"status": "deleted" if deleted else "not_found", "id": key_id}
+
+
+class ChangePasswordPayload(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=4, max_length=128)
+    confirm_password: str = Field(..., min_length=4, max_length=128)
+
+
+@app.post("/api/v1/auth/change-password")
+def change_admin_password_endpoint(payload: ChangePasswordPayload):
+    """Update administrator password in database (LAN-Only, session protected)."""
+    if payload.new_password != payload.confirm_password:
+        raise HTTPException(status_code=400, detail="De to nye adgangskoder stemmer ikke overens.")
+
+    db = Database()
+    if not db.verify_admin_password(payload.current_password, fallback_password=ORDPRESSE_ADMIN_PASSWORD):
+        raise HTTPException(status_code=400, detail="Den nuværende adgangskode er forkert.")
+
+    db.set_admin_password(payload.new_password)
+    return {"status": "ok", "message": "Adgangskoden er opdateret!"}
+
 

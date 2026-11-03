@@ -303,3 +303,71 @@ def test_lookup_negative_caching_for_unknown_words(client):
     data2 = res2.json()
     assert data2["resolved_lemma"] is None
     assert data2["cached_not_found"] is True
+
+
+def test_change_admin_password_flow(client, auth_client):
+    """Test changing the admin password in the UI, input validation, and login with new password."""
+    # 1. Unauthenticated change attempt returns 401
+    res_unauth = client.post(
+        "/api/v1/auth/change-password",
+        json={
+            "current_password": "any",
+            "new_password": "new_secret_pwd",
+            "confirm_password": "new_secret_pwd",
+        },
+    )
+    assert res_unauth.status_code == 401
+
+    # 2. Authenticated attempt with mismatched confirm password returns 400
+    res_mismatch = auth_client.post(
+        "/api/v1/auth/change-password",
+        json={
+            "current_password": ORDPRESSE_ADMIN_PASSWORD,
+            "new_password": "passwordA",
+            "confirm_password": "passwordB",
+        },
+    )
+    assert res_mismatch.status_code == 400
+    assert "stemmer ikke overens" in res_mismatch.json()["detail"]
+
+    # 3. Authenticated attempt with wrong current password returns 400
+    res_wrong_cur = auth_client.post(
+        "/api/v1/auth/change-password",
+        json={
+            "current_password": "wrong_current_password",
+            "new_password": "new_secret_pwd_123",
+            "confirm_password": "new_secret_pwd_123",
+        },
+    )
+    assert res_wrong_cur.status_code == 400
+    assert "forkert" in res_wrong_cur.json()["detail"].lower()
+
+    # 4. Successful password change
+    new_pwd = "helt_nyt_kodeord_2026"
+    res_success = auth_client.post(
+        "/api/v1/auth/change-password",
+        json={
+            "current_password": ORDPRESSE_ADMIN_PASSWORD,
+            "new_password": new_pwd,
+            "confirm_password": new_pwd,
+        },
+    )
+    assert res_success.status_code == 200
+    assert res_success.json()["status"] == "ok"
+
+    # 5. Verify old password no longer works
+    login_client = TestClient(app)
+    res_old_login = login_client.post("/login", data={"password": ORDPRESSE_ADMIN_PASSWORD})
+    assert res_old_login.status_code == 401
+    assert "Forkert adgangskode" in res_old_login.text
+
+    # 6. Verify new password works
+    res_new_login = login_client.post("/login", data={"password": new_pwd}, follow_redirects=False)
+    assert res_new_login.status_code == 303
+    assert res_new_login.headers["location"] == "/"
+    assert "ordpresse_session" in login_client.cookies
+
+    # Reset back to default for other tests if necessary
+    db = Database()
+    db.set_admin_password(ORDPRESSE_ADMIN_PASSWORD)
+

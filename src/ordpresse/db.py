@@ -1,6 +1,7 @@
 """SQLite database manager for streaming datasets and scraper caching."""
 
 import hashlib
+import hmac
 import json
 from pathlib import Path
 import re
@@ -274,6 +275,13 @@ def init_cache_db(conn: sqlite3.Connection) -> None:
                 payload_json TEXT,
                 created_at INTEGER NOT NULL,
                 expires_at INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS admin_auth (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                password_hash TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
             """
         )
@@ -956,4 +964,36 @@ class Database:
                     """,
                     (lookup_key.lower().strip(), status, payload_json, now, expires_at),
                 )
+
+    def set_admin_password(self, new_password: str) -> None:
+        """Store new administrator password hashed with PBKDF2-HMAC-SHA256 and unique salt."""
+        salt = secrets.token_bytes(16)
+        p_hash = hashlib.pbkdf2_hmac("sha256", new_password.encode("utf-8"), salt, 100_000).hex()
+        salt_hex = salt.hex()
+        now = datetime.now(timezone.utc).isoformat()
+        with self._write_lock:
+            with self.cache_conn as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO admin_auth (id, password_hash, salt, updated_at)
+                    VALUES (1, ?, ?, ?)
+                    """,
+                    (p_hash, salt_hex, now),
+                )
+
+    def verify_admin_password(self, candidate: str, fallback_password: str = "ordpresse") -> bool:
+        """Verify password against database PBKDF2 hash, falling back to environment password."""
+        cur = self.cache_conn.execute("SELECT password_hash, salt FROM admin_auth WHERE id = 1")
+        row = cur.fetchone()
+        if row:
+            stored_hash = row["password_hash"]
+            salt = bytes.fromhex(row["salt"])
+            computed_hash = hashlib.pbkdf2_hmac(
+                "sha256", candidate.encode("utf-8"), salt, 100_000
+            ).hex()
+            return hmac.compare_digest(stored_hash, computed_hash)
+
+        # Fallback to env / default password
+        return hmac.compare_digest(candidate.encode("utf-8"), fallback_password.encode("utf-8"))
+
 

@@ -231,3 +231,4 @@ def build_koplugin_zip(device_name: str, raw_api_key: str, endpoint_url: str) ->
         zf.writestr("ordpresse.koplugin/main.lua", MAIN_LUA)
 
     return buf.getvalue()
+
