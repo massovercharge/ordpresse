@@ -12,8 +12,7 @@ return {
 }
 """
 
-MAIN_LUA = """local DictQuickLookup = require("ui/widget/dictquicklookup")
-local InfoMessage = require("ui/widget/infomessage")
+MAIN_LUA = """local InfoMessage = require("ui/widget/infomessage")
 local NetworkMgr = require("ui/network/manager")
 local TextViewer = require("ui/widget/textviewer")
 local UIManager = require("ui/uimanager")
@@ -24,6 +23,8 @@ local socket = require("socket")
 local http = require("socket.http")
 local url = require("socket.url")
 local _ = require("gettext")
+
+local ok_util, util = pcall(require, "util")
 
 local plugin_dir = (debug.getinfo(1, "S").source:match("@?(.*/)") or "./")
 local ok_cfg, config = pcall(dofile, plugin_dir .. "config.lua")
@@ -36,52 +37,146 @@ local Ordpresse = WidgetContainer:extend{
     is_doc_only = false,
 }
 
-function Ordpresse:init()
-    self:registerHighlightMenu()
-    self:hookDictQuickLookup()
-end
-
-function Ordpresse:registerHighlightMenu()
-    if not self.ui or not self.ui.highlight then return end
-    pcall(function()
-        self.ui.highlight:addToHighlightDialog("09_ordpresse_online", function(this)
-            return {
-                text = _("⚡ Slå op i Ordpresse (Online)"),
-                enabled = true,
-                callback = function()
-                    local selected = this.selected_text and this.selected_text.text or ""
-                    this:onClose()
-                    self:performLookup(selected)
-                end,
-            }
-        end)
-    end)
-end
-
-function Ordpresse:hookDictQuickLookup()
-    if DictQuickLookup._ordpresse_hooked then return end
-    DictQuickLookup._ordpresse_hooked = true
-
-    local orig_tweak = DictQuickLookup.tweakButtons
-    DictQuickLookup.tweakButtons = function(dict_popup, buttons)
-        if orig_tweak then
-            pcall(orig_tweak, dict_popup, buttons)
+local function cleanWord(raw_word)
+    local word = (raw_word or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if ok_util and util and util.cleanupSelectedText then
+        local ok, cleaned = pcall(util.cleanupSelectedText, word)
+        if ok and type(cleaned) == "string" and cleaned ~= "" then
+            word = cleaned:gsub("^%s+", ""):gsub("%s+$", "")
         end
+    end
+    return word
+end
+
+function Ordpresse:init()
+    self:registerHooks()
+end
+
+function Ordpresse:onReaderReady()
+    self:registerHooks()
+end
+
+function Ordpresse:registerHooks()
+    if not self.ui then return end
+
+    -- 1. Hook Highlight Dialog (when text or a word is selected/highlighted)
+    if self.ui.highlight and self.ui.highlight.addToHighlightDialog then
         pcall(function()
-            if type(buttons) == "table" then
-                table.insert(buttons, 1, {
-                    {
-                        id = "ordpresse_online_btn",
-                        text = _("⚡ Ordpresse Online"),
-                        font_bold = true,
-                        callback = function()
-                            local word = dict_popup.word or dict_popup.lookupword or ""
-                            self:performLookup(word)
-                        end,
-                    }
-                })
-            end
+            self.ui.highlight:addToHighlightDialog("09_ordpresse_online", function(this)
+                return {
+                    text = _("⚡ Slå op i Ordpresse (Online)"),
+                    enabled = true,
+                    callback = function()
+                        local word = ""
+                        if this.selected_text then
+                            if type(this.selected_text) == "table" and this.selected_text.text then
+                                word = this.selected_text.text
+                            elseif type(this.selected_text) == "string" then
+                                word = this.selected_text
+                            end
+                        end
+                        if this.onClose then
+                            pcall(function() this:onClose() end)
+                        end
+                        self:performLookup(word)
+                    end,
+                }
+            end)
         end)
+    end
+
+    -- 2. Hook Dictionary Lookup popup window (modern KOReader Dictionary Button API)
+    if self.ui.dictionary and self.ui.dictionary.addToDictButtons then
+        pcall(function()
+            self.ui.dictionary:addToDictButtons({
+                id = "ordpresse_online",
+                menu_text = _("Ordpresse Online"),
+                text = _("⚡ Ordpresse Online"),
+                insert_first = true,
+                font_bold = true,
+                callback = function(dict_popup)
+                    local word = dict_popup.word or dict_popup.lookupword or ""
+                    self:performLookup(word)
+                end,
+            })
+            self._dict_hooked = true
+        end)
+    end
+end
+
+-- Fallback for older KOReader versions without ReaderDictionary:addToDictButtons
+function Ordpresse:onDictButtonsReady(dict_popup, buttons)
+    if self._dict_hooked then return end
+    if type(buttons) ~= "table" then return end
+
+    for _, row in ipairs(buttons) do
+        if type(row) == "table" then
+            for _, btn in ipairs(row) do
+                if type(btn) == "table" and btn.id == "ordpresse_online" then
+                    return
+                end
+            end
+        end
+    end
+
+    table.insert(buttons, 1, {
+        {
+            id = "ordpresse_online",
+            text = _("⚡ Ordpresse Online"),
+            font_bold = true,
+            callback = function()
+                local word = dict_popup.word or dict_popup.lookupword or ""
+                self:performLookup(word)
+            end,
+        }
+    })
+end
+
+-- Top Reader / Main Menu search integration
+function Ordpresse:addToMainMenu(menu_items)
+    menu_items.ordpresse_online = {
+        text = _("⚡ Ordpresse Online Opslag"),
+        sorting_hint = "more_tools",
+        callback = function()
+            self:showManualLookupDialog()
+        end,
+    }
+end
+
+function Ordpresse:showManualLookupDialog()
+    local ok_input, InputDialog = pcall(require, "ui/widget/inputdialog")
+    if not ok_input or not InputDialog then return end
+
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Den Danske Ordpresse"),
+        input_hint = _("Indtast opslagsord..."),
+        buttons = {
+            {
+                {
+                    text = _("Annuller"),
+                    id = "close",
+                    callback = function()
+                        UIManager:close(dialog)
+                    end,
+                },
+                {
+                    text = _("Slå op"),
+                    is_enter_default = true,
+                    callback = function()
+                        local word = dialog:getInputText()
+                        UIManager:close(dialog)
+                        if word and word ~= "" then
+                            self:performLookup(word)
+                        end
+                    end,
+                },
+            },
+        },
+    }
+    UIManager:show(dialog)
+    if dialog.onShowKeyboard then
+        pcall(function() dialog:onShowKeyboard() end)
     end
 end
 
@@ -118,7 +213,7 @@ function Ordpresse:formatFallback(data)
 end
 
 function Ordpresse:performLookup(raw_word)
-    local word = (raw_word or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local word = cleanWord(raw_word)
     if word == "" then
         UIManager:show(InfoMessage:new{ text = _("Intet ord valgt.") })
         return

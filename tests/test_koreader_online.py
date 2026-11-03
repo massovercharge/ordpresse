@@ -155,6 +155,14 @@ def test_api_key_provisioning_and_lifecycle(auth_client):
         assert "Boox Palma 2" in config_lua
         assert 'api_key = "ord_' in config_lua
 
+        # Verify KOReader plugin hooks in main.lua
+        main_lua = zf.read("ordpresse.koplugin/main.lua").decode("utf-8")
+        assert "addToDictButtons" in main_lua
+        assert "addToHighlightDialog" in main_lua
+        assert "onDictButtonsReady" in main_lua
+        assert "onReaderReady" in main_lua
+        assert "addToMainMenu" in main_lua
+
         # Extract generated raw key from config.lua
         raw_key = None
         for line in config_lua.splitlines():
