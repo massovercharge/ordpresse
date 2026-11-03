@@ -6,8 +6,9 @@
 [![StarDict Format](https://img.shields.io/badge/format-StarDict%20v2.4.2-orange.svg)](#-stardict-og-glib-binærsortering)
 [![Sorting Law](https://img.shields.io/badge/sorting-GLib%20ASCII%20Law-success.svg)](#-stardict-og-glib-binærsortering)
 [![E-Reader](https://img.shields.io/badge/e--reader-KOReader%20Ready-emerald.svg)](#-installation-i-koreader)
+[![Zero-Trust API](https://img.shields.io/badge/API-Zero--Trust%20Online-purple.svg)](#-zero-trust-koreader-online-opslag-api--plugin)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-70%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
+[![Tests](https://img.shields.io/badge/tests-81%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
 
 ---
 
@@ -33,33 +34,28 @@ flowchart TD
         NAOB["NAOB & Molbech 1859<br/>(Dansk-norske 1800-tals ord)"]
     end
 
-    subgraph Input [📥 Brugerinput]
-        EPUB["Dine EPUB-bøger<br/>(Romaner, noveller, klassikere)"]
-        WORDLIST["Brugerdefinerede ordlister<br/>eller komplet korpus"]
-    end
-
-    subgraph Pipeline [⚙️ Ordpresse Pipeline]
-        SCAN["EPUB Scanner & Tokenizer<br/>(Fjerner bløde bindestreger & nul-bredde tegn)"]
-        ORTHO["Retskrivning & Morfologi<br/>(aa ↔ å, bøjningsopløsning & sammensætninger)"]
-        HYGIENE["Index Hygiene & Sanitizer<br/>(Fjerner romertal, parenteser & varemærker)"]
-        SCRAPE["Dobbelt Scrape-Arkitektur<br/>(Polite Server Queue & Lyn-Henter Bookmarklet)"]
-    end
-
-    subgraph Output [📦 StarDict v2.4.2 Ordbog]
-        COMPILER["StarDict GLib Binary Compiler<br/>(g_ascii_strcasecmp sorteringslov)"]
+    subgraph Offline [📦 1. Offline StarDict Pipeline]
+        SCAN["EPUB Scanner & Tokenizer<br/>(Fjerner bløde bindestreger)"]
+        ORTHO["Retskrivning & Morfologi<br/>(aa ↔ å & bøjningsopløsning)"]
+        HYGIENE["Index Hygiene & Sanitizer<br/>(Fjerner romertal & dubletter)"]
+        SCRAPE["Dobbelt Scrape-Arkitektur<br/>(Serverkø & Lyn-Henter)"]
+        COMPILER["StarDict GLib Compiler<br/>(g_ascii_strcasecmp sortering)"]
         BUNDLE["ordpresse.zip<br/>(.ifo, .idx, .dict.dz, .syn)"]
-        KOREADER["📱 KOReader E-Ink Display<br/>(Lynhurtigt opslag under læsning)"]
     end
 
-    EPUB --> SCAN
-    WORDLIST --> ORTHO
-    SCAN --> ORTHO
+    subgraph Online [📡 2. Zero-Trust KOReader Live API]
+        DEVICE["📱 E-læser (KOReader)<br/>(⚡ Ordpresse Online)"]
+        TUNNEL["🔒 Cloudflare Tunnel / WAF<br/>(Skip-regel for lookup)"]
+        LOOKUP_API["⚡ GET /api/v1/koreader/lookup<br/>(X-API-Key Auth, Token-Bucket & Cache)"]
+        ADMIN_UI["🔐 LAN Web UI (:18088)<br/>(Login, Adgangskode & Nøglestyring)"]
+    end
+
+    SCAN --> ORTHO --> HYGIENE --> SCRAPE --> COMPILER --> BUNDLE
     Kilder --> SCRAPE
-    ORTHO --> HYGIENE
-    HYGIENE --> SCRAPE
-    SCRAPE --> COMPILER
-    COMPILER --> BUNDLE
-    BUNDLE --> KOREADER
+    Kilder --> LOOKUP_API
+    BUNDLE -.->|USB-overførsel| DEVICE
+    DEVICE <==>|HTTPS X-API-Key| TUNNEL <==> LOOKUP_API
+    ADMIN_UI -.->|1-klik provisionering| DEVICE
 ```
 
 ---
@@ -95,6 +91,12 @@ Ordbogsartiklerne formatteres i et letlæseligt, højkontrast layout optimeret s
 
 ### 6. 💾 Hukommelsessikker Streaming (< 250 MB RAM)
 DSLs COR og ODS fuldformsregistre indeholder over 3 millioner rækker. Ordpresse streamer alle datasæt direkte ind i SQLite med WAL-tilstand (*Write-Ahead Logging*) i batches af 10.000 rækker, hvilket holder RAM-forbruget under 250 MB selv på små servere eller Raspberry Pi.
+
+### 7. 📡 Zero-Trust KOReader Online Opslag & Enhedsadgang (v0.2+)
+- **Dobbelt anvendelse:** Ud over offline StarDict-kompilering fungerer Ordpresse som din egen private online ordbogsserver for KOReader.
+- **To-Zone Forsvar i dybden:** Ekstern Cloudflare-adgang er strengt begrænset til ét enkelt endpoint (`GET /api/v1/koreader/lookup`). Web UI, byggekø og administrations-endpoints er fuldstændig usynlige udefra (returnerer HTTP 404).
+- **Hashed API-nøgler & Provisionering:** Hver e-bogslæser får sin egen kryptografiske API-nøgle med præfiks (*ord_...*), gemt sikkert som SHA-256 hash. Download et nøglefærdigt `ordpresse.koplugin` med 1 klik direkte fra webbrugerfladen.
+- **Realtidsopslag i KOReader:** Knappen `⚡ Ordpresse Online` er integreret direkte i ordbogsvinduet, i markeringsmenuen og i KOReaders værktøjsmenu.
 
 ---
 
@@ -308,6 +310,78 @@ data/output/
 
 ---
 
+## 📡 Zero-Trust KOReader Online Opslag (API & Plugin)
+
+Fra version **0.2+** fungerer Den Danske Ordpresse ikke blot som en offline ordbogsgenerator, men også som din egen private, krypterede **online ordbogsserver for KOReader**. Når du støder på et sjældent ord under læsningen, som ikke er med i dit offline StarDict-uddrag, kan du slå det op online på få millisekunder direkte fra e-læserens skærm.
+
+### 1. To-Zone Sikkerhedsarkitektur (Defense-in-Depth)
+
+Ordpresse implementerer en kompromisløs **Two-Zone Boundary**:
+
+```
+[ Offentligt Internet / Cloudflare Tunnel ]
+                    │
+                    ▼
+     GET /api/v1/koreader/lookup?q=...  ──(X-API-Key)──► [ ✅ Godkendt: Live Opslag ]
+     Enhver anden URL (f.eks. /, /api/...) ─────────────► [ ❌ HTTP 404 Not Found ]
+
+[ Privat LAN / Hjemmenetværk (:18088) ]
+                    │
+                    ▼
+     / (Web UI), /api/build, /api/v1/keys/... ─────────► [ 🔐 Kræver LAN Login ]
+```
+
+- **Ekstern Zone (Cloudflare Tunnel):** Kun det ene endpoint `GET /api/v1/koreader/lookup?q=...` lukkes igennem. Enhver forespørgsel mod webinterfacet, byggekøen eller administrations-endpoints udefra besvares omgående med en rå `HTTP 404 Not Found`, så angribere slet ikke kan opdage, at der kører en applikation.
+- **Lokal Zone (LAN):** Webbrugerfladen og alle styringsværktøjer er udelukkende tilgængelige på det lokale netværk og er beskyttet af et adgangskodelogin med en kryptografisk signeret sessionscookie (`ordpresse_session`). Du kan ændre din adgangskode når som helst direkte i webinterfacet under knappen **"🔑 Skift kode"**.
+
+### 2. Enhedsstyring & 1-Kliks Provisionering
+
+Under sektionen **Enhedsadgang & KOReader Integration** i webbrugerfladen kan du administrere dine e-bogslæsere:
+
+1. **Opret enhedsnøgle:** Indtast navnet på din enhed (f.eks. *Kobo Clara*, *Boox Palma 2*, *Kindle Paperwhite*) og klik på **"Opret nøgle & hent plugin"**.
+2. **Kryptografisk sikkerhed:** Hver enhed får tildelt en unik API-nøgle med præfikset `ord_` (52 tegn). Nøglen hashes med SHA-256, inden den gemmes i databasen — den rå nøgle gemmes aldrig på serveren.
+3. **Livscyklus:** Du kan til enhver tid deaktivere (*Tilbagekald*) eller permanent slette en enheds adgang direkte fra oversigten.
+
+### 3. Installation af KOReader-pluginet (`ordpresse.koplugin`)
+
+Når du opretter en enhed, genererer serveren automatisk en skræddersyet, zero-config `ordpresse-koplugin-<enhed>.zip`:
+
+1. **Udpak zip-filen** på din computer. Den indeholder mappen `ordpresse.koplugin/` med tre filer:
+   - `_meta.lua`: Plugin-metadata og beskrivelse.
+   - `config.lua`: Forudindstillet med serverens offentlige URL og enhedens unikke API-nøgle.
+   - `main.lua`: KOReaders integrationshooks.
+2. **Kopiér mappen** over på din e-bogslæser:
+   ```text
+   koreader/plugins/ordpresse.koplugin/
+   ```
+3. **Genstart KOReader.** Pluginet er nu aktivt og integreret i tre centrale dele af KOReader:
+   - **Ordbogsvinduet:** Når du tapper et ord i en bog, indeholder ordbogsvinduet knappen **`⚡ Ordpresse Online`** forrest i knaprækken.
+   - **Markeringsmenuen:** Når du markerer et ord eller en sætning, vises **`⚡ Slå op i Ordpresse (Online)`** direkte i menuen.
+   - **Hovedmenuen:** Under KOReaders søgemenu (forstørrelsesglasset) finder du **`⚡ Ordpresse Online Opslag`**, hvor du frit kan indtaste et vilkårligt ord på skærmtastaturet.
+
+### 4. Cloudflare Tunnel WAF Skip-Regel (Vigtigt)
+
+For at sikre, at KOReaders online opslag ikke blokeres af Cloudflares automatiske bot-beskyttelse eller managed rules, skal der oprettes en **WAF Custom Rule** i Cloudflare Dashboard:
+
+1. Gå til dit domæne i **Cloudflare Dashboard** &rarr; **Security** &rarr; **WAF** &rarr; **Custom rules**.
+2. Klik på **Create rule** og giv den navnet `Allow KOReader Lookup`.
+3. Indstil betingelsen:
+   - Field: `URI Path`
+   - Operator: `equals`
+   - Value: `/api/v1/koreader/lookup`
+   *(Expression preview: `(http.request.uri.path eq "/api/v1/koreader/lookup")`)*
+4. Vælg handlingen (**Choose action**): **Skip**.
+5. Sæt flueben i:
+   - ☑ *All remaining custom rules*
+   - ☑ *All rate limiting rules*
+   - ☑ *All managed rules*
+   - ☑ *All Super Bot Fight Mode Rules*
+6. Gem og aktivér reglen (**Deploy**).
+
+Nu kan din e-bogslæser foretage lynhurtige online opslag hvor som helst, så længe den har Wi-Fi-forbindelse.
+
+---
+
 ## ⚙️ Konfiguration & Miljøvariabler
 
 Ordpresse konfigureres via miljøvariabler, som kan sættes direkte i dit shell-miljø eller i en `.env`-fil:
@@ -318,6 +392,8 @@ Ordpresse konfigureres via miljøvariabler, som kan sættes direkte i dit shell-
 | `PORT` | `8088` | Porten webserveren lytter på internt i Python. |
 | `HOST` | `0.0.0.0` | Netværksinterface webserveren binder til. |
 | `HOST_PORT` | `18088` | Værtsport for Docker Compose mapping (`HOST_PORT:8088`). |
+| `ORDPRESSE_ADMIN_PASSWORD` | `ordpresse` | Standard administratoradgangskode for LAN-webinterfacet (kan ændres i UI'et). |
+| `ORDPRESSE_DISABLE_AUTH` | `false` | Sæt til `true` for at deaktivere login-kravet på LAN (anbefales kun til test). |
 | `ORDPRESSE_MAX_HOURLY_REQUESTS` | `200` | Maksimalt antal live HTTP-forespørgsler per time fra serverens IP. |
 | `ORDPRESSE_BURST_TOKENS` | `10` | Antal indledende forespørgsler serveren må udføre uden pause. |
 | `ORDPRESSE_REQUEST_DELAY` | `0.5` | Høflighedspause (i sekunder) mellem forespørgsler. |
@@ -368,7 +444,7 @@ Hvis du benytter Cloudflare Tunnels (`cloudflared`):
 
 ## 🧪 Testsuite & Kvalitetssikring
 
-Projektet har en omfattende automatiseret testsuite med 70 tests, der sikrer leksikalsk og binær integritet:
+Projektet har en omfattende automatiseret testsuite med **81 tests**, der sikrer leksikalsk, kryptografisk og binær integritet:
 
 ```bash
 # Kør hele testsuiten
@@ -376,6 +452,7 @@ pytest -v
 ```
 
 ### Hvad dækker testene?
+- **`tests/test_koreader_online.py`:** Verificerer Zero-Trust to-zone grænsen (HTTP 404 for eksterne ikke-lookup stier), LAN login-flow, signerede session-cookies, hashed API-nøgle provisionering og livscyklus, KOReader plugin-generering (`addToDictButtons`, `addToHighlightDialog`, `onDictButtonsReady`), rate-limiting, negativ caching og skift af administratoradgangskode.
 - **`tests/test_stardict_writer.py`:** Verificerer GLib `g_ascii_strcasecmp` sorteringsloven, binærlæsning og StarDict v2.4.2 overholdelse.
 - **`tests/test_index_hygiene.py`:** Verificerer sanering af romertal, parentesudvidelse, varemærkestripning og eliminering af ASCII versal-dubletter i `.syn`.
 - **`tests/test_lexical_integrity.py`:** Verificerer 3-lags prioriteringssystem, bøjningsvalidering og beskyttelse mod forkortede COR-SEM definitioner.
@@ -383,6 +460,10 @@ pytest -v
 - **`tests/test_moberg_words.py`:** End-to-end regressionstest af de klassiske Moberg-nøgleord i en simuleret EPUB.
 - **`tests/test_orthography.py`:** Verificerer `aa` <-> `å` konvertering, bløde bindestreger og bøjningsopløsning.
 - **`tests/test_ods_subsenses_and_coverage.py`:** Verificerer ODS underbetydninger, dækningsgrad, enkeltlags overstrø-polering og syntakshale-sanering.
+- **`tests/test_cache_persistence_and_queue.py`:** Verificerer renhed af cache-rækker, ODS sidebar-rensning og ekspansion af negativ cache.
+- **`tests/test_cor_grammatical_resolution.py`:** Verificerer lokal grammatisk opløsning mod COR-databasen og `aa`-spejling.
+- **`tests/test_aa_and_genitives.py`:** Verificerer beskæring af redundante genitiver, forkortelser og kunstige ODS-synonymer.
+- **`tests/test_text_formatting.py`:** Verificerer sætningsafgrænsning, definitionssammendrag og fuldsætningsbevarelse.
 
 ---
 
