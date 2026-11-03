@@ -9,9 +9,18 @@ import shutil
 import tempfile
 from typing import Dict, List, Optional
 import uuid
+import hmac
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
@@ -20,6 +29,16 @@ from pydantic import BaseModel, Field
 from ordpresse.db import Database
 from ordpresse.sources.rate_limiter import coordinator
 from ordpresse.sources.ods_scraper import parse_ods_html
+from ordpresse.web.auth import (
+    ORDPRESSE_ADMIN_PASSWORD,
+    ORDPRESSE_DISABLE_AUTH,
+    create_session_token,
+    verify_session_token,
+    is_external_request,
+    verify_api_key,
+)
+from ordpresse.web.lookup_service import perform_koreader_lookup
+from ordpresse.web.plugin_builder import build_koplugin_zip, slugify_device_name
 
 from ordpresse import __version__
 from ordpresse.config import (
@@ -90,6 +109,95 @@ class BuildJob:
 
 
 ACTIVE_BUILDS: Dict[str, BuildJob] = {}
+
+
+@app.middleware("http")
+async def enforce_two_zone_boundary_and_auth(request: Request, call_next):
+    """
+    Two-Zone Defense-in-Depth Middleware:
+    - Layer 1 (External / Cloudflare Tunnel): ONLY /api/v1/koreader/lookup is accessible.
+      All other endpoints return HTTP 404 Not Found.
+    - Layer 2 (LAN Zone): Requires admin password login via session cookie for management UI/APIs.
+    """
+    path = request.url.path
+
+    # Layer 1: Strict External Zone Boundary
+    if is_external_request(request):
+        if path.rstrip("/") != "/api/v1/koreader/lookup":
+            return PlainTextResponse("Not Found", status_code=404)
+        return await call_next(request)
+
+    # Layer 2: LAN Zone
+    if ORDPRESSE_DISABLE_AUTH:
+        return await call_next(request)
+
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    # Unauthenticated LAN routes
+    if (
+        path in ("/login", "/logout", "/health")
+        or path.startswith("/static/")
+        or path.rstrip("/") == "/api/v1/koreader/lookup"
+    ):
+        return await call_next(request)
+
+    # Verify LAN session cookie
+    session_cookie = request.cookies.get("ordpresse_session")
+    if session_cookie and verify_session_token(session_cookie):
+        return await call_next(request)
+
+    # LAN Unauthenticated redirect or 401
+    if path == "/" or ("text/html" in request.headers.get("accept", "") and not path.startswith("/api/")):
+        return RedirectResponse(url="/login", status_code=302)
+
+    return JSONResponse(status_code=401, content={"detail": "Kræver godkendelse."})
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Render the LAN login screen."""
+    if not is_external_request(request):
+        cookie = request.cookies.get("ordpresse_session")
+        if cookie and verify_session_token(cookie):
+            return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"error": None},
+    )
+
+
+@app.post("/login", response_class=HTMLResponse)
+async def login_submit(request: Request, password: str = Form("")):
+    """Verify admin password and issue signed session cookie."""
+    if hmac.compare_digest(password.encode("utf-8"), ORDPRESSE_ADMIN_PASSWORD.encode("utf-8")):
+        token = create_session_token()
+        resp = RedirectResponse(url="/", status_code=303)
+        resp.set_cookie(
+            key="ordpresse_session",
+            value=token,
+            max_age=30 * 86400,
+            httponly=True,
+            samesite="lax",
+        )
+        return resp
+
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"error": "Forkert adgangskode"},
+        status_code=401,
+    )
+
+
+@app.get("/logout")
+@app.post("/logout")
+async def logout():
+    """Clear session cookie and redirect to login."""
+    resp = RedirectResponse(url="/login", status_code=303)
+    resp.delete_cookie(key="ordpresse_session")
+    return resp
 
 
 @app.get("/health")
@@ -761,3 +869,72 @@ async def set_build_mode_endpoint(build_id: str, request: Request):
         raise HTTPException(status_code=400, detail="Ugyldig mode. Tilladte: server, bookmarklet, skip")
     coordinator.set_build_mode(build_id, mode)
     return {"status": "ok", "build_id": build_id, "mode": mode}
+
+
+# ---------------------------------------------------------------------------
+# KOReader Online Lookup & Multi-Client API Key Management (V10.2 Zero-Trust)
+# ---------------------------------------------------------------------------
+
+class ProvisionKeyPayload(BaseModel):
+    device_name: str = Field(..., min_length=1, max_length=100)
+    endpoint_url: Optional[str] = "https://ordpresse.seame.click/api/v1/koreader/lookup"
+
+
+@app.get("/api/v1/koreader/lookup")
+async def koreader_lookup_endpoint(request: Request, q: str = ""):
+    """
+    Public KOReader Online Lookup Endpoint.
+    Accessible externally through Cloudflare Tunnel or locally via LAN.
+    Strictly authenticated via X-API-Key header.
+    """
+    api_key = request.headers.get("X-API-Key")
+    db = Database()
+    verify_api_key(api_key, db)
+    return await perform_koreader_lookup(q, db)
+
+
+@app.get("/api/v1/keys")
+def get_api_keys():
+    """List all registered API keys (LAN-Only, session protected). Never exposes key hashes."""
+    db = Database()
+    return db.list_api_keys()
+
+
+@app.post("/api/v1/keys/provision")
+def provision_api_key(payload: ProvisionKeyPayload):
+    """
+    Generate a new API key for an e-reader device and return a customized ordpresse.koplugin.zip.
+    The raw key is only returned inside the zip configuration file and never stored unhashed.
+    """
+    name = (payload.device_name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Enhedsnavn må ikke være tomt.")
+
+    endpoint_url = (payload.endpoint_url or "").strip() or "https://ordpresse.seame.click/api/v1/koreader/lookup"
+    db = Database()
+    raw_key, key_row = db.create_api_key(name)
+    zip_bytes = build_koplugin_zip(name, raw_key, endpoint_url)
+    slug = slugify_device_name(name)
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="ordpresse-koplugin-{slug}.zip"'},
+    )
+
+
+@app.post("/api/v1/keys/{key_id}/revoke")
+def revoke_api_key_endpoint(key_id: int):
+    """Revoke an active API key, blocking future lookup requests immediately."""
+    db = Database()
+    revoked = db.revoke_api_key(key_id)
+    return {"status": "revoked" if revoked else "not_found", "id": key_id}
+
+
+@app.delete("/api/v1/keys/{key_id}")
+def delete_api_key_endpoint(key_id: int):
+    """Permanently delete an API key record."""
+    db = Database()
+    deleted = db.delete_api_key(key_id)
+    return {"status": "deleted" if deleted else "not_found", "id": key_id}
+

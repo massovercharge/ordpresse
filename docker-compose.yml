@@ -9,5 +9,7 @@ services:
       - PORT=8088
       - HOST=0.0.0.0
       - ORDPRESSE_DATA_DIR=/app/data
+      - ORDPRESSE_ADMIN_PASSWORD=${ORDPRESSE_ADMIN_PASSWORD:-ordpresse}
+      - ORDPRESSE_SECRET_KEY=${ORDPRESSE_SECRET_KEY:-}
     volumes:
       - ./data:/app/data

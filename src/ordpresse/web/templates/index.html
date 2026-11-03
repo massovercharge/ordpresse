@@ -67,6 +67,9 @@
                 <a href="/api/download/latest" class="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95" title="Hent seneste komplette ordbog">
                     <span>⬇</span> <span>Hent komplet ordbog</span>
                 </a>
+                <a href="/logout" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95" title="Log ud af Ordpresse">
+                    <span>🔒</span> <span>Log ud</span>
+                </a>
             </div>
         </div>
     </header>
@@ -517,6 +520,126 @@
                     </ol>
                 </div>
             </div>
+        </div>
+
+        <!-- Section: KOReader Online-Plugin & Enhedsnøgler -->
+        <div id="koreader-plugin-section" class="bg-slate-900/80 rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-xl space-y-6">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-xl font-bold">
+                        🔌
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                            <span>KOReader Online-Plugin & Enhedsnøgler</span>
+                            <span class="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono uppercase">Zero-Trust v10.2</span>
+                        </h3>
+                        <p class="text-xs text-slate-400">
+                            Generér skræddersyede <code class="text-amber-400 font-mono">.koplugin.zip</code> pakker til dine e-læsere med server-URL og API-nøgle forhåndskonfigureret.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Provisioning Form -->
+            <form id="provision-form" class="space-y-4 bg-slate-950/60 p-5 rounded-xl border border-slate-800/80">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label for="device-name-input" class="block text-xs font-medium text-slate-300 mb-1.5">
+                            Enhedsnavn <span class="text-amber-400">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            id="device-name-input"
+                            required
+                            placeholder="f.eks. Boox Palma 2, Kindle Paperwhite, Kones Kindle"
+                            class="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-colors"
+                        >
+                    </div>
+                    <div>
+                        <label for="endpoint-url-input" class="block text-xs font-medium text-slate-300 mb-1.5">
+                            Offentligt API Endpoint URL
+                        </label>
+                        <input
+                            type="url"
+                            id="endpoint-url-input"
+                            value="https://ordpresse.seame.click/api/v1/koreader/lookup"
+                            class="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-colors"
+                        >
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between pt-2">
+                    <p class="text-[11px] text-slate-500">
+                        Den hemmelige API-nøgle gemmes kun i din hentede zip-fil (serveren gemmer kun en envejs SHA-256 hash).
+                    </p>
+                    <button
+                        type="submit"
+                        id="provision-submit-btn"
+                        class="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                    >
+                        <span>⚡</span>
+                        <span>Generer API-nøgle & Hent .koplugin.zip</span>
+                    </button>
+                </div>
+                <div id="provision-feedback" class="hidden text-xs p-3 rounded-lg"></div>
+            </form>
+
+            <!-- API Keys Table -->
+            <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <h4 class="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                        Registrerede Enhedsnøgler
+                    </h4>
+                    <button
+                        type="button"
+                        id="refresh-keys-btn"
+                        class="text-[11px] text-slate-400 hover:text-amber-400 flex items-center gap-1 transition-colors"
+                    >
+                        <span>↻</span> <span>Opdater liste</span>
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950/40">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-800 bg-slate-900/70 text-slate-400 font-medium">
+                                <th class="py-2.5 px-4">Enhed</th>
+                                <th class="py-2.5 px-4">Nøgle-ID</th>
+                                <th class="py-2.5 px-4">Status</th>
+                                <th class="py-2.5 px-4">Opslag</th>
+                                <th class="py-2.5 px-4">Sidst brugt</th>
+                                <th class="py-2.5 px-4 text-right">Handling</th>
+                            </tr>
+                        </thead>
+                        <tbody id="api-keys-tbody" class="divide-y divide-slate-800/60 text-slate-300">
+                            <tr>
+                                <td colspan="6" class="py-6 text-center text-slate-500 italic">
+                                    Henter registrerede enhedsnøgler...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Installation Guide Details -->
+            <details class="bg-slate-950/60 rounded-xl p-4 border border-slate-800 text-xs space-y-2 text-slate-400">
+                <summary class="font-semibold text-slate-300 cursor-pointer hover:text-amber-300 select-none flex items-center gap-2">
+                    <span>📖</span> <span>Sådan installerer du pluginet på din e-læser (Zero-Config)</span>
+                </summary>
+                <div class="pt-3 space-y-2 text-slate-300">
+                    <ol class="list-decimal list-inside space-y-1.5 leading-relaxed">
+                        <li>Udpak den hentede <code class="text-amber-400 font-mono">ordpresse-koplugin-&lt;enhed&gt;.zip</code> fil på din computer.</li>
+                        <li>Kopiér mappen <code class="text-amber-400 font-mono">ordpresse.koplugin</code> over i <code class="text-slate-200 font-mono">koreader/plugins/</code> på din Kindle, Kobo eller Boox enhed.</li>
+                        <li>Genstart KOReader — enhedens unikke API-nøgle og server-URL er allerede indkodet i <code class="text-amber-400 font-mono">config.lua</code>.</li>
+                        <li>Marker et ord i en e-bog &gt; Vælg <strong class="text-amber-300">⚡ Slå op i Ordpresse (Online)</strong> eller tryk på knappen <strong class="text-amber-300">⚡ Ordpresse Online</strong> i KOReaders hurtigopslag.</li>
+                    </ol>
+                    <p class="text-[11px] text-slate-500 pt-1">
+                        Virker både offline med de lokale StarDict-ordbøger og online via Cloudflare Tunnelen, når enheden er forbundet til Wi-Fi.
+                    </p>
+                </div>
+            </details>
         </div>
 
         <!-- Mandatory Legal Attribution Block (Section 5) -->
@@ -1101,6 +1224,167 @@
         if (bookmarkletBtn) {
             bookmarkletBtn.href = "javascript:(async function() { const m = location.hash.match(/ordpresse_id=([^&]+)/); const o = location.hash.match(/ordpresse_origin=([^&]+)/); const l = location.hash.match(/limit=(\\d+)/); const bid = m ? m[1] : prompt(\"Indtast Ordpresse Build-ID:\"); const host = o ? decodeURIComponent(o[1]) : (window.location.origin || \"https://ordpresse.seame.click\"); if (!bid) return; if (!location.hostname.includes(\"ordnet.dk\")) { location.href = \"https://ordnet.dk/ods/ordbog?query=ordbog#ordpresse_id=\" + bid + \"&ordpresse_origin=\" + encodeURIComponent(location.origin) + (l ? \"&limit=\" + l[1] : \"\"); return; } const box = document.createElement(\"div\"); box.style = \"position:fixed;bottom:20px;right:20px;z-index:999999;background:#111827;color:#fef3c7;padding:16px 20px;border:2px solid #f59e0b;border-radius:12px;font-family:sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.5);min-width:300px;max-width:400px;\"; document.body.appendChild(box); let stopped = false; const stopBtn = document.createElement(\"button\"); stopBtn.innerText = \"\u23f9 Stop & afslut ordbog nu\"; stopBtn.style = \"margin-top:10px;padding:6px 12px;background:#b91c1c;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;font-size:12px;display:block;width:100%;\"; stopBtn.onclick = async () => { stopped = true; box.innerHTML = \"<b>\u23f9 Stopper...</b> Sender afslutning til serveren...\"; try { await fetch(host + \"/api/build/\" + bid + \"/skip-queue\", { method: \"POST\" }); } catch(e) {} box.innerHTML = \"<b>\u2705 Stoppet!</b> Ordbogen f\u00e6rdigg\u00f8res nu med de hentede ord.<br>Du kan lukke denne fane.\"; }; const url = host + \"/api/build/\" + bid + \"/missing-words\" + (l ? \"?limit=\" + l[1] : \"\"); const res = await fetch(url); const data = await res.json(); const items = data.items || (data.words || []).map(w => ({word: w, target: \"ods\", priority: 1})); if (items.length === 0) { box.innerHTML = \"<b>\u2705 Ingen ord mangler!</b> Alle ord er allerede fundet.\"; return; } const contentDiv = document.createElement(\"div\"); box.appendChild(contentDiv); box.appendChild(stopBtn); let baseDelay = 350; let jitterRange = 150; if (items.length > 500) { baseDelay = 1100; jitterRange = 700; } else if (items.length > 250) { baseDelay = 650; jitterRange = 450; } else if (items.length > 100) { baseDelay = 450; jitterRange = 250; } for (let i = 0; i < items.length; i++) { if (stopped) break; const it = items[i]; const w = typeof it === \"string\" ? it : it.word; const target = (it && it.target === \"ddo\") ? \"ddo\" : \"ods\"; const prioLabel = (it && it.priority === 2) ? \" [Prio 2: DDO]\" : \" [Prio 1: ODS]\"; contentDiv.innerHTML = \"<b>\u26a1 Ordpresse Lyn-Henter</b><br>Henter <b>\" + (i+1) + \" / \" + items.length + \"</b>\" + prioLabel + \": <code style='color:#f59e0b;font-size:14px;'>\" + w + \"</code>\"; try { const endpoint = target === \"ddo\" ? \"https://ordnet.dk/ddo/ordbog?query=\" : \"https://ordnet.dk/ods/ordbog?query=\"; const r = await fetch(endpoint + encodeURIComponent(w)); if (r.status === 429) { contentDiv.innerHTML = \"<b>\u26a0\ufe0f ordnet.dk bad om en pause (HTTP 429).</b><br>Venter 20 sekunder f\u00f8r automatisk genoptagelse...\"; baseDelay += 400; jitterRange += 300; await new Promise(res => setTimeout(res, 20000)); i--; continue; } if (r.ok) { const html = await r.text(); await fetch(host + \"/api/cache/submit\", { method: \"POST\", headers: {\"Content-Type\": \"application/json\"}, body: JSON.stringify({word: w, html: html, build_id: bid}) }); } else { console.warn(\"Uventet HTTP status for \" + w + \": \" + r.status); } } catch (e) { console.error(\"Fejl under hentning af \" + w + \":\", e); } const progressiveExtra = (i > 500) ? Math.min(500, Math.floor((i - 500) / 100) * 50) : 0; const actualDelay = baseDelay + progressiveExtra + Math.floor(Math.random() * jitterRange); await new Promise(r => setTimeout(r, actualDelay)); } if (!stopped) { try { await fetch(host + \"/api/build/\" + bid + \"/skip-queue\", { method: \"POST\" }); } catch(e) {} box.innerHTML = \"<b>\u2705 F\u00e6rdig!</b> Alle \" + items.length + \" ord er sendt til Ordpresse.<br>Serveren kompilerer nu din ordbog f\u00e6rdig.\"; } })();";
         }
+
+        // KOReader API Keys & Provisioning Management
+        const provisionForm = document.getElementById('provision-form');
+        const deviceNameInput = document.getElementById('device-name-input');
+        const endpointUrlInput = document.getElementById('endpoint-url-input');
+        const provisionSubmitBtn = document.getElementById('provision-submit-btn');
+        const provisionFeedback = document.getElementById('provision-feedback');
+        const apiKeysTbody = document.getElementById('api-keys-tbody');
+        const refreshKeysBtn = document.getElementById('refresh-keys-btn');
+
+        async function loadApiKeys() {
+            if (!apiKeysTbody) return;
+            try {
+                const res = await fetch('/api/v1/keys');
+                if (res.status === 401) {
+                    apiKeysTbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-amber-400">Log ind påkrævet for at se enhedsnøgler.</td></tr>';
+                    return;
+                }
+                const keys = await res.json();
+                if (!Array.isArray(keys) || keys.length === 0) {
+                    apiKeysTbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-500 italic">Ingen enhedsnøgler oprettet endnu. Generer en ovenfor!</td></tr>';
+                    return;
+                }
+
+                apiKeysTbody.innerHTML = keys.map(k => {
+                    const isActive = k.is_active === 1;
+                    const statusBadge = isActive
+                        ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Aktiv</span>'
+                        : '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-400 border border-red-500/20">○ Tilbagekaldt</span>';
+
+                    let lastUsedStr = "Aldrig brugt";
+                    if (k.last_used_at) {
+                        try {
+                            const d = new Date(k.last_used_at);
+                            lastUsedStr = d.toLocaleDateString('da-DK', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                        } catch(e) {
+                            lastUsedStr = k.last_used_at;
+                        }
+                    }
+
+                    const actionBtn = isActive
+                        ? `<button type="button" onclick="revokeApiKey(${k.id})" class="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 rounded-lg text-[11px] font-medium transition-all active:scale-95">Tilbagekald</button>`
+                        : `<button type="button" onclick="deleteApiKey(${k.id})" class="px-2.5 py-1 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-300 border border-slate-700 hover:border-red-500/30 rounded-lg text-[11px] font-medium transition-all active:scale-95">Slet</button>`;
+
+                    const lookups = (typeof k.lookup_count === 'number') ? k.lookup_count.toLocaleString('da-DK') : (k.lookup_count || 0);
+
+                    return `
+                        <tr class="hover:bg-slate-900/40 transition-colors">
+                            <td class="py-2.5 px-4 font-semibold text-slate-200">${escapeHtml(k.device_name)}</td>
+                            <td class="py-2.5 px-4"><span class="font-mono text-[11px] bg-slate-900 text-amber-300 px-2 py-0.5 rounded border border-slate-800">${escapeHtml(k.key_prefix)}...</span></td>
+                            <td class="py-2.5 px-4">${statusBadge}</td>
+                            <td class="py-2.5 px-4 text-slate-300">${lookups}</td>
+                            <td class="py-2.5 px-4 text-slate-400 text-[11px]">${lastUsedStr}</td>
+                            <td class="py-2.5 px-4 text-right">${actionBtn}</td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (err) {
+                console.error("Fejl ved hentning af API-nøgler:", err);
+                apiKeysTbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-red-400">Kunne ikke hente enhedsnøgler: ${err.message}</td></tr>`;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        window.revokeApiKey = async function(keyId) {
+            if (!confirm("Er du sikker på, at du vil tilbagekalde denne API-nøgle? Enheden vil ikke længere have adgang til online opslag.")) return;
+            try {
+                const res = await fetch(`/api/v1/keys/${keyId}/revoke`, { method: 'POST' });
+                if (res.ok) {
+                    loadApiKeys();
+                } else {
+                    alert("Kunne ikke tilbagekalde nøgle.");
+                }
+            } catch (e) {
+                alert("Fejl ved tilbagekaldelse: " + e.message);
+            }
+        };
+
+        window.deleteApiKey = async function(keyId) {
+            if (!confirm("Vil du slette denne nøgle permanent fra databasen?")) return;
+            try {
+                const res = await fetch(`/api/v1/keys/${keyId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    loadApiKeys();
+                } else {
+                    alert("Kunne ikke slette nøgle.");
+                }
+            } catch (e) {
+                alert("Fejl ved sletning: " + e.message);
+            }
+        };
+
+        if (refreshKeysBtn) {
+            refreshKeysBtn.addEventListener('click', () => loadApiKeys());
+        }
+
+        if (provisionForm) {
+            provisionForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const deviceName = deviceNameInput.value.trim();
+                const endpointUrl = endpointUrlInput.value.trim() || 'https://ordpresse.seame.click/api/v1/koreader/lookup';
+
+                if (!deviceName) return;
+
+                provisionSubmitBtn.disabled = true;
+                provisionSubmitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                provisionFeedback.className = 'text-xs p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-300 block';
+                provisionFeedback.textContent = '⚡ Genererer API-nøgle og pakker ordpresse.koplugin.zip...';
+
+                try {
+                    const res = await fetch('/api/v1/keys/provision', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            device_name: deviceName,
+                            endpoint_url: endpointUrl
+                        })
+                    });
+
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({ detail: 'Ukendt serverfejl' }));
+                        throw new Error(err.detail || `HTTP ${res.status}`);
+                    }
+
+                    const blob = await res.blob();
+                    const contentDisp = res.headers.get('Content-Disposition') || '';
+                    let filename = `ordpresse-koplugin-${deviceName.toLowerCase().replace(/[^a-z0-9_-]+/g, '-')}.zip`;
+                    const match = contentDisp.match(/filename="?([^";]+)"?/);
+                    if (match && match[1]) filename = match[1];
+
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+
+                    provisionFeedback.className = 'text-xs p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 block';
+                    provisionFeedback.textContent = `✅ API-nøgle oprettet for "${deviceName}", og "${filename}" er hentet!`;
+                    deviceNameInput.value = '';
+
+                    loadApiKeys();
+                } catch (err) {
+                    provisionFeedback.className = 'text-xs p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 block';
+                    provisionFeedback.textContent = `Fejl under generering: ${err.message}`;
+                } finally {
+                    provisionSubmitBtn.disabled = false;
+                    provisionSubmitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            });
+        }
+
+        // Initial load of keys
+        loadApiKeys();
     </script>
 </body>
 </html>

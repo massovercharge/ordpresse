@@ -1,10 +1,14 @@
 """SQLite database manager for streaming datasets and scraper caching."""
 
+import hashlib
 import json
-import re
 from pathlib import Path
+import re
+import secrets
 import sqlite3
 import threading
+import time
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from ordpresse.config import CACHE_DB_PATH, DATASETS_DB_PATH
@@ -232,7 +236,7 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
 
 
 def init_cache_db(conn: sqlite3.Connection) -> None:
-    """Create schema for scraped article cache and clean legacy corrupted rows."""
+    """Create schema for scraped article cache, API keys, and KOReader online cache."""
     with conn:
         conn.executescript(
             """
@@ -250,6 +254,27 @@ def init_cache_db(conn: sqlite3.Connection) -> None:
                 checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_not_found_word ON not_found_words(word);
+
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_name TEXT NOT NULL,
+                key_prefix TEXT NOT NULL,
+                key_hash TEXT NOT NULL UNIQUE,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                revoked_at TEXT,
+                last_used_at TEXT,
+                lookup_count INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+
+            CREATE TABLE IF NOT EXISTS online_lookup_cache (
+                lookup_key TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                payload_json TEXT,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER
+            );
             """
         )
     clean_corrupted_cached_definitions(conn)
@@ -815,4 +840,120 @@ class Database:
             updated = cur.rowcount
         self.datasets_conn.commit()
         return updated > 0
+
+    # ---------------------------------------------------------
+    # API Keys & KOReader Online Cache (V10.2 Zero-Trust)
+    # ---------------------------------------------------------
+
+    def create_api_key(self, device_name: str) -> tuple[str, dict]:
+        """Generate a cryptographically secure API key and store its SHA-256 hash."""
+        raw_key = f"ord_{secrets.token_hex(24)}"
+        key_prefix = raw_key[:8]
+        key_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+        created_at = datetime.now(timezone.utc).isoformat()
+
+        with self._write_lock:
+            with self.cache_conn as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO api_keys (device_name, key_prefix, key_hash, is_active, created_at, lookup_count)
+                    VALUES (?, ?, ?, 1, ?, 0)
+                    """,
+                    (device_name.strip(), key_prefix, key_hash, created_at),
+                )
+                key_id = cursor.lastrowid
+                row = conn.execute(
+                    """
+                    SELECT id, device_name, key_prefix, is_active, created_at, revoked_at, last_used_at, lookup_count
+                    FROM api_keys WHERE id = ?
+                    """,
+                    (key_id,),
+                ).fetchone()
+                return raw_key, dict(row)
+
+    def get_api_key_by_hash(self, key_hash: str) -> Optional[dict]:
+        """Retrieve an API key record by its SHA-256 hash."""
+        cur = self.cache_conn.execute(
+            """
+            SELECT id, device_name, key_prefix, key_hash, is_active, created_at, revoked_at, last_used_at, lookup_count
+            FROM api_keys WHERE key_hash = ?
+            """,
+            (key_hash,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def record_api_key_usage(self, key_id: int) -> None:
+        """Increment lookup count and update last_used_at timestamp."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._write_lock:
+            with self.cache_conn as conn:
+                conn.execute(
+                    "UPDATE api_keys SET lookup_count = lookup_count + 1, last_used_at = ? WHERE id = ?",
+                    (now, key_id),
+                )
+
+    def list_api_keys(self) -> list[dict]:
+        """List all registered API keys without exposing key_hash."""
+        cur = self.cache_conn.execute(
+            """
+            SELECT id, device_name, key_prefix, is_active, created_at, revoked_at, last_used_at, lookup_count
+            FROM api_keys
+            ORDER BY is_active DESC, id DESC
+            """
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+    def revoke_api_key(self, key_id: int) -> bool:
+        """Deactivate an API key."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._write_lock:
+            with self.cache_conn as conn:
+                cur = conn.execute(
+                    "UPDATE api_keys SET is_active = 0, revoked_at = ? WHERE id = ? AND is_active = 1",
+                    (now, key_id),
+                )
+                return cur.rowcount > 0
+
+    def delete_api_key(self, key_id: int) -> bool:
+        """Permanently delete an API key record."""
+        with self._write_lock:
+            with self.cache_conn as conn:
+                cur = conn.execute("DELETE FROM api_keys WHERE id = ?", (key_id,))
+                return cur.rowcount > 0
+
+    def get_online_cache(self, lookup_key: str) -> Optional[dict]:
+        """Check online_lookup_cache for a cached query/lemma."""
+        cur = self.cache_conn.execute(
+            "SELECT lookup_key, status, payload_json, created_at, expires_at FROM online_lookup_cache WHERE lookup_key = ?",
+            (lookup_key.lower().strip(),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        row_dict = dict(row)
+        if row_dict["status"] == "NOT_FOUND" and row_dict.get("expires_at"):
+            if int(time.time()) > row_dict["expires_at"]:
+                return None
+        return row_dict
+
+    def set_online_cache(
+        self,
+        lookup_key: str,
+        status: str,
+        payload_json: Optional[str] = None,
+        ttl_seconds: Optional[int] = None,
+    ) -> None:
+        """Store positive or negative result in online_lookup_cache."""
+        now = int(time.time())
+        expires_at = (now + ttl_seconds) if ttl_seconds is not None else None
+        with self._write_lock:
+            with self.cache_conn as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO online_lookup_cache (lookup_key, status, payload_json, created_at, expires_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (lookup_key.lower().strip(), status, payload_json, now, expires_at),
+                )
 
