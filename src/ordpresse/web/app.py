@@ -882,15 +882,32 @@ class ProvisionKeyPayload(BaseModel):
 
 
 @app.get("/api/v1/koreader/lookup")
-async def koreader_lookup_endpoint(request: Request, q: str = ""):
+async def koreader_lookup_endpoint(request: Request, q: str = "", action: Optional[str] = None):
     """
     Public KOReader Online Lookup Endpoint.
     Accessible externally through Cloudflare Tunnel or locally via LAN.
     Strictly authenticated via X-API-Key header.
+    Supports in-app plugin updates via action=check_update and action=download_update.
     """
     api_key = request.headers.get("X-API-Key")
     db = Database()
     verify_api_key(api_key, db)
+
+    if action == "check_update":
+        from ordpresse.web.plugin_builder import PLUGIN_VERSION, PLUGIN_RELEASE_NOTES
+        return {
+            "latest_version": PLUGIN_VERSION,
+            "release_notes": PLUGIN_RELEASE_NOTES,
+        }
+    elif action == "download_update":
+        import hashlib
+        from ordpresse.web.plugin_builder import MAIN_LUA, PLUGIN_VERSION
+        return {
+            "version": PLUGIN_VERSION,
+            "main_lua": MAIN_LUA,
+            "sha256": hashlib.sha256(MAIN_LUA.encode("utf-8")).hexdigest(),
+        }
+
     return await perform_koreader_lookup(q, db)
 
 

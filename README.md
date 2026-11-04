@@ -8,7 +8,7 @@
 [![E-Reader](https://img.shields.io/badge/e--reader-KOReader%20Ready-emerald.svg)](#-installation-i-koreader)
 [![Zero-Trust API](https://img.shields.io/badge/API-Zero--Trust%20Online-purple.svg)](#-zero-trust-koreader-online-opslag-api--plugin)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-81%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
+[![Tests](https://img.shields.io/badge/tests-82%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
 
 ---
 
@@ -354,10 +354,11 @@ Når du opretter en enhed, genererer serveren automatisk en skræddersyet, zero-
    ```text
    koreader/plugins/ordpresse.koplugin/
    ```
-3. **Genstart KOReader.** Pluginet er nu aktivt og integreret i tre centrale dele af KOReader:
+3. **Genstart KOReader.** Pluginet er nu aktivt og integreret i fire centrale dele af KOReader:
    - **Ordbogsvinduet:** Når du tapper et ord i en bog, indeholder ordbogsvinduet knappen **`⚡ Ordpresse Online`** forrest i knaprækken.
    - **Markeringsmenuen:** Når du markerer et ord eller en sætning, vises **`⚡ Slå op i Ordpresse (Online)`** direkte i menuen.
    - **Hovedmenuen:** Under KOReaders søgemenu (forstørrelsesglasset) finder du **`⚡ Ordpresse Online Opslag`**, hvor du frit kan indtaste et vilkårligt ord på skærmtastaturet.
+   - **1-Kliks Opdatering (In-App):** Under værktøjsmenuen finder du **`🔄 Ordpresse: Søg efter opdateringer`**. Når der frigives nye forbedringer på din Ordpresse-server, kan du hente og installere den nyeste version direkte fra e-bogslæserens skærm med et enkelt tryk – helt uden computer eller USB-kabel!
 
 ### 4. Cloudflare Tunnel WAF Skip-Regel (Vigtigt)
 
@@ -444,7 +445,7 @@ Hvis du benytter Cloudflare Tunnels (`cloudflared`):
 
 ## 🧪 Testsuite & Kvalitetssikring
 
-Projektet har en omfattende automatiseret testsuite med **81 tests**, der sikrer leksikalsk, kryptografisk og binær integritet:
+Projektet har en omfattende automatiseret testsuite med **82 tests**, der sikrer leksikalsk, kryptografisk og binær integritet:
 
 ```bash
 # Kør hele testsuiten

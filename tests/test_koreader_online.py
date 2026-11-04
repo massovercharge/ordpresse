@@ -162,6 +162,8 @@ def test_api_key_provisioning_and_lifecycle(auth_client):
         assert "onDictButtonsReady" in main_lua
         assert "onReaderReady" in main_lua
         assert "addToMainMenu" in main_lua
+        assert "checkForUpdates" in main_lua
+        assert "downloadAndApplyUpdate" in main_lua
 
         # Extract generated raw key from config.lua
         raw_key = None
@@ -378,4 +380,34 @@ def test_change_admin_password_flow(client, auth_client):
     # Reset back to default for other tests if necessary
     db = Database()
     db.set_admin_password(ORDPRESSE_ADMIN_PASSWORD)
+
+
+def test_koreader_plugin_update_endpoints(client):
+    """Test action=check_update and action=download_update on /api/v1/koreader/lookup."""
+    db = Database()
+    raw_key, _ = db.create_api_key("Update Tester")
+    headers = {"X-API-Key": raw_key}
+
+    # 1. Unauthenticated request fails with 401
+    unauth = client.get("/api/v1/koreader/lookup?action=check_update")
+    assert unauth.status_code == 401
+
+    # 2. Authenticated check_update
+    res_check = client.get("/api/v1/koreader/lookup?action=check_update", headers=headers)
+    assert res_check.status_code == 200
+    check_data = res_check.json()
+    assert "latest_version" in check_data
+    assert check_data["latest_version"] == "1.1.0"
+    assert "release_notes" in check_data
+
+    # 3. Authenticated download_update
+    res_dl = client.get("/api/v1/koreader/lookup?action=download_update", headers=headers)
+    assert res_dl.status_code == 200
+    dl_data = res_dl.json()
+    assert dl_data["version"] == "1.1.0"
+    assert "main_lua" in dl_data
+    assert len(dl_data["main_lua"]) > 1000
+    assert "checkForUpdates" in dl_data["main_lua"]
+    assert "sha256" in dl_data
+
 

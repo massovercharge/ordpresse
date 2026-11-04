@@ -4,15 +4,20 @@ import io
 import re
 import zipfile
 
+PLUGIN_VERSION = "1.1.0"
+PLUGIN_RELEASE_NOTES = "Forbedret kold Wi-Fi opvågning, automatisk silent retry og 1-klik in-app opdatering."
+
 META_LUA = """local _ = require("gettext")
 return {
     name = "ordpresse",
     fullname = _("Den Danske Ordpresse (Online Opslag)"),
     description = _("Slå danske og historiske 1700-1900-tals ord op via din private Ordpresse-server."),
+    version = "1.1.0",
 }
 """
 
-MAIN_LUA = """local InfoMessage = require("ui/widget/infomessage")
+MAIN_LUA = """local ConfirmBox = require("ui/widget/confirmbox")
+local InfoMessage = require("ui/widget/infomessage")
 local NetworkMgr = require("ui/network/manager")
 local TextViewer = require("ui/widget/textviewer")
 local UIManager = require("ui/uimanager")
@@ -24,6 +29,7 @@ local http = require("socket.http")
 local url = require("socket.url")
 local _ = require("gettext")
 
+local PLUGIN_VERSION = "1.1.0"
 local ok_util, util = pcall(require, "util")
 
 local plugin_dir = (debug.getinfo(1, "S").source:match("@?(.*/)") or "./")
@@ -34,6 +40,7 @@ end
 
 local Ordpresse = WidgetContainer:extend{
     name = "ordpresse",
+    version = PLUGIN_VERSION,
     is_doc_only = false,
 }
 
@@ -132,13 +139,20 @@ function Ordpresse:onDictButtonsReady(dict_popup, buttons)
     })
 end
 
--- Top Reader / Main Menu search integration
+-- Top Reader / Main Menu search & update integration
 function Ordpresse:addToMainMenu(menu_items)
     menu_items.ordpresse_online = {
         text = _("⚡ Ordpresse Online Opslag"),
         sorting_hint = "more_tools",
         callback = function()
             self:showManualLookupDialog()
+        end,
+    }
+    menu_items.ordpresse_update = {
+        text = _("🔄 Ordpresse: Søg efter opdateringer"),
+        sorting_hint = "more_tools",
+        callback = function()
+            self:checkForUpdates(true)
         end,
     }
 end
@@ -212,6 +226,59 @@ function Ordpresse:formatFallback(data)
     return table.concat(lines, "\\n")
 end
 
+function Ordpresse:httpGet(req_url)
+    local timeout = tonumber(config.timeout_seconds) or 10
+    if timeout < 10 then timeout = 10 end
+
+    socket.http.TIMEOUT = timeout
+    local request_fn = http.request
+    if req_url:sub(1, 8) == "https://" then
+        local ok_https, https = pcall(require, "ssl.https")
+        if ok_https and https then
+            https.TIMEOUT = timeout
+            request_fn = https.request
+        end
+    end
+
+    local ok_su, socketutil = pcall(require, "socketutil")
+
+    local function doAttempt()
+        local resp_body = {}
+        if ok_su and socketutil and socketutil.set_timeout then
+            pcall(socketutil.set_timeout, socketutil, timeout, timeout + 5)
+        end
+
+        local ok, res, code_or_err = pcall(function()
+            return request_fn({
+                url = req_url,
+                method = "GET",
+                headers = {
+                    ["X-API-Key"] = config.api_key,
+                    ["Accept"] = "application/json",
+                    ["User-Agent"] = "KOReader-Ordpresse/" .. PLUGIN_VERSION,
+                    ["Connection"] = "close",
+                },
+                sink = ltn12.sink.table(resp_body),
+            })
+        end)
+
+        if ok_su and socketutil and socketutil.reset_timeout then
+            pcall(socketutil.reset_timeout, socketutil)
+        end
+
+        return ok, res, code_or_err, table.concat(resp_body)
+    end
+
+    local ok, res, status_code, body = doAttempt()
+    -- Cold Wi-Fi / power-save wake-up: retry once automatically if the first attempt glitched
+    if not ok or not res then
+        socket.sleep(0.3)
+        ok, res, status_code, body = doAttempt()
+    end
+
+    return ok, res, status_code, body
+end
+
 function Ordpresse:performLookup(raw_word)
     local word = cleanWord(raw_word)
     if word == "" then
@@ -237,56 +304,7 @@ end
 
 function Ordpresse:fetchFromServer(word, loading)
     local req_url = string.format("%s?q=%s", config.endpoint_url, url.escape(word))
-    local timeout = tonumber(config.timeout_seconds) or 10
-    if timeout < 10 then timeout = 10 end
-
-    socket.http.TIMEOUT = timeout
-
-    local request_fn = http.request
-    if req_url:sub(1, 8) == "https://" then
-        local ok_https, https = pcall(require, "ssl.https")
-        if ok_https and https then
-            https.TIMEOUT = timeout
-            request_fn = https.request
-        end
-    end
-
-    local ok_su, socketutil = pcall(require, "socketutil")
-
-    local function doRequest()
-        local resp_body = {}
-        if ok_su and socketutil and socketutil.set_timeout then
-            pcall(socketutil.set_timeout, socketutil, timeout, timeout + 5)
-        end
-
-        local ok, res, code_or_err = pcall(function()
-            return request_fn({
-                url = req_url,
-                method = "GET",
-                headers = {
-                    ["X-API-Key"] = config.api_key,
-                    ["Accept"] = "application/json",
-                    ["User-Agent"] = "KOReader-Ordpresse/1.0",
-                    ["Connection"] = "close",
-                },
-                sink = ltn12.sink.table(resp_body),
-            })
-        end)
-
-        if ok_su and socketutil and socketutil.reset_timeout then
-            pcall(socketutil.reset_timeout, socketutil)
-        end
-
-        return ok, res, code_or_err, resp_body
-    end
-
-    local ok, res, status_code, resp_body = doRequest()
-
-    -- Cold Wi-Fi / power-save wake-up: retry once automatically if the first attempt glitched
-    if not ok or not res then
-        socket.sleep(0.3)
-        ok, res, status_code, resp_body = doRequest()
-    end
+    local ok, res, status_code, body = self:httpGet(req_url)
 
     if loading then
         pcall(function() UIManager:close(loading) end)
@@ -317,7 +335,7 @@ function Ordpresse:fetchFromServer(word, loading)
         return
     end
 
-    local decode_ok, parsed = pcall(json.decode, table.concat(resp_body))
+    local decode_ok, parsed = pcall(json.decode, body)
     if not decode_ok or type(parsed) ~= "table" then
         UIManager:show(InfoMessage:new{ text = _("Ugyldigt svar fra Ordpresse-serveren.") })
         return
@@ -332,6 +350,120 @@ function Ordpresse:fetchFromServer(word, loading)
         title = _("Den Danske Ordpresse: ") .. word,
         text = text,
     })
+end
+
+function Ordpresse:checkForUpdates(interactive)
+    if NetworkMgr and NetworkMgr.willRerunWhenOnline then
+        if NetworkMgr:willRerunWhenOnline(function() self:checkForUpdates(interactive) end) then
+            return
+        end
+    end
+
+    local loading = InfoMessage:new{
+        text = _("🔄 Søger efter opdateringer til Ordpresse..."),
+    }
+    UIManager:show(loading)
+
+    UIManager:scheduleIn(0.05, function()
+        local check_url = string.format("%s?action=check_update&client_version=%s", config.endpoint_url, url.escape(PLUGIN_VERSION))
+        local ok, res, status_code, body = self:httpGet(check_url)
+
+        UIManager:close(loading)
+
+        if not ok or not res or status_code ~= 200 then
+            local err_msg = tostring(status_code or "timeout")
+            UIManager:show(InfoMessage:new{
+                text = _("Kunne ikke søge efter opdateringer (") .. err_msg .. _(")."),
+            })
+            return
+        end
+
+        local decode_ok, data = pcall(json.decode, body)
+        if not decode_ok or type(data) ~= "table" then
+            UIManager:show(InfoMessage:new{ text = _("Ugyldigt opdateringssvar fra serveren.") })
+            return
+        end
+
+        local latest = data.latest_version
+        if not latest or latest == PLUGIN_VERSION then
+            if interactive then
+                UIManager:show(InfoMessage:new{
+                    text = _("Du har allerede den nyeste version af Ordpresse (v") .. PLUGIN_VERSION .. _(")."),
+                })
+            end
+            return
+        end
+
+        local notes = data.release_notes and ("\\n\\n" .. _("Nyheder:") .. "\\n" .. tostring(data.release_notes)) or ""
+        UIManager:show(ConfirmBox:new{
+            text = _("Ny version af Ordpresse-pluginet er tilgængelig!") .. "\\n\\n"
+                .. _("Nuværende: v") .. PLUGIN_VERSION .. "\\n"
+                .. _("Nyeste: v") .. tostring(latest) .. notes .. "\\n\\n"
+                .. _("Vil du hente og installere opdateringen nu?"),
+            ok_text = _("Opdater nu"),
+            cancel_text = _("Senere"),
+            ok_callback = function()
+                self:downloadAndApplyUpdate(latest)
+            end,
+        })
+    end)
+end
+
+function Ordpresse:downloadAndApplyUpdate(target_version)
+    local loading = InfoMessage:new{
+        text = _("🔄 Henter og installerer opdatering..."),
+    }
+    UIManager:show(loading)
+
+    UIManager:scheduleIn(0.05, function()
+        local dl_url = string.format("%s?action=download_update", config.endpoint_url)
+        local ok, res, status_code, body = self:httpGet(dl_url)
+
+        UIManager:close(loading)
+
+        if not ok or not res or status_code ~= 200 then
+            local err_msg = tostring(status_code or "timeout")
+            UIManager:show(InfoMessage:new{
+                text = _("Fejl under hentning af opdatering (") .. err_msg .. _(")."),
+            })
+            return
+        end
+
+        local decode_ok, data = pcall(json.decode, body)
+        if not decode_ok or type(data) ~= "table" or type(data.main_lua) ~= "string" or #data.main_lua < 500 then
+            UIManager:show(InfoMessage:new{ text = _("Modtog ugyldig plugin-kode fra serveren.") })
+            return
+        end
+
+        local file_path = plugin_dir .. "main.lua"
+        local f, err = io.open(file_path, "w")
+        if not f then
+            UIManager:show(InfoMessage:new{
+                text = _("Kunne ikke gemme opdatering: ") .. tostring(err),
+            })
+            return
+        end
+
+        f:write(data.main_lua)
+        f:close()
+
+        UIManager:show(ConfirmBox:new{
+            text = _("✅ Ordpresse er opdateret til v") .. tostring(target_version) .. _("!") .. "\\n\\n"
+                .. _("KOReader skal genstartes for at aktivere den nye version.") .. "\\n"
+                .. _("Vil du genstarte KOReader nu?"),
+            ok_text = _("Genstart nu"),
+            cancel_text = _("Senere"),
+            ok_callback = function()
+                if UIManager.restartKOReader then
+                    UIManager:restartKOReader()
+                else
+                    UIManager:show(InfoMessage:new{
+                        text = _("Genstart venligst KOReader manuelt for at fuldføre opdateringen."),
+                    })
+                end
+            end,
+        })
+    end)
 end
 
 return Ordpresse
