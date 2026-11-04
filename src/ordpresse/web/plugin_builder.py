@@ -29,7 +29,7 @@ local ok_util, util = pcall(require, "util")
 local plugin_dir = (debug.getinfo(1, "S").source:match("@?(.*/)") or "./")
 local ok_cfg, config = pcall(dofile, plugin_dir .. "config.lua")
 if not ok_cfg or type(config) ~= "table" then
-    config = { endpoint_url = "", api_key = "", timeout_seconds = 5 }
+    config = { endpoint_url = "", api_key = "", timeout_seconds = 10 }
 end
 
 local Ordpresse = WidgetContainer:extend{
@@ -218,15 +218,28 @@ function Ordpresse:performLookup(raw_word)
         UIManager:show(InfoMessage:new{ text = _("Intet ord valgt.") })
         return
     end
-    NetworkMgr:runWhenOnline(function()
-        self:fetchFromServer(word)
+
+    if NetworkMgr and NetworkMgr.willRerunWhenOnline then
+        if NetworkMgr:willRerunWhenOnline(function() self:performLookup(word) end) then
+            return
+        end
+    end
+
+    local loading = InfoMessage:new{
+        text = _("⚡ Henter fra Ordpresse..."),
+    }
+    UIManager:show(loading)
+
+    UIManager:scheduleIn(0.05, function()
+        self:fetchFromServer(word, loading)
     end)
 end
 
-function Ordpresse:fetchFromServer(word)
+function Ordpresse:fetchFromServer(word, loading)
     local req_url = string.format("%s?q=%s", config.endpoint_url, url.escape(word))
-    local resp_body = {}
-    local timeout = config.timeout_seconds or 5
+    local timeout = tonumber(config.timeout_seconds) or 10
+    if timeout < 10 then timeout = 10 end
+
     socket.http.TIMEOUT = timeout
 
     local request_fn = http.request
@@ -238,22 +251,51 @@ function Ordpresse:fetchFromServer(word)
         end
     end
 
-    local ok, res, status_code = pcall(function()
-        return request_fn({
-            url = req_url,
-            method = "GET",
-            headers = {
-                ["X-API-Key"] = config.api_key,
-                ["Accept"] = "application/json",
-                ["User-Agent"] = "KOReader-Ordpresse/1.0",
-            },
-            sink = ltn12.sink.table(resp_body),
-        })
-    end)
+    local ok_su, socketutil = pcall(require, "socketutil")
+
+    local function doRequest()
+        local resp_body = {}
+        if ok_su and socketutil and socketutil.set_timeout then
+            pcall(socketutil.set_timeout, socketutil, timeout, timeout + 5)
+        end
+
+        local ok, res, code_or_err = pcall(function()
+            return request_fn({
+                url = req_url,
+                method = "GET",
+                headers = {
+                    ["X-API-Key"] = config.api_key,
+                    ["Accept"] = "application/json",
+                    ["User-Agent"] = "KOReader-Ordpresse/1.0",
+                    ["Connection"] = "close",
+                },
+                sink = ltn12.sink.table(resp_body),
+            })
+        end)
+
+        if ok_su and socketutil and socketutil.reset_timeout then
+            pcall(socketutil.reset_timeout, socketutil)
+        end
+
+        return ok, res, code_or_err, resp_body
+    end
+
+    local ok, res, status_code, resp_body = doRequest()
+
+    -- Cold Wi-Fi / power-save wake-up: retry once automatically if the first attempt glitched
+    if not ok or not res then
+        socket.sleep(0.3)
+        ok, res, status_code, resp_body = doRequest()
+    end
+
+    if loading then
+        pcall(function() UIManager:close(loading) end)
+    end
 
     if not ok or not res then
+        local err_detail = tostring(status_code or "timeout")
         UIManager:show(InfoMessage:new{
-            text = _("Kunne ikke kontakte Ordpresse-serveren (timeout eller netværksfejl)."),
+            text = _("Kunne ikke kontakte Ordpresse-serveren (") .. err_detail .. _(")."),
         })
         return
     end
@@ -315,7 +357,7 @@ def build_koplugin_zip(device_name: str, raw_api_key: str, endpoint_url: str) ->
     endpoint_url = "{_escape_lua_string(clean_endpoint)}",
     api_key = "{_escape_lua_string(raw_api_key)}",
     device_name = "{_escape_lua_string(device_name)}",
-    timeout_seconds = 5,
+    timeout_seconds = 10,
 }}
 """
 
