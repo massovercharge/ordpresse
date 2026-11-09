@@ -8,7 +8,8 @@
 [![E-Reader](https://img.shields.io/badge/e--reader-KOReader%20Ready-emerald.svg)](#-installation-i-koreader)
 [![Zero-Trust API](https://img.shields.io/badge/API-Zero--Trust%20Online-purple.svg)](#-zero-trust-koreader-online-opslag-api--plugin)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-82%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
+[![Plugin Store](https://img.shields.io/badge/OTA-Plugin%20Butik-ff69b4.svg)](#-ota-plugin-butik-v120)
+[![Tests](https://img.shields.io/badge/tests-89%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
 
 ---
 
@@ -354,11 +355,12 @@ Når du opretter en enhed, genererer serveren automatisk en skræddersyet, zero-
    ```text
    koreader/plugins/ordpresse.koplugin/
    ```
-3. **Genstart KOReader.** Pluginet er nu aktivt og integreret i fire centrale dele af KOReader:
+3. **Genstart KOReader.** Pluginet er nu aktivt og integreret i fem centrale dele af KOReader:
    - **Ordbogsvinduet:** Når du tapper et ord i en bog, indeholder ordbogsvinduet knappen **`⚡ Ordpresse Online`** forrest i knaprækken.
    - **Markeringsmenuen:** Når du markerer et ord eller en sætning, vises **`⚡ Slå op i Ordpresse (Online)`** direkte i menuen.
    - **Hovedmenuen:** Under KOReaders søgemenu (forstørrelsesglasset) finder du **`⚡ Ordpresse Online Opslag`**, hvor du frit kan indtaste et vilkårligt ord på skærmtastaturet.
    - **1-Kliks Opdatering (In-App):** Under værktøjsmenuen finder du **`🔄 Ordpresse: Søg efter opdateringer`**. Når der frigives nye forbedringer på din Ordpresse-server, kan du hente og installere den nyeste version direkte fra e-bogslæserens skærm med et enkelt tryk – helt uden computer eller USB-kabel!
+   - **🛍️ Ordpresse Plugin Butik:** Under værktøjsmenuen finder du **`🛍️ Ordpresse Plugin Butik`**, hvor du kan gennemse og installere kuraterede tredjeparts-plugins med et enkelt tryk.
 
 ### 4. Cloudflare Tunnel WAF Skip-Regel (Vigtigt)
 
@@ -380,6 +382,13 @@ For at sikre, at KOReaders online opslag ikke blokeres af Cloudflares automatisk
 6. Gem og aktivér reglen (**Deploy**).
 
 Nu kan din e-bogslæser foretage lynhurtige online opslag hvor som helst, så længe den har Wi-Fi-forbindelse.
+
+### 5. 🛍️ OTA Plugin Butik (v1.2.0+) <a id="-ota-plugin-butik-v120"></a>
+- **Kurateret tredjeparts-katalog:** Gennemse og installer udvalgte KOReader community-plugins direkte fra din e-bogslæser — ingen computer nødvendig.
+- **1-klik installation:** Vælg et plugin fra butikken, download, udpakning og installation sker automatisk. KOReader genstartes for at aktivere.
+- **Zero-Trust beskyttet:** Butikken kører over det eksisterende API-nøgle-system. Alle downloads proxyes sikkert gennem din Ordpresse-server.
+- **Medfølgende plugins:**
+  - 📚 **Anna's Archive** (`annas-fetch.koplugin`): Søg og download bøger direkte fra Anna's Archive med sprogfiltrering og formatvalg.
 
 ---
 
@@ -445,7 +454,7 @@ Hvis du benytter Cloudflare Tunnels (`cloudflared`):
 
 ## 🧪 Testsuite & Kvalitetssikring
 
-Projektet har en omfattende automatiseret testsuite med **82 tests**, der sikrer leksikalsk, kryptografisk og binær integritet:
+Projektet har en omfattende automatiseret testsuite med **89 tests**, der sikrer leksikalsk, kryptografisk og binær integritet:
 
 ```bash
 # Kør hele testsuiten

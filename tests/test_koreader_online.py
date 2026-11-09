@@ -397,17 +397,165 @@ def test_koreader_plugin_update_endpoints(client):
     assert res_check.status_code == 200
     check_data = res_check.json()
     assert "latest_version" in check_data
-    assert check_data["latest_version"] == "1.1.0"
+    assert check_data["latest_version"] == "1.2.0"
     assert "release_notes" in check_data
 
     # 3. Authenticated download_update
     res_dl = client.get("/api/v1/koreader/lookup?action=download_update", headers=headers)
     assert res_dl.status_code == 200
     dl_data = res_dl.json()
-    assert dl_data["version"] == "1.1.0"
+    assert dl_data["version"] == "1.2.0"
     assert "main_lua" in dl_data
     assert len(dl_data["main_lua"]) > 1000
     assert "checkForUpdates" in dl_data["main_lua"]
+    assert "openPluginStore" in dl_data["main_lua"]
     assert "sha256" in dl_data
+
+
+# ---------------------------------------------------------------------------
+# 6. Plugin Store OTA Catalog & Download
+# ---------------------------------------------------------------------------
+
+def test_store_catalog_requires_api_key(client):
+    """store_catalog action requires valid API key."""
+    res = client.get("/api/v1/koreader/lookup?action=store_catalog")
+    assert res.status_code == 401
+
+
+def test_store_catalog_returns_plugin_list(client):
+    """Authenticated store_catalog returns a non-empty list of plugins."""
+    db = Database()
+    raw_key, _ = db.create_api_key("Store Tester")
+    headers = {"X-API-Key": raw_key}
+
+    res = client.get("/api/v1/koreader/lookup?action=store_catalog", headers=headers)
+    assert res.status_code == 200
+    catalog = res.json()
+    assert isinstance(catalog, list)
+    assert len(catalog) >= 1
+
+    # Verify first plugin has required fields
+    plugin = catalog[0]
+    required_fields = ["id", "name", "description", "version", "author",
+                       "github_repo", "koplugin_name", "category"]
+    for field in required_fields:
+        assert field in plugin, f"Missing field: {field}"
+
+    # Verify annas-fetch is in catalog
+    ids = [p["id"] for p in catalog]
+    assert "annas-fetch" in ids
+
+
+def test_store_download_invalid_id_returns_404(client):
+    """store_download with non-existent plugin ID returns 404."""
+    db = Database()
+    raw_key, _ = db.create_api_key("Store DL Tester")
+    headers = {"X-API-Key": raw_key}
+
+    res = client.get(
+        "/api/v1/koreader/lookup?action=store_download&id=nonexistent-plugin",
+        headers=headers,
+    )
+    assert res.status_code == 404
+    assert "ikke fundet" in res.json()["detail"].lower()
+
+
+def test_store_catalog_admin_endpoint(auth_client):
+    """LAN admin endpoint returns the same catalog."""
+    res = auth_client.get("/api/v1/store/catalog")
+    assert res.status_code == 200
+    catalog = res.json()
+    assert isinstance(catalog, list)
+    assert len(catalog) >= 1
+
+
+def test_store_catalog_via_external_tunnel(client):
+    """External tunnel request to store_catalog requires API key like other actions."""
+    db = Database()
+    raw_key, _ = db.create_api_key("Tunnel Store Tester")
+
+    # Without API key through tunnel → 401
+    tunnel_headers = {"CF-Connecting-IP": "203.0.113.10"}
+    res_unauth = client.get(
+        "/api/v1/koreader/lookup?action=store_catalog",
+        headers=tunnel_headers,
+    )
+    assert res_unauth.status_code == 401
+
+    # With API key through tunnel → 200
+    tunnel_headers["X-API-Key"] = raw_key
+    res_auth = client.get(
+        "/api/v1/koreader/lookup?action=store_catalog",
+        headers=tunnel_headers,
+    )
+    assert res_auth.status_code == 200
+    assert isinstance(res_auth.json(), list)
+
+
+def test_store_download_success_mocked(client, monkeypatch):
+    """store_download proxies zipball from GitHub successfully."""
+    import httpx
+
+    fake_zip_bytes = b"PK\x03\x04fakezipcontent"
+
+    class MockResponse:
+        content = fake_zip_bytes
+        def raise_for_status(self):
+            pass
+
+    class MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+        async def get(self, url, headers=None):
+            return MockResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+
+    db = Database()
+    raw_key, _ = db.create_api_key("Mock DL Tester")
+    headers = {"X-API-Key": raw_key}
+
+    res = client.get(
+        "/api/v1/koreader/lookup?action=store_download&id=annas-fetch",
+        headers=headers,
+    )
+    assert res.status_code == 200
+    assert res.content == fake_zip_bytes
+    assert res.headers["content-type"] == "application/zip"
+    assert res.headers["x-plugin-id"] == "annas-fetch"
+    assert res.headers["x-koplugin-name"] == "annas-fetch.koplugin"
+    assert 'filename="annas-fetch.koplugin.zip"' in res.headers["content-disposition"]
+
+
+def test_store_download_github_error_returns_502(client, monkeypatch):
+    """store_download returns 502 when GitHub request fails."""
+    import httpx
+
+    class MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+        async def get(self, url, headers=None):
+            raise httpx.RequestError("GitHub unreachable")
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+
+    db = Database()
+    raw_key, _ = db.create_api_key("Mock Err Tester")
+    headers = {"X-API-Key": raw_key}
+
+    res = client.get(
+        "/api/v1/koreader/lookup?action=store_download&id=annas-fetch",
+        headers=headers,
+    )
+    assert res.status_code == 502
+    assert "Kunne ikke hente plugin fra GitHub" in res.json()["detail"]
 
 

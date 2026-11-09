@@ -39,6 +39,7 @@ from ordpresse.web.auth import (
 )
 from ordpresse.web.lookup_service import perform_koreader_lookup
 from ordpresse.web.plugin_builder import build_koplugin_zip, slugify_device_name
+from ordpresse.web.plugin_store import get_catalog_json, get_plugin_by_id
 
 from ordpresse import __version__
 from ordpresse.config import (
@@ -907,6 +908,38 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
             "main_lua": MAIN_LUA,
             "sha256": hashlib.sha256(MAIN_LUA.encode("utf-8")).hexdigest(),
         }
+    elif action == "store_catalog":
+        return JSONResponse(content=get_catalog_json())
+    elif action == "store_download":
+        import httpx
+
+        plugin_id = request.query_params.get("id", "").strip()
+        plugin = get_plugin_by_id(plugin_id)
+        if not plugin:
+            raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' ikke fundet i kataloget.")
+
+        # Proxy-download fra GitHub zipball og stream til KOReader-enheden
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+                github_resp = await client.get(
+                    plugin.zipball_url,
+                    headers={"Accept": "application/vnd.github+json", "User-Agent": "Ordpresse-PluginStore/1.0"},
+                )
+                github_resp.raise_for_status()
+        except Exception as e:
+            logger.error(f"Plugin store: Fejl ved download af {plugin_id} fra GitHub: {e}")
+            raise HTTPException(status_code=502, detail=f"Kunne ikke hente plugin fra GitHub: {e}")
+
+        return Response(
+            content=github_resp.content,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{plugin.koplugin_name}.zip"',
+                "X-Plugin-Id": plugin.id,
+                "X-Plugin-Version": plugin.version,
+                "X-Koplugin-Name": plugin.koplugin_name,
+            },
+        )
 
     return await perform_koreader_lookup(q, db)
 
@@ -955,6 +988,12 @@ def delete_api_key_endpoint(key_id: int):
     db = Database()
     deleted = db.delete_api_key(key_id)
     return {"status": "deleted" if deleted else "not_found", "id": key_id}
+
+
+@app.get("/api/v1/store/catalog")
+def get_store_catalog_admin():
+    """List all plugins in the curated store catalog (LAN-Only, session protected)."""
+    return get_catalog_json()
 
 
 class ChangePasswordPayload(BaseModel):

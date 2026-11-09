@@ -4,15 +4,15 @@ import io
 import re
 import zipfile
 
-PLUGIN_VERSION = "1.1.0"
-PLUGIN_RELEASE_NOTES = "Forbedret kold Wi-Fi opvågning, automatisk silent retry og 1-klik in-app opdatering."
+PLUGIN_VERSION = "1.2.0"
+PLUGIN_RELEASE_NOTES = "Ny: 🛍️ OTA Plugin Butik — installer tredjeparts KOReader-plugins direkte fra din e-bogslæser."
 
 META_LUA = """local _ = require("gettext")
 return {
     name = "ordpresse",
     fullname = _("Den Danske Ordpresse (Online Opslag)"),
     description = _("Slå danske og historiske 1700-1900-tals ord op via din private Ordpresse-server."),
-    version = "1.1.0",
+    version = "1.2.0",
 }
 """
 
@@ -29,7 +29,7 @@ local http = require("socket.http")
 local url = require("socket.url")
 local _ = require("gettext")
 
-local PLUGIN_VERSION = "1.1.0"
+local PLUGIN_VERSION = "1.2.0"
 local ok_util, util = pcall(require, "util")
 
 local plugin_dir = (debug.getinfo(1, "S").source:match("@?(.*/)") or "./")
@@ -153,6 +153,13 @@ function Ordpresse:addToMainMenu(menu_items)
         sorting_hint = "more_tools",
         callback = function()
             self:checkForUpdates(true)
+        end,
+    }
+    menu_items.ordpresse_store = {
+        text = _("🛍️ Ordpresse Plugin Butik"),
+        sorting_hint = "more_tools",
+        callback = function()
+            self:openPluginStore()
         end,
     }
 end
@@ -459,6 +466,283 @@ function Ordpresse:downloadAndApplyUpdate(target_version)
                 else
                     UIManager:show(InfoMessage:new{
                         text = _("Genstart venligst KOReader manuelt for at fuldføre opdateringen."),
+                    })
+                end
+            end,
+        })
+    end)
+end
+
+function Ordpresse:openPluginStore()
+    if NetworkMgr and NetworkMgr.willRerunWhenOnline then
+        if NetworkMgr:willRerunWhenOnline(function() self:openPluginStore() end) then
+            return
+        end
+    end
+
+    local loading = InfoMessage:new{
+        text = _("🛍️ Henter plugin-katalog..."),
+    }
+    UIManager:show(loading)
+
+    UIManager:scheduleIn(0.05, function()
+        local catalog_url = string.format("%s?action=store_catalog", config.endpoint_url)
+        local ok, res, status_code, body = self:httpGet(catalog_url)
+
+        UIManager:close(loading)
+
+        if not ok or not res or status_code ~= 200 then
+            UIManager:show(InfoMessage:new{
+                text = _("Kunne ikke hente plugin-kataloget (") .. tostring(status_code or "timeout") .. _(")."),
+            })
+            return
+        end
+
+        local decode_ok, catalog = pcall(json.decode, body)
+        if not decode_ok or type(catalog) ~= "table" then
+            UIManager:show(InfoMessage:new{ text = _("Ugyldigt katalog-svar fra serveren.") })
+            return
+        end
+
+        if #catalog == 0 then
+            UIManager:show(InfoMessage:new{ text = _("Plugin-butikken er tom.") })
+            return
+        end
+
+        self:showPluginCatalog(catalog)
+    end)
+end
+
+function Ordpresse:showPluginCatalog(catalog)
+    self._last_catalog = catalog
+    local ok_bd, ButtonDialog = pcall(require, "ui/widget/buttondialog")
+    if not ok_bd or not ButtonDialog then
+        -- Fallback: vis som tekst
+        local lines = {}
+        for _, p in ipairs(catalog) do
+            table.insert(lines, p.name .. " (v" .. p.version .. ")")
+            table.insert(lines, "  " .. p.description)
+            table.insert(lines, "")
+        end
+        UIManager:show(TextViewer:new{
+            title = _("🛍️ Plugin Butik"),
+            text = table.concat(lines, "\\n"),
+        })
+        return
+    end
+
+    local buttons = {}
+    for _, p in ipairs(catalog) do
+        table.insert(buttons, {
+            {
+                text = p.name .. "  (v" .. p.version .. ")",
+                callback = function()
+                    self:showPluginDetail(p)
+                end,
+            },
+        })
+    end
+
+    -- Tilføj luk-knap
+    table.insert(buttons, {
+        {
+            text = _("Luk"),
+            callback = function()
+                UIManager:close(self._store_dialog)
+            end,
+        },
+    })
+
+    self._store_dialog = ButtonDialog:new{
+        title = _("🛍️ Ordpresse Plugin Butik"),
+        buttons = buttons,
+    }
+    UIManager:show(self._store_dialog)
+end
+
+function Ordpresse:showPluginDetail(plugin)
+    if self._store_dialog then
+        UIManager:close(self._store_dialog)
+    end
+
+    local detail_lines = {
+        plugin.name,
+        "",
+        plugin.description,
+        "",
+        "Forfatter: " .. (plugin.author or "ukendt"),
+        "Version: " .. (plugin.version or "?"),
+        "Licens: " .. (plugin.license or "?"),
+        "Størrelse: ~" .. tostring(plugin.size_estimate_kb or "?") .. " KB",
+    }
+    if plugin.install_note and plugin.install_note ~= "" then
+        table.insert(detail_lines, "")
+        table.insert(detail_lines, "ℹ️ " .. plugin.install_note)
+    end
+
+    UIManager:show(ConfirmBox:new{
+        text = table.concat(detail_lines, "\\n"),
+        ok_text = _("📦 Installer"),
+        cancel_text = _("Tilbage"),
+        ok_callback = function()
+            self:installPlugin(plugin)
+        end,
+        cancel_callback = function()
+            if self._last_catalog then
+                self:showPluginCatalog(self._last_catalog)
+            end
+        end,
+    })
+end
+
+function Ordpresse:installPlugin(plugin)
+    local loading = InfoMessage:new{
+        text = _("📦 Henter ") .. plugin.name .. _("..."),
+    }
+    UIManager:show(loading)
+
+    UIManager:scheduleIn(0.05, function()
+        local dl_url = string.format(
+            "%s?action=store_download&id=%s",
+            config.endpoint_url,
+            url.escape(plugin.id)
+        )
+
+        -- Download zip-data via httpGet (som returner body som string)
+        local ok, res, status_code, body = self:httpGet(dl_url)
+
+        UIManager:close(loading)
+
+        if not ok or not res or status_code ~= 200 then
+            UIManager:show(InfoMessage:new{
+                text = _("Fejl ved download af plugin (") .. tostring(status_code or "timeout") .. _(")."),
+            })
+            return
+        end
+
+        if not body or #body < 100 then
+            UIManager:show(InfoMessage:new{
+                text = _("Modtog tom eller ugyldig plugin-pakke."),
+            })
+            return
+        end
+
+        -- Gem zip-filen midlertidigt
+        local DataStorage = require("datastorage")
+        local tmp_dir = DataStorage:getDataDir() .. "/cache"
+        os.execute("mkdir -p " .. tmp_dir)
+        local zip_path = tmp_dir .. "/" .. plugin.id .. ".zip"
+
+        local f = io.open(zip_path, "wb")
+        if not f then
+            UIManager:show(InfoMessage:new{
+                text = _("Kunne ikke gemme plugin-filen."),
+            })
+            return
+        end
+        f:write(body)
+        f:close()
+
+        -- Udpak med KOReaders ffi/archiver (kræver KOReader 2025.08+)
+        -- Fallback til unzip-kommando for ældre versioner
+        local plugins_dir = DataStorage:getDataDir() .. "/plugins"
+        local target_dir = plugins_dir .. "/" .. plugin.koplugin_name
+
+        local extract_ok = false
+
+        -- Metode 1: Forsøg ffi/archiver (moderne KOReader)
+        local ok_arc, Archiver = pcall(require, "ffi/archiver")
+        if ok_arc and Archiver and Archiver.Reader then
+            local reader = Archiver.Reader:new()
+            if reader:open(zip_path) then
+                -- GitHub zipballs har en top-level mappe: "owner-repo-hash/"
+                -- Vi skal finde den og mappe filerne til target_dir
+                os.execute("mkdir -p " .. target_dir)
+
+                local prefix = nil
+                for entry in reader:iterate() do
+                    local entry_path = entry:getPath() or entry.path or ""
+                    -- Detekter GitHub's top-level mappe-præfiks
+                    if not prefix and entry_path:match("^[^/]+/$") then
+                        prefix = entry_path
+                    end
+
+                    if prefix and entry_path:sub(1, #prefix) == prefix then
+                        local relative = entry_path:sub(#prefix + 1)
+                        if relative ~= "" and not relative:match("^%.") then
+                            local dest = target_dir .. "/" .. relative
+                            if entry_path:sub(-1) == "/" then
+                                os.execute("mkdir -p " .. dest)
+                            else
+                                local content = reader:extractToMemory(entry_path)
+                                if content then
+                                    -- Sørg for at parent-mappen eksisterer
+                                    local parent = dest:match("(.*/)")
+                                    if parent then
+                                        os.execute("mkdir -p " .. parent)
+                                    end
+                                    local out = io.open(dest, "wb")
+                                    if out then
+                                        out:write(content)
+                                        out:close()
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+                reader:close()
+                extract_ok = true
+            end
+        end
+
+        -- Metode 2: Fallback til system unzip (ældre KOReader / Kindle)
+        if not extract_ok then
+            -- Udpak til tmp, find mappen, flyt til plugins
+            local tmp_extract = tmp_dir .. "/plugin_extract_" .. plugin.id
+            os.execute("rm -rf " .. tmp_extract)
+            os.execute("mkdir -p " .. tmp_extract)
+            local unzip_ret = os.execute("unzip -o -q " .. zip_path .. " -d " .. tmp_extract)
+            if unzip_ret == 0 or unzip_ret == true then
+                -- Find den udpakkede top-level mappe (GitHub zipball)
+                local handle = io.popen("ls -1 " .. tmp_extract)
+                if handle then
+                    local extracted_name = handle:read("*l")
+                    handle:close()
+                    if extracted_name and extracted_name ~= "" then
+                        local src = tmp_extract .. "/" .. extracted_name
+                        os.execute("rm -rf " .. target_dir)
+                        os.execute("mv " .. src .. " " .. target_dir)
+                        extract_ok = true
+                    end
+                end
+            end
+            os.execute("rm -rf " .. tmp_extract)
+        end
+
+        -- Ryd op
+        os.remove(zip_path)
+
+        if not extract_ok then
+            UIManager:show(InfoMessage:new{
+                text = _("Kunne ikke udpakke plugin-pakken. Prøv at genstarte KOReader og forsøg igen."),
+            })
+            return
+        end
+
+        -- Succes! Spørg om genstart
+        UIManager:show(ConfirmBox:new{
+            text = _("✅ ") .. plugin.name .. _(" er installeret!") .. "\\n\\n"
+                .. _("KOReader skal genstartes for at aktivere pluginet.") .. "\\n"
+                .. _("Vil du genstarte KOReader nu?"),
+            ok_text = _("Genstart nu"),
+            cancel_text = _("Senere"),
+            ok_callback = function()
+                if UIManager.restartKOReader then
+                    UIManager:restartKOReader()
+                else
+                    UIManager:show(InfoMessage:new{
+                        text = _("Genstart venligst KOReader manuelt."),
                     })
                 end
             end,
