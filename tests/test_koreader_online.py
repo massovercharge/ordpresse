@@ -397,18 +397,19 @@ def test_koreader_plugin_update_endpoints(client):
     assert res_check.status_code == 200
     check_data = res_check.json()
     assert "latest_version" in check_data
-    assert check_data["latest_version"] == "1.2.0"
+    assert check_data["latest_version"] == "1.2.1"
     assert "release_notes" in check_data
 
     # 3. Authenticated download_update
     res_dl = client.get("/api/v1/koreader/lookup?action=download_update", headers=headers)
     assert res_dl.status_code == 200
     dl_data = res_dl.json()
-    assert dl_data["version"] == "1.2.0"
+    assert dl_data["version"] == "1.2.1"
     assert "main_lua" in dl_data
     assert len(dl_data["main_lua"]) > 1000
     assert "checkForUpdates" in dl_data["main_lua"]
     assert "openPluginStore" in dl_data["main_lua"]
+    assert "registerToMainMenu" in dl_data["main_lua"]
     assert "sha256" in dl_data
 
 

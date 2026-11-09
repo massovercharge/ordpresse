@@ -4,15 +4,15 @@ import io
 import re
 import zipfile
 
-PLUGIN_VERSION = "1.2.0"
-PLUGIN_RELEASE_NOTES = "Ny: 🛍️ OTA Plugin Butik — installer tredjeparts KOReader-plugins direkte fra din e-bogslæser."
+PLUGIN_VERSION = "1.2.1"
+PLUGIN_RELEASE_NOTES = "Ny: 🛍️ OTA Plugin Butik. Rettet: Menupunkter i 'Flere værktøjer' registreres nu korrekt i KOReader."
 
 META_LUA = """local _ = require("gettext")
 return {
     name = "ordpresse",
     fullname = _("Den Danske Ordpresse (Online Opslag)"),
     description = _("Slå danske og historiske 1700-1900-tals ord op via din private Ordpresse-server."),
-    version = "1.2.0",
+    version = "1.2.1",
 }
 """
 
@@ -29,7 +29,7 @@ local http = require("socket.http")
 local url = require("socket.url")
 local _ = require("gettext")
 
-local PLUGIN_VERSION = "1.2.0"
+local PLUGIN_VERSION = "1.2.1"
 local ok_util, util = pcall(require, "util")
 
 local plugin_dir = (debug.getinfo(1, "S").source:match("@?(.*/)") or "./")
@@ -56,15 +56,26 @@ local function cleanWord(raw_word)
 end
 
 function Ordpresse:init()
+    if self.ui and self.ui.menu and self.ui.menu.registerToMainMenu then
+        self.ui.menu:registerToMainMenu(self)
+    end
     self:registerHooks()
 end
 
 function Ordpresse:onReaderReady()
+    if self.ui and self.ui.menu and self.ui.menu.registerToMainMenu then
+        self.ui.menu:registerToMainMenu(self)
+    end
     self:registerHooks()
 end
 
 function Ordpresse:registerHooks()
     if not self.ui then return end
+
+    -- Register to Main Menu (Tools -> More tools)
+    if self.ui.menu and self.ui.menu.registerToMainMenu then
+        pcall(function() self.ui.menu:registerToMainMenu(self) end)
+    end
 
     -- 1. Hook Highlight Dialog (when text or a word is selected/highlighted)
     if self.ui.highlight and self.ui.highlight.addToHighlightDialog then
