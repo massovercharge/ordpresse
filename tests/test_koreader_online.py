@@ -141,6 +141,8 @@ def test_api_key_provisioning_and_lifecycle(auth_client):
     assert prov_res.status_code == 200
     assert prov_res.headers["content-type"] == "application/zip"
     assert "ordpresse-koplugin-boox-palma-2.zip" in prov_res.headers["content-disposition"]
+    from ordpresse.web.plugin_builder import PLUGIN_VERSION
+    assert prov_res.headers.get("x-plugin-version") == PLUGIN_VERSION
 
     # Inspect zip contents
     zip_bytes = prov_res.content
@@ -441,6 +443,21 @@ def test_koreader_plugin_lua_extraction_and_update_hardening():
     assert "'\\\\''" in MAIN_LUA
     # No unescaped literal newlines inside Lua string concatenations (all should be \n inside Lua strings)
     assert '"\n"' not in MAIN_LUA
+
+
+def test_index_page_displays_plugin_and_server_versions(auth_client):
+    """Verify dashboard displays live PLUGIN_VERSION and __version__ rather than hardcoded v10.2."""
+    import html
+    from ordpresse import __version__
+    from ordpresse.web.plugin_builder import PLUGIN_RELEASE_NOTES, PLUGIN_VERSION
+
+    res = auth_client.get("/")
+    assert res.status_code == 200
+    assert f"Server v{__version__}" in res.text
+    assert f"Plugin v{PLUGIN_VERSION}" in res.text
+    assert f".koplugin.zip (v{PLUGIN_VERSION})" in res.text
+    assert html.escape(PLUGIN_RELEASE_NOTES, quote=False) in res.text
+    assert "Zero-Trust v10.2" not in res.text
 
 
 # ---------------------------------------------------------------------------

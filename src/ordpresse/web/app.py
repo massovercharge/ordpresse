@@ -38,7 +38,12 @@ from ordpresse.web.auth import (
     verify_api_key,
 )
 from ordpresse.web.lookup_service import perform_koreader_lookup
-from ordpresse.web.plugin_builder import build_koplugin_zip, slugify_device_name
+from ordpresse.web.plugin_builder import (
+    PLUGIN_RELEASE_NOTES,
+    PLUGIN_VERSION,
+    build_koplugin_zip,
+    slugify_device_name,
+)
 from ordpresse.web.plugin_store import get_catalog_json, get_plugin_by_id
 
 from ordpresse import __version__
@@ -223,6 +228,8 @@ async def index_page(request: Request):
         name="index.html",
         context={
             "version": __version__,
+            "plugin_version": PLUGIN_VERSION,
+            "plugin_release_notes": PLUGIN_RELEASE_NOTES,
             "datasets_ready": datasets_ready,
             "cache_ready": cache_ready,
             "default_bookname": DEFAULT_BOOKNAME,
@@ -971,7 +978,10 @@ def provision_api_key(payload: ProvisionKeyPayload):
     return Response(
         content=zip_bytes,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="ordpresse-koplugin-{slug}.zip"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="ordpresse-koplugin-{slug}.zip"',
+            "X-Plugin-Version": PLUGIN_VERSION,
+        },
     )
 
 
