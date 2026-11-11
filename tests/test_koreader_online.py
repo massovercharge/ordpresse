@@ -397,20 +397,50 @@ def test_koreader_plugin_update_endpoints(client):
     assert res_check.status_code == 200
     check_data = res_check.json()
     assert "latest_version" in check_data
-    assert check_data["latest_version"] == "1.2.1"
+    assert check_data["latest_version"] == "1.2.2"
     assert "release_notes" in check_data
 
     # 3. Authenticated download_update
     res_dl = client.get("/api/v1/koreader/lookup?action=download_update", headers=headers)
     assert res_dl.status_code == 200
     dl_data = res_dl.json()
-    assert dl_data["version"] == "1.2.1"
+    assert dl_data["version"] == "1.2.2"
     assert "main_lua" in dl_data
     assert len(dl_data["main_lua"]) > 1000
     assert "checkForUpdates" in dl_data["main_lua"]
     assert "openPluginStore" in dl_data["main_lua"]
     assert "registerToMainMenu" in dl_data["main_lua"]
+    assert "meta_lua" in dl_data
+    assert 'version = "1.2.2"' in dl_data["meta_lua"]
     assert "sha256" in dl_data
+
+
+def test_koreader_plugin_lua_extraction_and_update_hardening():
+    """Verify generated plugin Lua avoids ffi/archiver getPath crash and uses safe staging/atomic writes."""
+    from ordpresse.web.plugin_builder import MAIN_LUA, META_LUA, PLUGIN_VERSION
+
+    assert f'local PLUGIN_VERSION = "{PLUGIN_VERSION}"' in MAIN_LUA
+    assert f'version = "{PLUGIN_VERSION}"' in META_LUA
+
+    # Regression check: ffi/archiver entries are plain tables with .path, never :getPath()
+    assert "getPath" not in MAIN_LUA
+    assert "entry.path" in MAIN_LUA
+
+    # Extraction safety & staging checks (staging dir must NOT end in .koplugin)
+    assert 'local staging_dir = plugins_dir .. "/." .. safe_koplugin .. ".tmp"' in MAIN_LUA
+    assert '".tmp"' in MAIN_LUA
+    assert "entry_size == 0" in MAIN_LUA
+    assert "util.makePath" in MAIN_LUA
+    assert "ffiUtil.purgeDir" in MAIN_LUA
+    assert "checkLuaSyntax" in MAIN_LUA
+    assert "writeFileAtomic" in MAIN_LUA
+    assert "closeWidgetSafe" in MAIN_LUA
+    assert "triggerRestart" in MAIN_LUA
+
+    # Verify Python->Lua backslash escaping for shell escape helper
+    assert "'\\\\''" in MAIN_LUA
+    # No unescaped literal newlines inside Lua string concatenations (all should be \n inside Lua strings)
+    assert '"\n"' not in MAIN_LUA
 
 
 # ---------------------------------------------------------------------------

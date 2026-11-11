@@ -4,15 +4,15 @@ import io
 import re
 import zipfile
 
-PLUGIN_VERSION = "1.2.1"
-PLUGIN_RELEASE_NOTES = "Ny: 🛍️ OTA Plugin Butik. Rettet: Menupunkter i 'Flere værktøjer' registreres nu korrekt i KOReader."
+PLUGIN_VERSION = "1.2.2"
+PLUGIN_RELEASE_NOTES = "Rettet: Anna-Fetch crash under installation (ffi/archiver entry.path + sikker staging-udpakning) og stabiliseret OTA-opdatering/genstart."
 
 META_LUA = """local _ = require("gettext")
 return {
     name = "ordpresse",
     fullname = _("Den Danske Ordpresse (Online Opslag)"),
     description = _("Slå danske og historiske 1700-1900-tals ord op via din private Ordpresse-server."),
-    version = "1.2.1",
+    version = "1.2.2",
 }
 """
 
@@ -29,8 +29,11 @@ local http = require("socket.http")
 local url = require("socket.url")
 local _ = require("gettext")
 
-local PLUGIN_VERSION = "1.2.1"
+local PLUGIN_VERSION = "1.2.2"
 local ok_util, util = pcall(require, "util")
+local ok_ffiutil, ffiUtil = pcall(require, "ffi/util")
+local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
+local ok_device, Device = pcall(require, "device")
 
 local plugin_dir = (debug.getinfo(1, "S").source:match("@?(.*/)") or "./")
 local ok_cfg, config = pcall(dofile, plugin_dir .. "config.lua")
@@ -53,6 +56,137 @@ local function cleanWord(raw_word)
         end
     end
     return word
+end
+
+local function closeWidgetSafe(widget)
+    if widget then
+        pcall(function() UIManager:close(widget) end)
+    end
+end
+
+local function getPluginDir(self)
+    if self and type(self.path) == "string" and self.path ~= "" then
+        return self.path:gsub("/+$", "") .. "/"
+    end
+    if plugin_dir:sub(-1) == "/" then
+        return plugin_dir
+    end
+    return plugin_dir .. "/"
+end
+
+local function shellEscapeArg(str)
+    str = tostring(str or "")
+    if ok_util and util and util.shell_escape then
+        return util.shell_escape({ str })
+    end
+    return "'" .. str:gsub("'", "'\\\\''") .. "'"
+end
+
+local function ensureDir(path)
+    if not path or path == "" then return false end
+    if ok_util and util and util.makePath then
+        local ok, res = pcall(util.makePath, path)
+        if ok and res then return true end
+    end
+    local ret = os.execute("mkdir -p " .. shellEscapeArg(path))
+    return ret == 0 or ret == true
+end
+
+local function removePath(path)
+    if not path or path == "" or path == "/" then return false end
+    if ok_lfs and lfs and lfs.attributes then
+        local mode = lfs.attributes(path, "mode")
+        if mode == nil then
+            pcall(os.remove, path)
+            return lfs.attributes(path, "mode") == nil
+        elseif mode == "file" then
+            local ok = os.remove(path)
+            if ok then return true end
+        elseif mode == "directory" and ok_ffiutil and ffiUtil and ffiUtil.purgeDir then
+            local ok_p, res_p = pcall(ffiUtil.purgeDir, path)
+            if ok_p and res_p then return true end
+        end
+    end
+    local ret = os.execute("rm -rf " .. shellEscapeArg(path))
+    return ret == 0 or ret == true
+end
+
+local function writeFileSafe(path, content)
+    local f, err = io.open(path, "wb")
+    if not f then
+        return false, err
+    end
+    local ok_w, err_w = f:write(content)
+    local ok_c, err_c = f:close()
+    if not ok_w or ok_c == false then
+        pcall(os.remove, path)
+        return false, err_w or err_c or "write failed"
+    end
+    return true
+end
+
+local function writeFileAtomic(path, content)
+    local tmp_path = path .. ".tmp"
+    local ok_w, err_w = writeFileSafe(tmp_path, content)
+    if not ok_w then
+        return false, err_w
+    end
+    local ok_mv, err_mv = os.rename(tmp_path, path)
+    if not ok_mv then
+        pcall(os.remove, tmp_path)
+        return false, err_mv
+    end
+    return true
+end
+
+local function validateLuaSyntax(code_str)
+    if type(code_str) ~= "string" or code_str == "" then
+        return false, "empty lua code"
+    end
+    if ok_util and util and util.checkLuaSyntax then
+        local syntax_err = util.checkLuaSyntax(code_str)
+        if syntax_err then
+            return false, syntax_err
+        end
+        return true
+    end
+    if loadstring then
+        local fn, err = loadstring(code_str)
+        if not fn then
+            return false, err
+        end
+    end
+    return true
+end
+
+function Ordpresse:triggerRestart()
+    if ok_device and Device and Device.canRestart and not Device:canRestart() then
+        UIManager:show(InfoMessage:new{
+            text = _("Genstart venligst KOReader manuelt for at aktivere ændringen."),
+        })
+        return
+    end
+    UIManager:nextTick(function()
+        if self.ui and self.ui.menu and self.ui.menu.exitOrRestart then
+            local ok_exit = pcall(function()
+                self.ui.menu:exitOrRestart(function()
+                    if UIManager.restartKOReader then
+                        UIManager:restartKOReader()
+                    end
+                end)
+            end)
+            if ok_exit then
+                return
+            end
+        end
+        if UIManager.restartKOReader then
+            UIManager:restartKOReader()
+        else
+            UIManager:show(InfoMessage:new{
+                text = _("Genstart venligst KOReader manuelt for at fuldføre ændringen."),
+            })
+        end
+    end)
 end
 
 function Ordpresse:init()
@@ -244,16 +378,19 @@ function Ordpresse:formatFallback(data)
     return table.concat(lines, "\\n")
 end
 
-function Ordpresse:httpGet(req_url)
-    local timeout = tonumber(config.timeout_seconds) or 10
-    if timeout < 10 then timeout = 10 end
+function Ordpresse:httpGet(req_url, timeout_override)
+    local base_timeout = tonumber(config.timeout_seconds) or 10
+    if base_timeout < 10 then base_timeout = 10 end
+    local block_timeout = tonumber(timeout_override) or base_timeout
+    if block_timeout < base_timeout then block_timeout = base_timeout end
+    local total_timeout = block_timeout + 15
 
-    socket.http.TIMEOUT = timeout
+    http.TIMEOUT = block_timeout
     local request_fn = http.request
     if req_url:sub(1, 8) == "https://" then
         local ok_https, https = pcall(require, "ssl.https")
         if ok_https and https then
-            https.TIMEOUT = timeout
+            https.TIMEOUT = block_timeout
             request_fn = https.request
         end
     end
@@ -262,8 +399,14 @@ function Ordpresse:httpGet(req_url)
 
     local function doAttempt()
         local resp_body = {}
+        local sink
         if ok_su and socketutil and socketutil.set_timeout then
-            pcall(socketutil.set_timeout, socketutil, timeout, timeout + 5)
+            pcall(socketutil.set_timeout, socketutil, block_timeout, total_timeout)
+        end
+        if ok_su and socketutil and socketutil.table_sink then
+            sink = socketutil.table_sink(resp_body)
+        else
+            sink = ltn12.sink.table(resp_body)
         end
 
         local ok, res, code_or_err = pcall(function()
@@ -271,12 +414,12 @@ function Ordpresse:httpGet(req_url)
                 url = req_url,
                 method = "GET",
                 headers = {
-                    ["X-API-Key"] = config.api_key,
-                    ["Accept"] = "application/json",
+                    ["X-API-Key"] = config.api_key or "",
+                    ["Accept"] = "application/json, */*",
                     ["User-Agent"] = "KOReader-Ordpresse/" .. PLUGIN_VERSION,
                     ["Connection"] = "close",
                 },
-                sink = ltn12.sink.table(resp_body),
+                sink = sink,
             })
         end)
 
@@ -290,7 +433,7 @@ function Ordpresse:httpGet(req_url)
     local ok, res, status_code, body = doAttempt()
     -- Cold Wi-Fi / power-save wake-up: retry once automatically if the first attempt glitched
     if not ok or not res then
-        socket.sleep(0.3)
+        pcall(socket.sleep, 0.3)
         ok, res, status_code, body = doAttempt()
     end
 
@@ -298,6 +441,10 @@ function Ordpresse:httpGet(req_url)
 end
 
 function Ordpresse:performLookup(raw_word)
+    if type(config.endpoint_url) ~= "string" or config.endpoint_url == "" then
+        UIManager:show(InfoMessage:new{ text = _("Ordpresse mangler server-adresse i config.lua.") })
+        return
+    end
     local word = cleanWord(raw_word)
     if word == "" then
         UIManager:show(InfoMessage:new{ text = _("Intet ord valgt.") })
@@ -324,9 +471,7 @@ function Ordpresse:fetchFromServer(word, loading)
     local req_url = string.format("%s?q=%s", config.endpoint_url, url.escape(word))
     local ok, res, status_code, body = self:httpGet(req_url)
 
-    if loading then
-        pcall(function() UIManager:close(loading) end)
-    end
+    closeWidgetSafe(loading)
 
     if not ok or not res then
         local err_detail = tostring(status_code or "timeout")
@@ -371,6 +516,12 @@ function Ordpresse:fetchFromServer(word, loading)
 end
 
 function Ordpresse:checkForUpdates(interactive)
+    if type(config.endpoint_url) ~= "string" or config.endpoint_url == "" then
+        if interactive then
+            UIManager:show(InfoMessage:new{ text = _("Ordpresse mangler server-adresse i config.lua.") })
+        end
+        return
+    end
     if NetworkMgr and NetworkMgr.willRerunWhenOnline then
         if NetworkMgr:willRerunWhenOnline(function() self:checkForUpdates(interactive) end) then
             return
@@ -386,7 +537,7 @@ function Ordpresse:checkForUpdates(interactive)
         local check_url = string.format("%s?action=check_update&client_version=%s", config.endpoint_url, url.escape(PLUGIN_VERSION))
         local ok, res, status_code, body = self:httpGet(check_url)
 
-        UIManager:close(loading)
+        closeWidgetSafe(loading)
 
         if not ok or not res or status_code ~= 200 then
             local err_msg = tostring(status_code or "timeout")
@@ -421,13 +572,25 @@ function Ordpresse:checkForUpdates(interactive)
             ok_text = _("Opdater nu"),
             cancel_text = _("Senere"),
             ok_callback = function()
-                self:downloadAndApplyUpdate(latest)
+                UIManager:nextTick(function()
+                    self:downloadAndApplyUpdate(latest)
+                end)
             end,
         })
     end)
 end
 
 function Ordpresse:downloadAndApplyUpdate(target_version)
+    if type(config.endpoint_url) ~= "string" or config.endpoint_url == "" then
+        UIManager:show(InfoMessage:new{ text = _("Ordpresse mangler server-adresse i config.lua.") })
+        return
+    end
+    if NetworkMgr and NetworkMgr.willRerunWhenOnline then
+        if NetworkMgr:willRerunWhenOnline(function() self:downloadAndApplyUpdate(target_version) end) then
+            return
+        end
+    end
+
     local loading = InfoMessage:new{
         text = _("🔄 Henter og installerer opdatering..."),
     }
@@ -435,9 +598,9 @@ function Ordpresse:downloadAndApplyUpdate(target_version)
 
     UIManager:scheduleIn(0.05, function()
         local dl_url = string.format("%s?action=download_update", config.endpoint_url)
-        local ok, res, status_code, body = self:httpGet(dl_url)
+        local ok, res, status_code, body = self:httpGet(dl_url, 30)
 
-        UIManager:close(loading)
+        closeWidgetSafe(loading)
 
         if not ok or not res or status_code ~= 200 then
             local err_msg = tostring(status_code or "timeout")
@@ -453,38 +616,47 @@ function Ordpresse:downloadAndApplyUpdate(target_version)
             return
         end
 
-        local file_path = plugin_dir .. "main.lua"
-        local f, err = io.open(file_path, "w")
-        if not f then
+        local syntax_ok, syntax_err = validateLuaSyntax(data.main_lua)
+        if not syntax_ok then
             UIManager:show(InfoMessage:new{
-                text = _("Kunne ikke gemme opdatering: ") .. tostring(err),
+                text = _("Modtog ugyldig Lua-syntaks fra serveren: ") .. tostring(syntax_err),
             })
             return
         end
 
-        f:write(data.main_lua)
-        f:close()
+        local base_dir = getPluginDir(self)
+        local file_path = base_dir .. "main.lua"
+        local write_ok, write_err = writeFileAtomic(file_path, data.main_lua)
+        if not write_ok then
+            UIManager:show(InfoMessage:new{
+                text = _("Kunne ikke gemme opdatering: ") .. tostring(write_err),
+            })
+            return
+        end
 
+        if type(data.meta_lua) == "string" and #data.meta_lua > 50 and validateLuaSyntax(data.meta_lua) then
+            writeFileAtomic(base_dir .. "_meta.lua", data.meta_lua)
+        end
+
+        local shown_version = tostring(data.version or target_version or "")
         UIManager:show(ConfirmBox:new{
-            text = _("✅ Ordpresse er opdateret til v") .. tostring(target_version) .. _("!") .. "\\n\\n"
+            text = _("✅ Ordpresse er opdateret til v") .. shown_version .. _("!") .. "\\n\\n"
                 .. _("KOReader skal genstartes for at aktivere den nye version.") .. "\\n"
                 .. _("Vil du genstarte KOReader nu?"),
             ok_text = _("Genstart nu"),
             cancel_text = _("Senere"),
             ok_callback = function()
-                if UIManager.restartKOReader then
-                    UIManager:restartKOReader()
-                else
-                    UIManager:show(InfoMessage:new{
-                        text = _("Genstart venligst KOReader manuelt for at fuldføre opdateringen."),
-                    })
-                end
+                self:triggerRestart()
             end,
         })
     end)
 end
 
 function Ordpresse:openPluginStore()
+    if type(config.endpoint_url) ~= "string" or config.endpoint_url == "" then
+        UIManager:show(InfoMessage:new{ text = _("Ordpresse mangler server-adresse i config.lua.") })
+        return
+    end
     if NetworkMgr and NetworkMgr.willRerunWhenOnline then
         if NetworkMgr:willRerunWhenOnline(function() self:openPluginStore() end) then
             return
@@ -500,7 +672,7 @@ function Ordpresse:openPluginStore()
         local catalog_url = string.format("%s?action=store_catalog", config.endpoint_url)
         local ok, res, status_code, body = self:httpGet(catalog_url)
 
-        UIManager:close(loading)
+        closeWidgetSafe(loading)
 
         if not ok or not res or status_code ~= 200 then
             UIManager:show(InfoMessage:new{
@@ -559,7 +731,8 @@ function Ordpresse:showPluginCatalog(catalog)
         {
             text = _("Luk"),
             callback = function()
-                UIManager:close(self._store_dialog)
+                closeWidgetSafe(self._store_dialog)
+                self._store_dialog = nil
             end,
         },
     })
@@ -572,9 +745,8 @@ function Ordpresse:showPluginCatalog(catalog)
 end
 
 function Ordpresse:showPluginDetail(plugin)
-    if self._store_dialog then
-        UIManager:close(self._store_dialog)
-    end
+    closeWidgetSafe(self._store_dialog)
+    self._store_dialog = nil
 
     local detail_lines = {
         plugin.name,
@@ -596,19 +768,37 @@ function Ordpresse:showPluginDetail(plugin)
         ok_text = _("📦 Installer"),
         cancel_text = _("Tilbage"),
         ok_callback = function()
-            self:installPlugin(plugin)
+            UIManager:nextTick(function()
+                self:installPlugin(plugin)
+            end)
         end,
         cancel_callback = function()
             if self._last_catalog then
-                self:showPluginCatalog(self._last_catalog)
+                UIManager:nextTick(function()
+                    self:showPluginCatalog(self._last_catalog)
+                end)
             end
         end,
     })
 end
 
 function Ordpresse:installPlugin(plugin)
+    if type(plugin) ~= "table" or type(plugin.id) ~= "string" or type(plugin.koplugin_name) ~= "string" then
+        UIManager:show(InfoMessage:new{ text = _("Ugyldige plugin-data.") })
+        return
+    end
+    if type(config.endpoint_url) ~= "string" or config.endpoint_url == "" then
+        UIManager:show(InfoMessage:new{ text = _("Ordpresse mangler server-adresse i config.lua.") })
+        return
+    end
+    if NetworkMgr and NetworkMgr.willRerunWhenOnline then
+        if NetworkMgr:willRerunWhenOnline(function() self:installPlugin(plugin) end) then
+            return
+        end
+    end
+
     local loading = InfoMessage:new{
-        text = _("📦 Henter ") .. plugin.name .. _("..."),
+        text = _("📦 Henter ") .. tostring(plugin.name or plugin.id) .. _("..."),
     }
     UIManager:show(loading)
 
@@ -619,10 +809,10 @@ function Ordpresse:installPlugin(plugin)
             url.escape(plugin.id)
         )
 
-        -- Download zip-data via httpGet (som returner body som string)
-        local ok, res, status_code, body = self:httpGet(dl_url)
+        -- Download zip-data via httpGet (60s block timeout for større zipballs)
+        local ok, res, status_code, body = self:httpGet(dl_url, 60)
 
-        UIManager:close(loading)
+        closeWidgetSafe(loading)
 
         if not ok or not res or status_code ~= 200 then
             UIManager:show(InfoMessage:new{
@@ -638,124 +828,243 @@ function Ordpresse:installPlugin(plugin)
             return
         end
 
-        -- Gem zip-filen midlertidigt
-        local DataStorage = require("datastorage")
-        local tmp_dir = DataStorage:getDataDir() .. "/cache"
-        os.execute("mkdir -p " .. tmp_dir)
-        local zip_path = tmp_dir .. "/" .. plugin.id .. ".zip"
-
-        local f = io.open(zip_path, "wb")
-        if not f then
+        local ok_ds, DataStorage = pcall(require, "datastorage")
+        if not ok_ds or not DataStorage then
             UIManager:show(InfoMessage:new{
-                text = _("Kunne ikke gemme plugin-filen."),
+                text = _("Kunne ikke tilgå KOReader-datamappen."),
             })
             return
         end
-        f:write(body)
-        f:close()
 
-        -- Udpak med KOReaders ffi/archiver (kræver KOReader 2025.08+)
-        -- Fallback til unzip-kommando for ældre versioner
-        local plugins_dir = DataStorage:getDataDir() .. "/plugins"
-        local target_dir = plugins_dir .. "/" .. plugin.koplugin_name
+        -- Gem zip-filen midlertidigt i cache/
+        local data_dir = DataStorage:getDataDir()
+        local tmp_dir = data_dir .. "/cache"
+        if not ensureDir(tmp_dir) then
+            UIManager:show(InfoMessage:new{
+                text = _("Kunne ikke oprette cache-mappen."),
+            })
+            return
+        end
+
+        local safe_id = plugin.id:gsub("[^%w%._%-]", "_")
+        local zip_path = tmp_dir .. "/ordpresse_" .. safe_id .. ".zip"
+        local zip_ok, zip_err = writeFileSafe(zip_path, body)
+        if not zip_ok then
+            UIManager:show(InfoMessage:new{
+                text = _("Kunne ikke gemme plugin-filen: ") .. tostring(zip_err),
+            })
+            return
+        end
+
+        -- Udpak til midlertidig staging-mappe (.tmp suffix ignoreres af KOReaders PluginLoader)
+        local safe_koplugin = plugin.koplugin_name:gsub("[^%w%._%-]", "_")
+        local plugins_dir = data_dir .. "/plugins"
+        local target_dir = plugins_dir .. "/" .. safe_koplugin
+        local staging_dir = plugins_dir .. "/." .. safe_koplugin .. ".tmp"
+
+        if not ensureDir(plugins_dir) then
+            pcall(os.remove, zip_path)
+            UIManager:show(InfoMessage:new{
+                text = _("Kunne ikke oprette plugins-mappen."),
+            })
+            return
+        end
+
+        removePath(staging_dir)
 
         local extract_ok = false
+        local extracted_files = 0
+        local extract_err = nil
 
         -- Metode 1: Forsøg ffi/archiver (moderne KOReader)
+        -- Bemærk: reader:iterate() returnerer plain Lua tables { path = ..., mode = ..., size = ... }
         local ok_arc, Archiver = pcall(require, "ffi/archiver")
-        if ok_arc and Archiver and Archiver.Reader then
-            local reader = Archiver.Reader:new()
-            if reader:open(zip_path) then
-                -- GitHub zipballs har en top-level mappe: "owner-repo-hash/"
-                -- Vi skal finde den og mappe filerne til target_dir
-                os.execute("mkdir -p " .. target_dir)
-
+        if ok_arc and Archiver and Archiver.Reader and ensureDir(staging_dir) then
+            local arc_ok, arc_err = pcall(function()
+                local reader = Archiver.Reader:new()
+                if not reader:open(zip_path) then
+                    error(reader.err or "kunne ikke åbne zip-arkiv")
+                end
                 local prefix = nil
-                for entry in reader:iterate() do
-                    local entry_path = entry:getPath() or entry.path or ""
-                    -- Detekter GitHub's top-level mappe-præfiks
-                    if not prefix and entry_path:match("^[^/]+/$") then
-                        prefix = entry_path
-                    end
+                local run_ok, run_err = pcall(function()
+                    for entry in reader:iterate() do
+                        local raw_path = entry and entry.path
+                        if type(raw_path) == "string" and raw_path ~= "" then
+                            local clean_path = raw_path:gsub("^%./+", "")
+                            if prefix == nil then
+                                prefix = clean_path:match("^([^/]+/)") or ""
+                            end
 
-                    if prefix and entry_path:sub(1, #prefix) == prefix then
-                        local relative = entry_path:sub(#prefix + 1)
-                        if relative ~= "" and not relative:match("^%.") then
-                            local dest = target_dir .. "/" .. relative
-                            if entry_path:sub(-1) == "/" then
-                                os.execute("mkdir -p " .. dest)
-                            else
-                                local content = reader:extractToMemory(entry_path)
-                                if content then
-                                    -- Sørg for at parent-mappen eksisterer
-                                    local parent = dest:match("(.*/)")
-                                    if parent then
-                                        os.execute("mkdir -p " .. parent)
-                                    end
-                                    local out = io.open(dest, "wb")
-                                    if out then
-                                        out:write(content)
-                                        out:close()
+                            local relative = clean_path
+                            if prefix ~= "" then
+                                if clean_path:sub(1, #prefix) == prefix then
+                                    relative = clean_path:sub(#prefix + 1)
+                                else
+                                    relative = ""
+                                end
+                            end
+
+                            local is_dir = (entry.mode == "directory") or (relative:sub(-1) == "/")
+                            local has_traversal = ("/" .. relative .. "/"):find("/../", 1, true) ~= nil
+                            if relative ~= ""
+                                and relative:sub(1, 1) ~= "/"
+                                and not relative:match("^%.")
+                                and not has_traversal then
+                                local rel_clean = is_dir and relative:gsub("/+$", "") or relative
+                                if rel_clean ~= "" then
+                                    local dest = staging_dir .. "/" .. rel_clean
+                                    if is_dir then
+                                        if not ensureDir(dest) then
+                                            error("kunne ikke oprette mappe: " .. rel_clean)
+                                        end
+                                    elseif entry.mode == "file" or entry.mode == nil then
+                                        local parent = dest:match("^(.*)/[^/]+$")
+                                        if parent and not ensureDir(parent) then
+                                            error("kunne ikke oprette mappe til fil: " .. rel_clean)
+                                        end
+                                        local entry_size = tonumber(entry.size) or 0
+                                        local content
+                                        if entry_size == 0 then
+                                            content = ""
+                                        else
+                                            content = reader:extractToMemory(raw_path)
+                                            if content == nil then
+                                                error(reader.err or ("udpakningsfejl: " .. rel_clean))
+                                            end
+                                        end
+                                        local w_ok, w_err = writeFileSafe(dest, content)
+                                        if not w_ok then
+                                            error("skrivefejl: " .. tostring(w_err))
+                                        end
+                                        extracted_files = extracted_files + 1
                                     end
                                 end
                             end
                         end
                     end
+                end)
+                pcall(reader.close, reader)
+                if not run_ok then
+                    error(run_err)
                 end
-                reader:close()
+            end)
+            if arc_ok and extracted_files > 0 then
                 extract_ok = true
+            else
+                extract_err = arc_err
+                removePath(staging_dir)
+                extracted_files = 0
             end
         end
 
-        -- Metode 2: Fallback til system unzip (ældre KOReader / Kindle)
+        -- Metode 2: Fallback til system unzip (ældre KOReader / Kindle / hvis ffi/archiver fejler)
         if not extract_ok then
-            -- Udpak til tmp, find mappen, flyt til plugins
-            local tmp_extract = tmp_dir .. "/plugin_extract_" .. plugin.id
-            os.execute("rm -rf " .. tmp_extract)
-            os.execute("mkdir -p " .. tmp_extract)
-            local unzip_ret = os.execute("unzip -o -q " .. zip_path .. " -d " .. tmp_extract)
-            if unzip_ret == 0 or unzip_ret == true then
-                -- Find den udpakkede top-level mappe (GitHub zipball)
-                local handle = io.popen("ls -1 " .. tmp_extract)
-                if handle then
-                    local extracted_name = handle:read("*l")
-                    handle:close()
-                    if extracted_name and extracted_name ~= "" then
-                        local src = tmp_extract .. "/" .. extracted_name
-                        os.execute("rm -rf " .. target_dir)
-                        os.execute("mv " .. src .. " " .. target_dir)
-                        extract_ok = true
+            removePath(staging_dir)
+            local tmp_extract = tmp_dir .. "/ordpresse_extract_" .. safe_id
+            removePath(tmp_extract)
+            if ensureDir(tmp_extract) then
+                local unzip_ret = os.execute("unzip -o -q " .. shellEscapeArg(zip_path) .. " -d " .. shellEscapeArg(tmp_extract))
+                if unzip_ret == 0 or unzip_ret == true then
+                    local entries = {}
+                    if ok_lfs and lfs and lfs.dir then
+                        local ok_d, iter, dir_obj = pcall(lfs.dir, tmp_extract)
+                        if ok_d then
+                            for name in iter, dir_obj do
+                                if name ~= "." and name ~= ".." then
+                                    table.insert(entries, name)
+                                end
+                            end
+                        end
+                    else
+                        local handle = io.popen("ls -1A " .. shellEscapeArg(tmp_extract))
+                        if handle then
+                            for line in handle:lines() do
+                                if line ~= "" then
+                                    table.insert(entries, line)
+                                end
+                            end
+                            handle:close()
+                        end
+                    end
+
+                    local src_dir = nil
+                    if #entries == 1 then
+                        local candidate = tmp_extract .. "/" .. entries[1]
+                        if not ok_lfs or not lfs or lfs.attributes(candidate, "mode") == "directory" then
+                            src_dir = candidate
+                        end
+                    elseif #entries > 1 then
+                        src_dir = tmp_extract
+                    end
+
+                    if src_dir then
+                        local mv_ok = os.rename(src_dir, staging_dir)
+                        if not mv_ok then
+                            local mv_ret = os.execute("mv " .. shellEscapeArg(src_dir) .. " " .. shellEscapeArg(staging_dir))
+                            mv_ok = (mv_ret == 0 or mv_ret == true)
+                        end
+                        if mv_ok then
+                            extract_ok = true
+                        end
                     end
                 end
             end
-            os.execute("rm -rf " .. tmp_extract)
+            removePath(tmp_extract)
         end
 
-        -- Ryd op
-        os.remove(zip_path)
+        pcall(os.remove, zip_path)
+
+        -- Bekræft at den udpakkede mappe faktisk indeholder gyldige plugin-filer
+        if extract_ok and ok_lfs and lfs and lfs.attributes then
+            local has_main = lfs.attributes(staging_dir .. "/main.lua", "mode") == "file"
+            local has_meta = lfs.attributes(staging_dir .. "/_meta.lua", "mode") == "file"
+            if not has_main and not has_meta then
+                extract_ok = false
+                extract_err = "manglende main.lua/_meta.lua i arkiv"
+            end
+        end
 
         if not extract_ok then
+            removePath(staging_dir)
+            local detail = extract_err and (" (" .. tostring(extract_err) .. ")") or ""
             UIManager:show(InfoMessage:new{
-                text = _("Kunne ikke udpakke plugin-pakken. Prøv at genstarte KOReader og forsøg igen."),
+                text = _("Kunne ikke udpakke plugin-pakken") .. detail .. _(". Prøv evt. at genstarte KOReader og forsøg igen."),
+            })
+            return
+        end
+
+        -- Flyt staging_dir atomisk til target_dir (fjerner også evt. gammel tom mappe)
+        if not removePath(target_dir) then
+            removePath(staging_dir)
+            UIManager:show(InfoMessage:new{
+                text = _("Kunne ikke erstatte den eksisterende plugin-mappe."),
+            })
+            return
+        end
+
+        local final_ok, rename_err = os.rename(staging_dir, target_dir)
+        if not final_ok then
+            local mv_ret = os.execute("mv " .. shellEscapeArg(staging_dir) .. " " .. shellEscapeArg(target_dir))
+            final_ok = (mv_ret == 0 or mv_ret == true)
+        end
+
+        if not final_ok then
+            removePath(staging_dir)
+            UIManager:show(InfoMessage:new{
+                text = _("Kunne ikke færdiggøre installationen: ") .. tostring(rename_err or "flytning fejlede"),
             })
             return
         end
 
         -- Succes! Spørg om genstart
         UIManager:show(ConfirmBox:new{
-            text = _("✅ ") .. plugin.name .. _(" er installeret!") .. "\\n\\n"
+            text = _("✅ ") .. tostring(plugin.name or plugin.id) .. _(" er installeret!") .. "\\n\\n"
                 .. _("KOReader skal genstartes for at aktivere pluginet.") .. "\\n"
                 .. _("Vil du genstarte KOReader nu?"),
             ok_text = _("Genstart nu"),
             cancel_text = _("Senere"),
             ok_callback = function()
-                if UIManager.restartKOReader then
-                    UIManager:restartKOReader()
-                else
-                    UIManager:show(InfoMessage:new{
-                        text = _("Genstart venligst KOReader manuelt."),
-                    })
-                end
+                self:triggerRestart()
             end,
         })
     end)

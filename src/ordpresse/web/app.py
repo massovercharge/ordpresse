@@ -902,10 +902,11 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
         }
     elif action == "download_update":
         import hashlib
-        from ordpresse.web.plugin_builder import MAIN_LUA, PLUGIN_VERSION
+        from ordpresse.web.plugin_builder import MAIN_LUA, META_LUA, PLUGIN_VERSION
         return {
             "version": PLUGIN_VERSION,
             "main_lua": MAIN_LUA,
+            "meta_lua": META_LUA,
             "sha256": hashlib.sha256(MAIN_LUA.encode("utf-8")).hexdigest(),
         }
     elif action == "store_catalog":
