@@ -215,6 +215,10 @@ function Annas:downloadBook(book)
         return
     end
 
+    if not book.download and book.md5 and book.md5 ~= "" then
+        book.download = "lgli"
+    end
+
     if not book.download then
         Ui.showErrorMessage(T("No download link available for this book."))
         return

@@ -254,6 +254,8 @@ class MirrorProberService:
                                                 "publisher": publisher,
                                                 "md5": md5,
                                                 "source": "libgen",
+                                                "download": "lgli",
+                                                "mirror": base_url,
                                                 "download_page": f"{base_url}/ads.php?md5={md5}",
                                             })
                         if len(results) >= 20:

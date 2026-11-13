@@ -665,6 +665,25 @@ function Ui.showBookDetails(parent_annas, book, clear_cache_callback)
         end,
     })
 
+    -- Ensure book.download is populated if we have an md5
+    local can_download = (book.download and book.download ~= "") or (book.md5 and book.md5 ~= "")
+    if can_download and (not book.download or book.download == "") then
+        book.download = "lgli"
+    end
+
+    -- Explicit, prominent download button at the top of details menu
+    if can_download then
+        local fmt_str = (book.format and book.format ~= "N/A" and book.format ~= "") and book.format:upper() or "EPUB"
+        local size_str = (book.size and book.size ~= "N/A" and book.size ~= "") and (" - " .. book.size) or ""
+        table.insert(details_menu_items, {
+            text = string.format("📥 %s (%s%s)", T("Download Book"), fmt_str, size_str),
+            mandatory = "\u{25B7}",
+            callback = function()
+                parent_annas:downloadBook(book)
+            end,
+        })
+    end
+
     if book.cover and book.cover ~= "" and book.hash then
         table.insert(details_menu_items, {
             text = string.format("%s %s", T("Cover"), T("(tap to view)")),
@@ -678,7 +697,7 @@ function Ui.showBookDetails(parent_annas, book, clear_cache_callback)
     if book.lang and book.lang ~= "N/A" then table.insert(details_menu_items, { text = _colon_concat(T("Language"), book.lang), enabled = false }) end
 
     if book.format and book.format ~= "N/A" then
-        if book.download then
+        if can_download then
             table.insert(details_menu_items, {
                 text = string.format(T("Format: %s (tap to download)"), book.format),
                 mandatory = "\u{25B7}",
@@ -687,9 +706,9 @@ function Ui.showBookDetails(parent_annas, book, clear_cache_callback)
                 end,
             })
         else
-            table.insert(details_menu_items, { text = string.format(T("Format: %s (Download source unavailable [zlib, lgli])"), book.format), enabled = false })
+            table.insert(details_menu_items, { text = string.format(T("Format: %s (Download source unavailable)"), book.format), enabled = false })
         end
-    elseif book.download then
+    elseif can_download then
         table.insert(details_menu_items, {
             text = T("Download Book (Unknown Format)"),
             mandatory = "\u{25B7}",

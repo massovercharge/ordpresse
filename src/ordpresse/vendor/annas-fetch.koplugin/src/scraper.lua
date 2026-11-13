@@ -368,8 +368,12 @@ function Scraper.download_book(book, path, progress_callback, is_cancelled_func)
         return "Failed, invalid book metadata"
     end
 
-    local clean_title = Scraper.sanitize_name(book.title or "Book")
-    local clean_author = Scraper.sanitize_name(book.author or "Author")
+    if is_cancelled_func and is_cancelled_func() then
+        return "Download cancelled"
+    end
+
+    local clean_title = Scraper.sanitize_name(book.title or "Book"):sub(1, 60)
+    local clean_author = Scraper.sanitize_name(book.author or "Author"):sub(1, 40)
     local ext = tostring(book.format or book.extension or "epub"):lower()
     local filename = string.format("%s/%s_%s.%s", path:gsub("/+$", ""), clean_title, clean_author, ext)
     local temp_file = filename .. ".part"
@@ -385,7 +389,7 @@ function Scraper.download_book(book, path, progress_callback, is_cancelled_func)
         end
         local extra_header = (cfg.api_key and cfg.api_key ~= "") and string.format("-H %s", shell_quote("X-API-Key: " .. cfg.api_key)) or ""
         local cmd = string.format(
-            "curl -k -L -sS --max-time 8 %s -A %s %s 2>&1",
+            "curl -k -L -sS --max-time 10 %s -A %s %s 2>&1",
             extra_header,
             shell_quote(USER_AGENT),
             shell_quote(api_url)
@@ -402,6 +406,10 @@ function Scraper.download_book(book, path, progress_callback, is_cancelled_func)
                 direct_ticket_url = payload.download_url
             end
         end
+    end
+
+    if is_cancelled_func and is_cancelled_func() then
+        return "Download cancelled"
     end
 
     if direct_ticket_url then
@@ -426,6 +434,9 @@ function Scraper.download_book(book, path, progress_callback, is_cancelled_func)
                 os.rename(temp_file, filename)
                 logger.info("AnnasFetch: Download complete: " .. filename .. " (" .. sz .. " bytes)")
                 return filename
+            else
+                logger.warn("AnnasFetch: Server ticket download returned invalid content or HTML. Falling back to direct mirrors.")
+                pcall(os.remove, temp_file)
             end
         end
     end
