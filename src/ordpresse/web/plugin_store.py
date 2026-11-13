@@ -6,19 +6,31 @@ from pathlib import Path
 from typing import List, Optional
 import zipfile
 
-VENDOR_ANNAS_DIR = Path(__file__).resolve().parent.parent / "vendor" / "annas-fetch.koplugin"
+def _get_vendor_annas_dir() -> Path:
+    candidates = [
+        Path(__file__).resolve().parent.parent / "vendor" / "annas-fetch.koplugin",
+        Path("/app/src/ordpresse/vendor/annas-fetch.koplugin"),
+        Path.cwd() / "src" / "ordpresse" / "vendor" / "annas-fetch.koplugin",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+VENDOR_ANNAS_DIR = _get_vendor_annas_dir()
 
 
 def build_annas_fetch_zip() -> bytes:
     """Generate in-memory zipball for annas-fetch.koplugin from vendor files."""
-    if not VENDOR_ANNAS_DIR.exists():
-        raise FileNotFoundError(f"Missing vendor directory: {VENDOR_ANNAS_DIR}")
+    vendor_dir = _get_vendor_annas_dir()
+    if not vendor_dir.exists():
+        raise FileNotFoundError(f"Missing vendor directory: {vendor_dir}")
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for file_path in sorted(VENDOR_ANNAS_DIR.rglob("*")):
+        for file_path in sorted(vendor_dir.rglob("*")):
             if file_path.is_file():
-                rel_path = file_path.relative_to(VENDOR_ANNAS_DIR)
+                rel_path = file_path.relative_to(vendor_dir)
                 arcname = str(Path("annas-fetch.koplugin") / rel_path)
                 zf.write(file_path, arcname=arcname)
     buf.seek(0)
