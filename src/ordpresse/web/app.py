@@ -44,7 +44,10 @@ from ordpresse.web.plugin_builder import (
     build_koplugin_zip,
     slugify_device_name,
 )
-from ordpresse.web.plugin_store import get_catalog_json, get_plugin_by_id
+from ordpresse.services.mirror_prober import MirrorProberService
+from ordpresse.web.plugin_store import build_annas_fetch_zip, get_catalog_json, get_plugin_by_id
+
+mirror_prober = MirrorProberService()
 
 from ordpresse import __version__
 from ordpresse.config import (
@@ -916,17 +919,38 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
             "meta_lua": META_LUA,
             "sha256": hashlib.sha256(MAIN_LUA.encode("utf-8")).hexdigest(),
         }
+    elif action == "annas_mirrors":
+        refresh = request.query_params.get("refresh", "false").lower() in ("true", "1", "yes")
+        payload = await mirror_prober.get_mirrors(force_refresh=refresh)
+        return JSONResponse(content=payload)
     elif action == "store_catalog":
         return JSONResponse(content=get_catalog_json())
     elif action == "store_download":
-        import httpx
-
         plugin_id = request.query_params.get("id", "").strip()
         plugin = get_plugin_by_id(plugin_id)
         if not plugin:
             raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' ikke fundet i kataloget.")
 
+        if plugin_id == "annas-fetch":
+            try:
+                zip_bytes = build_annas_fetch_zip()
+            except FileNotFoundError as exc:
+                logger.error(f"Plugin store: Fejl ved pakning af {plugin_id}: {exc}")
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+            return Response(
+                content=zip_bytes,
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{plugin.koplugin_name}.zip"',
+                    "X-Plugin-Id": plugin.id,
+                    "X-Plugin-Version": plugin.version,
+                    "X-Koplugin-Name": plugin.koplugin_name,
+                },
+            )
+
         # Proxy-download fra GitHub zipball og stream til KOReader-enheden
+        import httpx
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
                 github_resp = await client.get(

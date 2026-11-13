@@ -544,6 +544,19 @@ def test_store_catalog_via_external_tunnel(client):
 def test_store_download_success_mocked(client, monkeypatch):
     """store_download proxies zipball from GitHub successfully."""
     import httpx
+    from ordpresse.web.plugin_store import StorePlugin
+
+    fake_plugin = StorePlugin(
+        id="dummy-github",
+        name="Dummy",
+        description="Dummy",
+        version="1.0.0",
+        author="dummy",
+        github_repo="dummy/dummy",
+        koplugin_name="dummy.koplugin",
+        zipball_url="https://api.github.com/repos/dummy/dummy/zipball/v1.0.0",
+    )
+    monkeypatch.setattr("ordpresse.web.app.get_plugin_by_id", lambda pid: fake_plugin if pid == "dummy-github" else None)
 
     fake_zip_bytes = b"PK\x03\x04fakezipcontent"
 
@@ -569,20 +582,33 @@ def test_store_download_success_mocked(client, monkeypatch):
     headers = {"X-API-Key": raw_key}
 
     res = client.get(
-        "/api/v1/koreader/lookup?action=store_download&id=annas-fetch",
+        "/api/v1/koreader/lookup?action=store_download&id=dummy-github",
         headers=headers,
     )
     assert res.status_code == 200
     assert res.content == fake_zip_bytes
     assert res.headers["content-type"] == "application/zip"
-    assert res.headers["x-plugin-id"] == "annas-fetch"
-    assert res.headers["x-koplugin-name"] == "annas-fetch.koplugin"
-    assert 'filename="annas-fetch.koplugin.zip"' in res.headers["content-disposition"]
+    assert res.headers["x-plugin-id"] == "dummy-github"
+    assert res.headers["x-koplugin-name"] == "dummy.koplugin"
+    assert 'filename="dummy.koplugin.zip"' in res.headers["content-disposition"]
 
 
 def test_store_download_github_error_returns_502(client, monkeypatch):
     """store_download returns 502 when GitHub request fails."""
     import httpx
+    from ordpresse.web.plugin_store import StorePlugin
+
+    fake_plugin = StorePlugin(
+        id="dummy-github",
+        name="Dummy",
+        description="Dummy",
+        version="1.0.0",
+        author="dummy",
+        github_repo="dummy/dummy",
+        koplugin_name="dummy.koplugin",
+        zipball_url="https://api.github.com/repos/dummy/dummy/zipball/v1.0.0",
+    )
+    monkeypatch.setattr("ordpresse.web.app.get_plugin_by_id", lambda pid: fake_plugin if pid == "dummy-github" else None)
 
     class MockAsyncClient:
         def __init__(self, *args, **kwargs):
@@ -601,7 +627,7 @@ def test_store_download_github_error_returns_502(client, monkeypatch):
     headers = {"X-API-Key": raw_key}
 
     res = client.get(
-        "/api/v1/koreader/lookup?action=store_download&id=annas-fetch",
+        "/api/v1/koreader/lookup?action=store_download&id=dummy-github",
         headers=headers,
     )
     assert res.status_code == 502

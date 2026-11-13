@@ -1,7 +1,28 @@
 """Curated OTA Plugin Store catalog for KOReader devices."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+import io
+from pathlib import Path
 from typing import List, Optional
+import zipfile
+
+VENDOR_ANNAS_DIR = Path(__file__).resolve().parent.parent / "vendor" / "annas-fetch.koplugin"
+
+
+def build_annas_fetch_zip() -> bytes:
+    """Generate in-memory zipball for annas-fetch.koplugin from vendor files."""
+    if not VENDOR_ANNAS_DIR.exists():
+        raise FileNotFoundError(f"Missing vendor directory: {VENDOR_ANNAS_DIR}")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for file_path in sorted(VENDOR_ANNAS_DIR.rglob("*")):
+            if file_path.is_file():
+                rel_path = file_path.relative_to(VENDOR_ANNAS_DIR)
+                arcname = str(Path("annas-fetch.koplugin") / rel_path)
+                zf.write(file_path, arcname=arcname)
+    buf.seek(0)
+    return buf.read()
 
 
 @dataclass
@@ -10,14 +31,14 @@ class StorePlugin:
     id: str                      # Unikt ID, fx "annas-fetch"
     name: str                    # Brugervenligt navn, fx "Anna's Archive"
     description: str             # Kort beskrivelse (1-2 sætninger, dansk)
-    version: str                 # Nyeste version, fx "1.1.0"
+    version: str                 # Nyeste version, fx "1.2.0-ordpresse"
     author: str                  # Forfatter / GitHub bruger
     github_repo: str             # "owner/repo" format, fx "right9code/annas-fetch.koplugin"
     koplugin_name: str           # Mappenavn i koreader/plugins/, fx "annas-fetch.koplugin"
-    zipball_url: str             # Direkte URL til GitHub zipball (tag eller branch)
+    zipball_url: str             # Direkte URL eller tom hvis lokal distribution
     category: str = "utility"    # Kategori: "books", "utility", "ui", "sync"
     min_koreader: str = "2024.07"  # Minimum KOReader version
-    size_estimate_kb: int = 50   # Estimeret størrelse i KB
+    size_estimate_kb: int = 150  # Estimeret størrelse i KB
     license: str = "GPL-3.0"     # Licenstype
     install_note: Optional[str] = None  # Valgfri installationsnotat
 
@@ -25,26 +46,21 @@ class StorePlugin:
 # -------------------------------------------------------------------
 # Kurateret Plugin Katalog
 # -------------------------------------------------------------------
-# VIGTIGT: Kun plugins der IKKE er inkluderet som standard i KOReader.
-# Calibre, Wallabag, OPDS, etc. er allerede standard og skal IKKE med.
-# -------------------------------------------------------------------
-
 PLUGIN_CATALOG: List[StorePlugin] = [
     StorePlugin(
         id="annas-fetch",
-        name="📚 Anna's Archive",
-        description="Søg og download bøger direkte fra Anna's Archive. "
-                    "Understøtter sprogfiltrering, formatvalg og streaming til disk.",
-        version="1.1.0",
-        author="right9code",
+        name="📚 Anna's Archive (Ordpresse)",
+        description="Dual-source bogsøgning (Libgen + Anna's Archive) med Ordpresse mirror-orkestrering.",
+        version="1.2.0-ordpresse",
+        author="right9code / Ordpresse",
         github_repo="right9code/annas-fetch.koplugin",
         koplugin_name="annas-fetch.koplugin",
-        zipball_url="https://api.github.com/repos/right9code/annas-fetch.koplugin/zipball/v1.1.0",
+        zipball_url="",
         category="books",
         min_koreader="2024.07",
-        size_estimate_kb=85,
+        size_estimate_kb=150,
         license="GPL-3.0",
-        install_note="Kræver Wi-Fi. Brug DNS 1.1.1.1 hvis downloads fejler.",
+        install_note="Forbedret med automatisk spejlstyring og Libgen dual-source.",
     ),
 ]
 
@@ -76,4 +92,3 @@ def get_plugin_by_id(plugin_id: str) -> Optional[StorePlugin]:
         if p.id == plugin_id:
             return p
     return None
-
