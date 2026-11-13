@@ -912,23 +912,38 @@ class Database:
     # API Keys & KOReader Online Cache (V10.2 Zero-Trust)
     # ---------------------------------------------------------
 
-    def create_api_key(self, device_name: str) -> tuple[str, dict]:
-        """Generate a cryptographically secure API key and store its SHA-256 hash."""
-        raw_key = f"ord_{secrets.token_hex(24)}"
+    def create_api_key(self, device_name: str, custom_key: Optional[str] = None) -> tuple[str, dict]:
+        """Generate a cryptographically secure API key or use custom key, and store its SHA-256 hash."""
+        if custom_key and custom_key.strip():
+            c = custom_key.strip()
+            if not c.startswith("ord_"):
+                c = f"ord_{c}"
+            c = re.sub(r"[^a-zA-Z0-9_-]", "", c)[:64]
+            raw_key = c
+        else:
+            raw_key = f"ord_{secrets.token_hex(24)}"
         key_prefix = raw_key[:8]
         key_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
         created_at = datetime.now(timezone.utc).isoformat()
 
         with self._write_lock:
             with self.cache_conn as conn:
-                cursor = conn.execute(
-                    """
-                    INSERT INTO api_keys (device_name, key_prefix, key_hash, is_active, created_at, lookup_count)
-                    VALUES (?, ?, ?, 1, ?, 0)
-                    """,
-                    (device_name.strip(), key_prefix, key_hash, created_at),
-                )
-                key_id = cursor.lastrowid
+                existing = conn.execute("SELECT id FROM api_keys WHERE key_hash = ?", (key_hash,)).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE api_keys SET is_active = 1, device_name = ?, revoked_at = NULL WHERE id = ?",
+                        (device_name.strip(), existing["id"]),
+                    )
+                    key_id = existing["id"]
+                else:
+                    cursor = conn.execute(
+                        """
+                        INSERT INTO api_keys (device_name, key_prefix, key_hash, is_active, created_at, lookup_count)
+                        VALUES (?, ?, ?, 1, ?, 0)
+                        """,
+                        (device_name.strip(), key_prefix, key_hash, created_at),
+                    )
+                    key_id = cursor.lastrowid
                 row = conn.execute(
                     """
                     SELECT id, device_name, key_prefix, is_active, created_at, revoked_at, last_used_at, lookup_count

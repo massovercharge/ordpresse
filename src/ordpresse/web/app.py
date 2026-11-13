@@ -902,6 +902,7 @@ async def set_build_mode_endpoint(build_id: str, request: Request):
 class ProvisionKeyPayload(BaseModel):
     device_name: str = Field(..., min_length=1, max_length=100)
     endpoint_url: Optional[str] = "https://ordpresse.seame.click/api/v1/koreader/lookup"
+    custom_key: Optional[str] = None
 
 
 @app.get("/api/v1/koreader/lookup")
@@ -1127,7 +1128,7 @@ def provision_api_key(payload: ProvisionKeyPayload):
 
     endpoint_url = (payload.endpoint_url or "").strip() or "https://ordpresse.seame.click/api/v1/koreader/lookup"
     db = Database()
-    raw_key, key_row = db.create_api_key(name)
+    raw_key, key_row = db.create_api_key(name, custom_key=payload.custom_key)
     zip_bytes = build_koplugin_zip(name, raw_key, endpoint_url)
     slug = slugify_device_name(name)
 

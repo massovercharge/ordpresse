@@ -30,6 +30,18 @@ def test_canonical_filename_formatting():
     assert canonical_filename("", "") == "Book.epub"
 
 
+def test_create_api_key_with_custom_key():
+    db = Database()
+    raw_key, row = db.create_api_key("Custom Key Device", custom_key="x4pro")
+    assert raw_key == "ord_x4pro"
+    assert row["key_prefix"] == "ord_x4pr"
+
+    # Test lookup works with custom key
+    client = TestClient(app)
+    res = client.get(f"/opds?api_key={raw_key}")
+    assert res.status_code == 200
+
+
 def test_format_size_human():
     assert format_size_human(0) == "0 KB"
     assert format_size_human(-10) == "0 KB"
