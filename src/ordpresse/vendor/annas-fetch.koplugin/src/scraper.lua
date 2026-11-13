@@ -57,7 +57,7 @@ end
 function Scraper.execCurl(url, max_time)
     local timeout = max_time or 20
     local cmd = string.format(
-        "curl -L -s --max-time %d -A %s -c %s -b %s %s 2>&1",
+        "curl -k -L -sS --max-time %d -A %s -c %s -b %s %s 2>&1",
         timeout,
         shell_quote(USER_AGENT),
         shell_quote(COOKIE_JAR),
@@ -114,7 +114,7 @@ function Scraper.getActiveMirrors()
         end
         local extra_header = (cfg.api_key and cfg.api_key ~= "") and string.format("-H %s", shell_quote("X-API-Key: " .. cfg.api_key)) or ""
         local cmd = string.format(
-            "curl -L -s --max-time 3 %s -A %s -c %s -b %s %s 2>&1",
+            "curl -k -L -sS --max-time 3 %s -A %s -c %s -b %s %s 2>&1",
             extra_header,
             shell_quote(USER_AGENT),
             shell_quote(COOKIE_JAR),
@@ -156,24 +156,42 @@ function Scraper.parseLibgenHtml(html, base_url)
     for row in string.gmatch(html, "<tr[^>]*>(.-)</tr>") do
         local md5 = string.match(row, "md5=([0-9a-fA-F]+)")
         if md5 and #md5 == 32 then
-            local title = string.match(row, "<a[^>]-title=[^>]->(.-)</a>")
-                or string.match(row, "edition%.php[^>]->(.-)</a>")
-                or string.match(row, "<a[^>]-href=[\"'][^\"']*edition%.php[^\"']*[\"'][^>]*>(.-)</a>")
-                or "Unknown Title"
-            title = title:gsub("<[^>]+>", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
-
-            local author = "Unknown Author"
             local cells = {}
             for cell in string.gmatch(row, "<td[^>]*>(.-)</td>") do
-                table.insert(cells, cell:gsub("<[^>]+>", ""):gsub("%s+", " "):match("^%s*(.-)%s*$"))
-            end
-            if #cells >= 5 and cells[5] and cells[5] ~= "" then
-                author = cells[5]
+                table.insert(cells, cell)
             end
 
-            local year = (#cells >= 7 and cells[7] and cells[7] ~= "") and cells[7] or nil
-            local size = (#cells >= 8 and cells[8] and cells[8] ~= "") and cells[8] or nil
-            local ext = (#cells >= 9 and cells[9] and cells[9] ~= "") and cells[9]:lower() or "epub"
+            local title = "Unknown Title"
+            if cells[1] then
+                title = string.match(cells[1], "<a[^>]-href=[\"'][^\"']*edition%.php[^\"']*[\"'][^>]*>(.-)</a>")
+                    or string.match(cells[1], "<a[^>]-title=[^>]->(.-)</a>")
+                    or cells[1]
+                title = title:gsub("<[^>]+>", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
+            end
+
+            local author = "Unknown Author"
+            if cells[2] and cells[2] ~= "" then
+                author = cells[2]:gsub("<[^>]+>", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
+                if author == "" then author = "Unknown Author" end
+            end
+
+            local year = nil
+            if cells[4] and cells[4] ~= "" then
+                local y_clean = cells[4]:gsub("<[^>]+>", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
+                if y_clean ~= "" then year = y_clean end
+            end
+
+            local size = nil
+            if cells[7] and cells[7] ~= "" then
+                local s_clean = cells[7]:gsub("<[^>]+>", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
+                if s_clean ~= "" then size = s_clean end
+            end
+
+            local ext = "epub"
+            if cells[8] and cells[8] ~= "" then
+                local e_clean = cells[8]:gsub("<[^>]+>", ""):gsub("%s+", " "):match("^%s*(.-)%s*$"):lower()
+                if e_clean ~= "" then ext = e_clean end
+            end
 
             local dl_path = string.match(row, 'href="([^"]*get%.php%?md5=[0-9a-fA-F]+[^"]*)"')
                 or string.match(row, 'href="([^"]*ads%.php%?md5=[0-9a-fA-F]+[^"]*)"')
@@ -236,19 +254,56 @@ function Scraper.parseAnnasHtml(html, base_url)
 end
 
 function Scraper.search(query)
+    -- Step 1: Zero-config server-assisted search via Ordpresse if reachable
+    local cfg = Scraper.getOrdpresseConfig()
+    if cfg and cfg.endpoint_url then
+        local sep = string.find(cfg.endpoint_url, "?", 1, true) and "&" or "?"
+        local api_url = cfg.endpoint_url .. sep .. "action=annas_search&q=" .. url_encode(query)
+        if cfg.api_key and cfg.api_key ~= "" then
+            api_url = api_url .. "&api_key=" .. url_encode(cfg.api_key)
+        end
+        local extra_header = (cfg.api_key and cfg.api_key ~= "") and string.format("-H %s", shell_quote("X-API-Key: " .. cfg.api_key)) or ""
+        local cmd = string.format(
+            "curl -k -L -sS --max-time 8 %s -A %s %s 2>&1",
+            extra_header,
+            shell_quote(USER_AGENT),
+            shell_quote(api_url)
+        )
+        local handle = io.popen(cmd, "r")
+        local raw = nil
+        if handle then
+            raw = handle:read("*a")
+            handle:close()
+        end
+        if raw and #raw > 0 then
+            local ok, payload = pcall(json.decode, raw)
+            if ok and type(payload) == "table" and payload.results and #payload.results > 0 then
+                logger.info(string.format("AnnasFetch: Server search found %d hits for '%s'", #payload.results, query))
+                return payload.results
+            end
+        end
+    end
+
+    -- Step 2: Client-side Libgen scraping (with fiction tab prioritized)
     local mirrors = Scraper.getActiveMirrors()
     local encoded_q = url_encode(query)
 
     for _, base_url in ipairs(mirrors.libgen or DEFAULT_MIRRORS.libgen) do
-        local search_url = string.format("%s/index.php?req=%s&res=50", base_url, encoded_q)
+        local search_url = string.format("%s/index.php?req=%s&columns%%5B%%5D=t&columns%%5B%%5D=a&curtab=f&res=50", base_url, encoded_q)
         local html = Scraper.execCurl(search_url, 15)
         local hits = Scraper.parseLibgenHtml(html, base_url)
+        if #hits == 0 then
+            search_url = string.format("%s/index.php?req=%s&res=50", base_url, encoded_q)
+            html = Scraper.execCurl(search_url, 15)
+            hits = Scraper.parseLibgenHtml(html, base_url)
+        end
         if #hits > 0 then
             logger.info("AnnasFetch: Found " .. #hits .. " hits via Libgen mirror " .. base_url)
             return hits
         end
     end
 
+    -- Step 3: Client-side Anna's Archive scraping fallback
     for _, base_url in ipairs(mirrors.annas or DEFAULT_MIRRORS.annas) do
         local search_url = string.format("%s/search?q=%s", base_url, encoded_q)
         local html = Scraper.execCurl(search_url, 20)
@@ -273,6 +328,63 @@ function Scraper.download_book(book, path, progress_callback, is_cancelled_func)
     local filename = string.format("%s/%s_%s.%s", path:gsub("/+$", ""), clean_title, clean_author, ext)
     local temp_file = filename .. ".part"
 
+    -- 1. Try server-assisted download ticket resolution if Ordpresse available
+    local cfg = Scraper.getOrdpresseConfig()
+    local direct_ticket_url = nil
+    if cfg and cfg.endpoint_url then
+        local sep = string.find(cfg.endpoint_url, "?", 1, true) and "&" or "?"
+        local api_url = cfg.endpoint_url .. sep .. "action=annas_download_ticket&md5=" .. url_encode(book.md5)
+        if cfg.api_key and cfg.api_key ~= "" then
+            api_url = api_url .. "&api_key=" .. url_encode(cfg.api_key)
+        end
+        local extra_header = (cfg.api_key and cfg.api_key ~= "") and string.format("-H %s", shell_quote("X-API-Key: " .. cfg.api_key)) or ""
+        local cmd = string.format(
+            "curl -k -L -sS --max-time 8 %s -A %s %s 2>&1",
+            extra_header,
+            shell_quote(USER_AGENT),
+            shell_quote(api_url)
+        )
+        local handle = io.popen(cmd, "r")
+        local raw = nil
+        if handle then
+            raw = handle:read("*a")
+            handle:close()
+        end
+        if raw and #raw > 0 then
+            local ok, payload = pcall(json.decode, raw)
+            if ok and type(payload) == "table" and payload.download_url then
+                direct_ticket_url = payload.download_url
+            end
+        end
+    end
+
+    if direct_ticket_url then
+        pcall(os.remove, temp_file)
+        logger.info("AnnasFetch: Downloading from server-resolved ticket: " .. direct_ticket_url)
+        local dl_cmd = string.format(
+            "curl -k -L -sS --max-time 180 -A %s -c %s -b %s -o %s %s 2>&1",
+            shell_quote(USER_AGENT),
+            shell_quote(COOKIE_JAR),
+            shell_quote(COOKIE_JAR),
+            shell_quote(temp_file),
+            shell_quote(direct_ticket_url)
+        )
+        os.execute(dl_cmd)
+        local f = io.open(temp_file, "rb")
+        if f then
+            local head = f:read(512) or ""
+            local sz = f:seek("end")
+            f:close()
+            local is_html = head:find("^%s*<!doctype html") or head:find("^%s*<html")
+            if sz and sz > 1000 and not is_html then
+                os.rename(temp_file, filename)
+                logger.info("AnnasFetch: Download complete: " .. filename .. " (" .. sz .. " bytes)")
+                return filename
+            end
+        end
+    end
+
+    -- 2. Direct mirror fallback
     local mirrors = Scraper.getActiveMirrors()
     local libgen_mirrors = mirrors.libgen or DEFAULT_MIRRORS.libgen
 
@@ -301,7 +413,7 @@ function Scraper.download_book(book, path, progress_callback, is_cancelled_func)
             pcall(os.remove, temp_file)
 
             local dl_cmd = string.format(
-                "curl -L -s --max-time 180 -A %s -c %s -b %s -o %s %s 2>&1",
+                "curl -k -L -sS --max-time 180 -A %s -c %s -b %s -o %s %s 2>&1",
                 shell_quote(USER_AGENT),
                 shell_quote(COOKIE_JAR),
                 shell_quote(COOKIE_JAR),

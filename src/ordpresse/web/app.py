@@ -923,6 +923,14 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
         refresh = request.query_params.get("refresh", "false").lower() in ("true", "1", "yes")
         payload = await mirror_prober.get_mirrors(force_refresh=refresh)
         return JSONResponse(content=payload)
+    elif action == "annas_search":
+        q = request.query_params.get("q") or request.query_params.get("query") or ""
+        payload = await mirror_prober.search_books(q)
+        return JSONResponse(content=payload)
+    elif action == "annas_download_ticket":
+        md5 = request.query_params.get("md5", "").strip()
+        payload = await mirror_prober.resolve_download_ticket(md5)
+        return JSONResponse(content=payload)
     elif action == "store_catalog":
         return JSONResponse(content=get_catalog_json())
     elif action == "store_download":

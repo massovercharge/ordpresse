@@ -62,8 +62,8 @@ PLUGIN_CATALOG: List[StorePlugin] = [
     StorePlugin(
         id="annas-fetch",
         name="📚 Anna's Archive (Ordpresse)",
-        description="Dual-source bogsøgning (Libgen + Anna's Archive) med Ordpresse mirror-orkestrering.",
-        version="1.2.0-ordpresse",
+        description="Dual-source bogsøgning (Libgen + Anna's Archive) med Ordpresse server-search og mirror-orkestrering.",
+        version="1.2.1-ordpresse",
         author="right9code / Ordpresse",
         github_repo="right9code/annas-fetch.koplugin",
         koplugin_name="annas-fetch.koplugin",

@@ -1,6 +1,9 @@
 import asyncio
+import re
 import time
+import urllib.parse
 from typing import Any
+from bs4 import BeautifulSoup
 import httpx
 
 LIBGEN_CANDIDATES = [
@@ -40,6 +43,7 @@ class MirrorProberService:
         self._lock = asyncio.Lock()
         self._backoff_until: dict[str, float] = {}
         self._fail_counts: dict[str, int] = {}
+        self._search_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
     def _is_parked(self, body_lower: str) -> bool:
         return any(marker in body_lower for marker in PARKING_MARKERS)
@@ -160,4 +164,114 @@ class MirrorProberService:
                 },
             }
             return self._cache
+
+    async def search_books(self, query: str) -> dict[str, Any]:
+        cleaned_query = (query or "").strip()
+        if not cleaned_query:
+            return {"status": "ok", "query": "", "count": 0, "results": []}
+
+        now = time.time()
+        cached = self._search_cache.get(cleaned_query.lower())
+        if cached and (now - cached[0]) < self.ttl_seconds:
+            return {"status": "ok", "query": cleaned_query, "count": len(cached[1]), "results": cached[1]}
+
+        mirrors = await self.get_mirrors()
+        libgen_mirrors = mirrors.get("flat_mirrors", {}).get("libgen", ["https://libgen.li"])
+
+        results: list[dict[str, Any]] = []
+        async with httpx.AsyncClient(
+            timeout=10.0,
+            headers={"User-Agent": BROWSER_UA},
+            verify=False,
+        ) as client:
+            for base_url in libgen_mirrors:
+                encoded_q = urllib.parse.quote_plus(cleaned_query)
+                search_urls = [
+                    f"{base_url}/index.php?req={encoded_q}&columns[]=t&columns[]=a&curtab=f&res=50",
+                    f"{base_url}/index.php?req={encoded_q}&res=50",
+                ]
+                for s_url in search_urls:
+                    try:
+                        resp = await client.get(s_url, follow_redirects=True)
+                        if resp.status_code == 200 and "<tr" in resp.text:
+                            soup = BeautifulSoup(resp.text, "html.parser")
+                            table = soup.find("table", {"id": "tablelibgen"}) or soup.find("table")
+                            if table:
+                                for tr in table.find_all("tr"):
+                                    tds = tr.find_all("td")
+                                    if len(tds) >= 8:
+                                        md5_match = re.search(r"md5=([0-9a-fA-F]{32})", str(tr))
+                                        if md5_match:
+                                            md5 = md5_match.group(1).lower()
+                                            title_a = tds[0].find("a", href=re.compile(r"edition\.php"))
+                                            title = title_a.get_text(strip=True) if title_a else tds[0].get_text(strip=True)
+                                            title = re.sub(r"\s+", " ", title).strip()
+
+                                            author = tds[1].get_text(strip=True) if len(tds) > 1 else "Unknown Author"
+                                            publisher = tds[2].get_text(strip=True) if len(tds) > 2 else ""
+                                            year = tds[3].get_text(strip=True) if len(tds) > 3 else ""
+                                            lang = tds[4].get_text(strip=True) if len(tds) > 4 else ""
+                                            pages = tds[5].get_text(strip=True) if len(tds) > 5 else ""
+                                            size = tds[6].get_text(strip=True) if len(tds) > 6 else ""
+                                            ext = tds[7].get_text(strip=True).lower() if len(tds) > 7 else "epub"
+
+                                            if not any(r["md5"] == md5 for r in results):
+                                                results.append({
+                                                    "title": title or "Unknown Title",
+                                                    "author": author or "Unknown Author",
+                                                    "year": year,
+                                                    "format": ext,
+                                                    "extension": ext,
+                                                    "size": size,
+                                                    "language": lang,
+                                                    "pages": pages,
+                                                    "publisher": publisher,
+                                                    "md5": md5,
+                                                    "source": "libgen",
+                                                    "download_page": f"{base_url}/ads.php?md5={md5}",
+                                                })
+                        if results:
+                            break
+                    except Exception:
+                        continue
+                if results:
+                    break
+
+        format_priority = {"epub": 1, "azw3": 2, "mobi": 3, "pdf": 4}
+        results.sort(key=lambda r: format_priority.get(r.get("format", "").lower(), 10))
+
+        self._search_cache[cleaned_query.lower()] = (now, results)
+        return {"status": "ok", "query": cleaned_query, "count": len(results), "results": results}
+
+    async def resolve_download_ticket(self, md5: str) -> dict[str, Any]:
+        cleaned_md5 = (md5 or "").strip().lower()
+        if not re.match(r"^[0-9a-fA-F]{32}$", cleaned_md5):
+            return {"status": "error", "error": "Invalid MD5"}
+
+        mirrors = await self.get_mirrors()
+        libgen_mirrors = mirrors.get("flat_mirrors", {}).get("libgen", ["https://libgen.li"])
+
+        async with httpx.AsyncClient(
+            timeout=10.0,
+            headers={"User-Agent": BROWSER_UA},
+            verify=False,
+        ) as client:
+            for base_url in libgen_mirrors:
+                ads_url = f"{base_url}/ads.php?md5={cleaned_md5}"
+                try:
+                    resp = await client.get(ads_url, follow_redirects=True)
+                    if resp.status_code == 200:
+                        m = re.search(r'href=[\'"]([^\'"]*get\.php[^\'"]*)[\'"]', resp.text)
+                        if m:
+                            get_path = m.group(1).lstrip("/")
+                            download_url = f"{base_url}/{get_path}"
+                            return {
+                                "status": "ok",
+                                "md5": cleaned_md5,
+                                "download_url": download_url,
+                            }
+                except Exception:
+                    continue
+
+        return {"status": "error", "error": "Could not resolve download ticket"}
 
