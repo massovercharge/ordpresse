@@ -67,6 +67,9 @@
                 <a href="#plugin-store-section" class="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95" title="Gå til Plugin Butik & Bogsøgning">
                     <span>🛍️</span> <span>Plugin Butik</span>
                 </a>
+                <a href="#books-archive-section" class="hidden xl:flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95" title="Gå til Bogarkiv & CrossPoint OPDS">
+                    <span>📚</span> <span>Bogarkiv & OPDS</span>
+                </a>
                 <a href="/api/download/latest" class="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95" title="Hent seneste komplette ordbog">
                     <span>⬇</span> <span>Hent komplet ordbog</span>
                 </a>
@@ -808,6 +811,123 @@
                     </ol>
                 </div>
             </details>
+        </div>
+
+        <!-- Section: 📚 Centralt Bogarkiv & CrossPoint OPDS Katalog -->
+        <div id="books-archive-section" class="bg-slate-900/80 rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-xl space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-xl font-bold">
+                        📚
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-white tracking-tight flex flex-wrap items-center gap-2">
+                            <span>Centralt Bogarkiv &amp; CrossPoint OPDS</span>
+                            <span class="text-[11px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-mono font-semibold">OPDS 1.2 Feed</span>
+                            <span class="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-mono uppercase">CrossPoint Sync Klar</span>
+                        </h3>
+                        <p class="text-xs text-slate-400">
+                            Bøger hentet via Anna Fetch arkiveres centralt på serveren med kanoniske filnavne og serveres via OPDS til din lille CrossPoint-læser (Xteink X4 Pro).
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" id="refresh-books-btn" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer" title="Genindlæs bogarkivet">
+                        <span>↻</span> <span>Opdater arkiv</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- OPDS Integration & CrossPoint Setup Card -->
+            <div class="bg-slate-950/60 p-5 rounded-xl border border-slate-800 space-y-4">
+                <div>
+                    <h4 class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>📡</span> <span>Forbind CrossPoint E-Læser via OPDS</span>
+                    </h4>
+                    <p class="text-[11px] text-slate-400 mt-0.5">
+                        Brug din Ordpresse API-nøgle til at forbinde CrossPoint over internettet (<code class="text-emerald-400 font-mono">https://ordpresse.seame.click</code>) &mdash; også når du ikke er hjemme.
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                    <div class="md:col-span-4 space-y-1">
+                        <label for="opds-api-key-input" class="block text-xs font-medium text-slate-400">Din API-nøgle (ord_...):</label>
+                        <input
+                            type="text"
+                            id="opds-api-key-input"
+                            placeholder="Indsæt din API-nøgle (ord_...)"
+                            class="w-full px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-xl text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                        >
+                    </div>
+                    <div class="md:col-span-8 space-y-1">
+                        <label for="opds-feed-url-input" class="block text-xs font-medium text-slate-400">CrossPoint OPDS Katalog-URL:</label>
+                        <div class="flex gap-2">
+                            <input
+                                type="text"
+                                id="opds-feed-url-input"
+                                readonly
+                                value="https://ordpresse.seame.click/opds"
+                                class="flex-1 px-3.5 py-2 bg-slate-900 border border-slate-700/80 rounded-xl text-xs font-mono text-emerald-300 select-all focus:outline-none"
+                            >
+                            <button
+                                type="button"
+                                id="copy-opds-url-btn"
+                                class="px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                            >
+                                <span>📋</span> <span id="copy-opds-label">Kopier URL</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step-by-step CrossPoint guide -->
+                <details class="bg-slate-900/60 rounded-xl p-3.5 border border-slate-800/80 text-xs space-y-2 text-slate-300">
+                    <summary class="font-semibold text-slate-200 cursor-pointer hover:text-emerald-300 select-none flex items-center gap-2">
+                        <span>📖</span> <span>Trin-for-trin: Sådan opsætter du CrossPoint (Xteink X4 Pro)</span>
+                    </summary>
+                    <div class="pt-2 pl-4 text-xs space-y-1.5 text-slate-300 border-l-2 border-emerald-500/40">
+                        <p><strong>1. Wi-Fi:</strong> Forbind din CrossPoint e-læser til Wi-Fi eller mobil hotspot.</p>
+                        <p><strong>2. OPDS Browser:</strong> Åbn CrossPoint menuen &gt; vælg <strong class="text-white">Settings &gt; System &gt; OPDS Browser</strong> (eller <em>Calibre Wireless</em>).</p>
+                        <p><strong>3. Tilføj katalog:</strong> Opret et nyt katalog ved navn <code class="text-emerald-400 font-mono">Ordpresse</code> og indsæt URL'en ovenfor (den indeholder automatisk din <code class="text-slate-300 font-mono">?api_key=ord_...</code>).</p>
+                        <p><strong>4. Hent &amp; CrossPoint Sync:</strong> Når du henter bogen, gemmes den med det <em>nøjagtig samme filnavn og uændrede binære EPUB-indhold</em> som på din Kindle. CrossPoint Sync genkender den med det samme og synkroniserer din læseposition automatisk!</p>
+                    </div>
+                </details>
+            </div>
+
+            <!-- Archived Books List & Stats -->
+            <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <h4 class="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                            Arkiverede Bøger i Biblioteket
+                        </h4>
+                        <span id="books-count-badge" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">Indlæser...</span>
+                    </div>
+                    <div id="books-storage-stat" class="text-xs text-slate-400 font-mono"></div>
+                </div>
+
+                <div class="border border-slate-800 rounded-xl overflow-hidden bg-slate-950/60 shadow-inner">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-900/90 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                                <tr>
+                                    <th class="py-3 px-4">Titel &amp; Forfatter</th>
+                                    <th class="py-3 px-4">Kanonisk Filnavn</th>
+                                    <th class="py-3 px-4">Format</th>
+                                    <th class="py-3 px-4">Størrelse</th>
+                                    <th class="py-3 px-4">Dato</th>
+                                    <th class="py-3 px-4 text-right">Handlinger</th>
+                                </tr>
+                            </thead>
+                            <tbody id="books-tbody" class="divide-y divide-slate-800/60 text-slate-300">
+                                <tr>
+                                    <td colspan="6" class="py-8 text-center text-slate-500 italic">Indlæser bogarkiv...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Mandatory Legal Attribution Block (Section 5) -->
@@ -1571,6 +1691,17 @@
                     window.URL.revokeObjectURL(url);
 
                     const pluginVer = res.headers.get('X-Plugin-Version') || {{ plugin_version | tojson }};
+                    const rawKeyHeader = res.headers.get('X-Raw-Api-Key');
+                    if (rawKeyHeader) {
+                        try {
+                            localStorage.setItem('ordpresse_api_key', rawKeyHeader);
+                            const opdsApiKeyInput = document.getElementById('opds-api-key-input');
+                            if (opdsApiKeyInput) {
+                                opdsApiKeyInput.value = rawKeyHeader;
+                                if (typeof updateOpdsUrl === 'function') updateOpdsUrl();
+                            }
+                        } catch(e) {}
+                    }
                     provisionFeedback.className = 'text-xs p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 block';
                     provisionFeedback.textContent = `✅ API-nøgle oprettet for "${deviceName}", og "${filename}" (Plugin v${pluginVer}) er hentet!`;
                     deviceNameInput.value = '';
@@ -1803,8 +1934,155 @@
             });
         }
 
-        // Load mirrors on page load
+        // Book Archive & CrossPoint OPDS Management
+        const booksTbody = document.getElementById('books-tbody');
+        const booksCountBadge = document.getElementById('books-count-badge');
+        const booksStorageStat = document.getElementById('books-storage-stat');
+        const refreshBooksBtn = document.getElementById('refresh-books-btn');
+        const opdsApiKeyInput = document.getElementById('opds-api-key-input');
+        const opdsFeedUrlInput = document.getElementById('opds-feed-url-input');
+        const copyOpdsUrlBtn = document.getElementById('copy-opds-url-btn');
+        const copyOpdsLabel = document.getElementById('copy-opds-label');
+
+        function updateOpdsUrl() {
+            if (!opdsFeedUrlInput) return;
+            const origin = window.location.origin || 'https://ordpresse.seame.click';
+            const keyVal = opdsApiKeyInput ? opdsApiKeyInput.value.trim() : '';
+            if (keyVal) {
+                opdsFeedUrlInput.value = `${origin}/opds?api_key=${encodeURIComponent(keyVal)}`;
+                try {
+                    localStorage.setItem('ordpresse_api_key', keyVal);
+                } catch(e) {}
+            } else {
+                opdsFeedUrlInput.value = `${origin}/opds`;
+            }
+        }
+
+        if (opdsApiKeyInput) {
+            try {
+                const savedKey = localStorage.getItem('ordpresse_api_key');
+                if (savedKey) {
+                    opdsApiKeyInput.value = savedKey;
+                }
+            } catch(e) {}
+            updateOpdsUrl();
+            opdsApiKeyInput.addEventListener('input', updateOpdsUrl);
+        }
+
+        if (copyOpdsUrlBtn && opdsFeedUrlInput) {
+            copyOpdsUrlBtn.addEventListener('click', async () => {
+                const text = opdsFeedUrlInput.value;
+                try {
+                    await navigator.clipboard.writeText(text);
+                    if (copyOpdsLabel) copyOpdsLabel.textContent = 'Kopieret! ✓';
+                    setTimeout(() => {
+                        if (copyOpdsLabel) copyOpdsLabel.textContent = 'Kopier URL';
+                    }, 2000);
+                } catch (e) {
+                    opdsFeedUrlInput.select();
+                    document.execCommand('copy');
+                    if (copyOpdsLabel) copyOpdsLabel.textContent = 'Kopieret! ✓';
+                    setTimeout(() => {
+                        if (copyOpdsLabel) copyOpdsLabel.textContent = 'Kopier URL';
+                    }, 2000);
+                }
+            });
+        }
+
+        async function loadBooksArchive() {
+            if (!booksTbody) return;
+            try {
+                const res = await fetch('/api/books');
+                if (res.status === 401) {
+                    booksTbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-amber-400">Log ind påkrævet for at se bogarkivet.</td></tr>';
+                    if (booksCountBadge) booksCountBadge.textContent = 'Låst';
+                    return;
+                }
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const books = await res.json();
+
+                if (!Array.isArray(books) || books.length === 0) {
+                    booksTbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-slate-500 italic">Ingen bøger i arkivet endnu. Hent en bog via Anna Fetch på din e-bogslæser eller søgefeltet ovenfor!</td></tr>';
+                    if (booksCountBadge) booksCountBadge.textContent = '0 bøger';
+                    if (booksStorageStat) booksStorageStat.textContent = '';
+                    return;
+                }
+
+                if (booksCountBadge) booksCountBadge.textContent = `${books.length} ${books.length === 1 ? 'bog' : 'bøger'}`;
+
+                const totalBytes = books.reduce((sum, b) => sum + (b.size_bytes || 0), 0);
+                const totalMb = (totalBytes / (1024 * 1024)).toFixed(1);
+                if (booksStorageStat) booksStorageStat.textContent = `Samlet størrelse: ${totalMb} MB`;
+
+                booksTbody.innerHTML = books.map(b => {
+                    const sizeStr = b.size_bytes ? (b.size_bytes > 1024 * 1024 ? `${(b.size_bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(b.size_bytes / 1024)} KB`) : '-';
+                    const fmt = (b.format || 'epub').toUpperCase();
+
+                    let dateStr = '-';
+                    if (b.downloaded_at) {
+                        try {
+                            const d = new Date(b.downloaded_at);
+                            dateStr = d.toLocaleDateString('da-DK', { day: '2-digit', month: 'short', year: 'numeric' });
+                        } catch(e) {
+                            dateStr = b.downloaded_at;
+                        }
+                    }
+
+                    return `
+                        <tr class="hover:bg-slate-900/40 transition-colors">
+                            <td class="py-3 px-4">
+                                <div class="font-bold text-white">${escapeHtml(b.title)}</div>
+                                <div class="text-[11px] text-slate-400">${escapeHtml(b.author)}</div>
+                            </td>
+                            <td class="py-3 px-4 font-mono text-[11px] text-amber-300/90 break-all max-w-xs">
+                                ${escapeHtml(b.filename)}
+                            </td>
+                            <td class="py-3 px-4">
+                                <span class="px-2 py-0.5 rounded font-mono text-[10px] font-semibold ${fmt === 'EPUB' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-300 border border-slate-700'}">${fmt}</span>
+                            </td>
+                            <td class="py-3 px-4 text-slate-300 font-mono text-[11px]">${sizeStr}</td>
+                            <td class="py-3 px-4 text-slate-400 text-[11px]">${dateStr}</td>
+                            <td class="py-3 px-4 text-right">
+                                <div class="flex items-center justify-end gap-2">
+                                    <a href="/opds/download/${escapeHtml(b.md5)}" class="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg text-[11px] font-medium transition-colors flex items-center gap-1 active:scale-95" title="Hent fil">
+                                        <span>⬇</span> <span>Hent</span>
+                                    </a>
+                                    <button type="button" onclick="deleteArchivedBook('${escapeHtml(b.md5)}', '${escapeHtml(b.title)}')" class="px-2.5 py-1 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-300 border border-slate-700 hover:border-red-500/30 rounded-lg text-[11px] font-medium transition-colors active:scale-95 cursor-pointer" title="Slet fra arkiv">
+                                        <span>🗑️</span>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (err) {
+                console.error("Fejl ved hentning af bøger:", err);
+                booksTbody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-red-400">Kunne ikke hente bogarkiv: ${err.message}</td></tr>`;
+                if (booksCountBadge) booksCountBadge.textContent = 'Fejl';
+            }
+        }
+
+        window.deleteArchivedBook = async function(md5, title) {
+            if (!confirm(`Er du sikker på, at du vil slette "${title}" fra det centrale bogarkiv?`)) return;
+            try {
+                const res = await fetch(`/api/books/${encodeURIComponent(md5)}`, { method: 'DELETE' });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.detail || `HTTP ${res.status}`);
+                }
+                loadBooksArchive();
+            } catch (err) {
+                alert(`Fejl ved sletning af bog: ${err.message}`);
+            }
+        };
+
+        if (refreshBooksBtn) {
+            refreshBooksBtn.addEventListener('click', () => loadBooksArchive());
+        }
+
+        // Load on page load
         loadStoreMirrors();
+        loadBooksArchive();
     </script>
 </body>
 </html>

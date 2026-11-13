@@ -304,6 +304,20 @@ def init_cache_db(conn: sqlite3.Connection) -> None:
                 salt TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS downloaded_books (
+                md5 TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                author TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                format TEXT NOT NULL DEFAULT 'epub',
+                cover_url TEXT,
+                download_source TEXT DEFAULT 'libgen',
+                downloaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_books_downloaded_at ON downloaded_books(downloaded_at DESC);
             """
         )
     clean_corrupted_cached_definitions(conn)
@@ -1040,5 +1054,95 @@ class Database:
 
         # Fallback to env / default password
         return hmac.compare_digest(candidate.encode("utf-8"), fallback_password.encode("utf-8"))
+
+    def save_downloaded_book(
+        self,
+        md5: str,
+        title: str,
+        author: str,
+        filename: str,
+        size_bytes: int,
+        format: str = "epub",
+        cover_url: Optional[str] = None,
+        source: str = "libgen",
+        download_source: Optional[str] = None,
+    ) -> dict:
+        """Register or update a downloaded book in the library archive."""
+        cleaned_md5 = md5.strip().lower()
+        actual_source = download_source or source or "libgen"
+        now = datetime.now(timezone.utc).isoformat()
+        with self._write_lock:
+            with self.cache_conn as conn:
+                conn.execute(
+                    """
+                    INSERT INTO downloaded_books (
+                        md5, title, author, filename, size_bytes, format, cover_url, download_source, downloaded_at, last_accessed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(md5) DO UPDATE SET
+                        title = excluded.title,
+                        author = excluded.author,
+                        filename = excluded.filename,
+                        size_bytes = excluded.size_bytes,
+                        format = excluded.format,
+                        cover_url = COALESCE(excluded.cover_url, downloaded_books.cover_url),
+                        last_accessed_at = excluded.last_accessed_at
+                    """,
+                    (
+                        cleaned_md5,
+                        title.strip() or "Unknown Title",
+                        author.strip() or "Unknown Author",
+                        filename.strip(),
+                        size_bytes,
+                        format.strip().lower() or "epub",
+                        cover_url,
+                        actual_source,
+                        now,
+                        now,
+                    ),
+                )
+        return {
+            "md5": cleaned_md5,
+            "title": title,
+            "author": author,
+            "filename": filename,
+            "size_bytes": size_bytes,
+            "format": format,
+            "cover_url": cover_url,
+            "download_source": actual_source,
+            "downloaded_at": now,
+        }
+
+    def list_downloaded_books(self, limit: int = 200) -> list[dict]:
+        """List all archived downloaded books sorted by newest first."""
+        cur = self.cache_conn.execute(
+            """
+            SELECT md5, title, author, filename, size_bytes, format, cover_url, download_source, downloaded_at, last_accessed_at
+            FROM downloaded_books
+            ORDER BY downloaded_at DESC, rowid DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+    def get_downloaded_book(self, md5: str) -> Optional[dict]:
+        """Fetch metadata for a single book by MD5 hash."""
+        cur = self.cache_conn.execute(
+            """
+            SELECT md5, title, author, filename, size_bytes, format, cover_url, download_source, downloaded_at, last_accessed_at
+            FROM downloaded_books
+            WHERE md5 = ?
+            """,
+            (md5.strip().lower(),),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def delete_downloaded_book(self, md5: str) -> bool:
+        """Remove a book record from downloaded_books database."""
+        with self._write_lock:
+            with self.cache_conn as conn:
+                cur = conn.execute("DELETE FROM downloaded_books WHERE md5 = ?", (md5.strip().lower(),))
+                return cur.rowcount > 0
 
 

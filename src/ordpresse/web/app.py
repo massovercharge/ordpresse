@@ -37,6 +37,7 @@ from ordpresse.web.auth import (
     verify_session_token,
     is_external_request,
     verify_api_key,
+    extract_request_api_key,
 )
 from ordpresse.web.lookup_service import perform_koreader_lookup
 from ordpresse.web.plugin_builder import (
@@ -46,6 +47,11 @@ from ordpresse.web.plugin_builder import (
     slugify_device_name,
 )
 from ordpresse.services.mirror_prober import MirrorProberService
+from ordpresse.services.opds_service import (
+    canonical_filename,
+    generate_opds_feed,
+    get_books_dir,
+)
 from ordpresse.web.plugin_store import build_annas_fetch_zip, get_catalog_json, get_plugin_by_id
 
 mirror_prober = MirrorProberService()
@@ -130,10 +136,14 @@ async def enforce_two_zone_boundary_and_auth(request: Request, call_next):
     - Layer 2 (LAN Zone): Requires admin password login via session cookie for management UI/APIs.
     """
     path = request.url.path
+    is_opds_or_lookup = (
+        path.rstrip("/") in ("/api/v1/koreader/lookup", "/opds", "/api/v1/opds")
+        or path.startswith("/opds/download/")
+    )
 
     # Layer 1: Strict External Zone Boundary
     if is_external_request(request):
-        if path.rstrip("/") != "/api/v1/koreader/lookup":
+        if not is_opds_or_lookup:
             return PlainTextResponse("Not Found", status_code=404)
         return await call_next(request)
 
@@ -144,11 +154,11 @@ async def enforce_two_zone_boundary_and_auth(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
 
-    # Unauthenticated LAN routes
+    # Unauthenticated / Self-authenticating LAN routes
     if (
         path in ("/login", "/logout", "/health")
         or path.startswith("/static/")
-        or path.rstrip("/") == "/api/v1/koreader/lookup"
+        or is_opds_or_lookup
     ):
         return await call_next(request)
 
@@ -938,6 +948,55 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
         md5 = request.query_params.get("md5", "").strip().lower()
         if not re.match(r"^[0-9a-fA-F]{32}$", md5):
             raise HTTPException(status_code=400, detail="Ugyldigt MD5-hash.")
+
+        raw_title = request.query_params.get("title", "").strip()
+        raw_author = request.query_params.get("author", "").strip()
+        raw_fn = request.query_params.get("filename", "").strip()
+
+        books_dir = get_books_dir()
+
+        # 1. Check if already cached in database and on disk
+        existing = db.get_downloaded_book(md5)
+        if existing and (books_dir / existing["filename"]).is_file():
+            target_path = books_dir / existing["filename"]
+            return FileResponse(
+                target_path,
+                media_type="application/epub+zip",
+                filename=existing["filename"],
+                headers={
+                    "X-MD5": md5,
+                    "Accept-Ranges": "bytes",
+                    "Content-Disposition": f'attachment; filename="{existing["filename"]}"',
+                },
+            )
+
+        # 2. Determine standardized filename
+        if raw_fn and raw_fn.lower().endswith(".epub"):
+            fn = canonical_filename(raw_fn[:-5], "", "epub")
+        else:
+            fn = canonical_filename(raw_title or "Book", raw_author, "epub")
+
+        target_path = books_dir / fn
+        if target_path.is_file():
+            db.save_downloaded_book(
+                md5=md5,
+                title=raw_title or fn[:-5].replace("_", " "),
+                author=raw_author or "Ukendt",
+                filename=fn,
+                size_bytes=target_path.stat().st_size,
+            )
+            return FileResponse(
+                target_path,
+                media_type="application/epub+zip",
+                filename=fn,
+                headers={
+                    "X-MD5": md5,
+                    "Accept-Ranges": "bytes",
+                    "Content-Disposition": f'attachment; filename="{fn}"',
+                },
+            )
+
+        # 3. Resolve ticket and stream from mirror while caching to disk
         ticket_res = await mirror_prober.resolve_download_ticket(md5)
         if ticket_res.get("status") != "ok" or not ticket_res.get("download_url"):
             raise HTTPException(status_code=404, detail="Kunne ikke finde aktivt download-link.")
@@ -946,7 +1005,16 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
         from ordpresse.services.mirror_prober import BROWSER_UA
         import httpx
 
-        async def stream_generator():
+        temp_part = books_dir / f"{md5}.part"
+
+        async def stream_and_cache_generator():
+            p_file = None
+            try:
+                p_file = open(temp_part, "wb")
+            except Exception as e:
+                logger.warning(f"Kunne ikke åbne temp-fil til bogarkiv: {e}")
+
+            total_bytes = 0
             async with httpx.AsyncClient(
                 verify=False,
                 headers={"User-Agent": BROWSER_UA},
@@ -955,20 +1023,35 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
             ) as client:
                 async with client.stream("GET", download_url) as resp:
                     if resp.status_code != 200:
+                        if p_file:
+                            p_file.close()
+                            temp_part.unlink(missing_ok=True)
                         raise HTTPException(status_code=502, detail="Fejl ved hentning fra spejl.")
                     async for chunk in resp.aiter_bytes(chunk_size=65536):
+                        if p_file:
+                            p_file.write(chunk)
+                        total_bytes += len(chunk)
                         yield chunk
 
-        raw_title = request.query_params.get("title", "book")
-        clean_fn = re.sub(r"[^\w\s.-]", "", raw_title).strip().replace(" ", "_")
-        if not clean_fn.endswith(".epub"):
-            clean_fn += ".epub"
+            if p_file:
+                p_file.close()
+                if total_bytes > 1000:
+                    temp_part.replace(target_path)
+                    db.save_downloaded_book(
+                        md5=md5,
+                        title=raw_title or fn[:-5].replace("_", " "),
+                        author=raw_author or "Ukendt",
+                        filename=fn,
+                        size_bytes=total_bytes,
+                    )
+                else:
+                    temp_part.unlink(missing_ok=True)
 
         return StreamingResponse(
-            stream_generator(),
+            stream_and_cache_generator(),
             media_type="application/octet-stream",
             headers={
-                "Content-Disposition": f'attachment; filename="{clean_fn}"',
+                "Content-Disposition": f'attachment; filename="{fn}"',
                 "X-MD5": md5,
             },
         )
@@ -1054,6 +1137,7 @@ def provision_api_key(payload: ProvisionKeyPayload):
         headers={
             "Content-Disposition": f'attachment; filename="ordpresse-koplugin-{slug}.zip"',
             "X-Plugin-Version": PLUGIN_VERSION,
+            "X-Raw-Api-Key": raw_key,
         },
     )
 
@@ -1095,6 +1179,8 @@ async def search_store_books_admin(q: str = "", category: str = "all_books"):
 @app.get("/api/v1/store/download/annas-fetch")
 def download_annas_fetch_admin():
     """Direct web browser download of curated annas-fetch.koplugin.zip."""
+    plugin = get_plugin_by_id("annas-fetch")
+    plugin_version = plugin.version if plugin else "1.2.6-ordpresse"
     try:
         zip_bytes = build_annas_fetch_zip()
     except FileNotFoundError as exc:
@@ -1106,7 +1192,7 @@ def download_annas_fetch_admin():
         headers={
             "Content-Disposition": 'attachment; filename="annas-fetch.koplugin.zip"',
             "X-Plugin-Id": "annas-fetch",
-            "X-Plugin-Version": "1.2.1-ordpresse",
+            "X-Plugin-Version": plugin_version,
         },
     )
 
@@ -1129,5 +1215,145 @@ def change_admin_password_endpoint(payload: ChangePasswordPayload):
 
     db.set_admin_password(payload.new_password)
     return {"status": "ok", "message": "Adgangskoden er opdateret!"}
+
+
+# -------------------------------------------------------------------
+# OPDS 1.2 Acquisition Feed & Centralt Bogarkiv (CrossPoint & KOReader)
+# -------------------------------------------------------------------
+
+@app.get("/opds")
+@app.get("/api/v1/opds")
+async def get_opds_catalog_endpoint(request: Request):
+    """
+    Standard OPDS 1.2 Acquisition Feed for CrossPoint Reader and KOReader.
+    Accepts ?api_key= query param, X-API-Key header, HTTP Basic Auth, or session cookie.
+    """
+    db = Database()
+    token = request.cookies.get("ordpresse_session")
+    is_valid_session = token and verify_session_token(token)
+    raw_key = extract_request_api_key(request)
+    if not is_valid_session:
+        verify_api_key(raw_key, db)
+
+    books = db.list_downloaded_books()
+
+    # Resolve base URL with external hostname preference
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "ordpresse.seame.click"
+    proto = request.headers.get("x-forwarded-proto") or ("https" if "seame.click" in host else "http")
+    base_url = f"{proto}://{host}"
+
+    feed_xml = generate_opds_feed(books, base_url=base_url, api_key=raw_key)
+    return Response(
+        content=feed_xml,
+        media_type="application/atom+xml;profile=opds-catalog;kind=acquisition;charset=utf-8",
+        headers={"Cache-Control": "private, no-cache"},
+    )
+
+
+@app.get("/opds/download/{md5}")
+async def opds_download_book_endpoint(md5: str, request: Request):
+    """
+    Direct authenticated OPDS book acquisition endpoint for CrossPoint and e-readers.
+    Serves the exact cached binary EPUB file with Accept-Ranges: bytes.
+    Accepts ?api_key= query param, X-API-Key header, HTTP Basic Auth, or session cookie.
+    """
+    cleaned_md5 = md5.strip().lower()
+    if not re.match(r"^[0-9a-fA-F]{32}$", cleaned_md5):
+        raise HTTPException(status_code=400, detail="Ugyldigt MD5-hash.")
+
+    db = Database()
+    token = request.cookies.get("ordpresse_session")
+    is_valid_session = token and verify_session_token(token)
+    raw_key = extract_request_api_key(request)
+    if not is_valid_session:
+        verify_api_key(raw_key, db)
+
+    books_dir = get_books_dir()
+    book = db.get_downloaded_book(cleaned_md5)
+
+    if book and (books_dir / book["filename"]).is_file():
+        file_path = books_dir / book["filename"]
+        return FileResponse(
+            file_path,
+            media_type="application/epub+zip",
+            filename=book["filename"],
+            headers={
+                "X-MD5": cleaned_md5,
+                "Accept-Ranges": "bytes",
+                "Content-Disposition": f'attachment; filename="{book["filename"]}"',
+            },
+        )
+
+    # Fallback: if not yet cached, resolve ticket and download
+    ticket = await mirror_prober.resolve_download_ticket(cleaned_md5)
+    if ticket.get("status") != "ok" or not ticket.get("download_url"):
+        raise HTTPException(status_code=404, detail="Bogen blev ikke fundet i arkivet eller på aktive spejle.")
+
+    from ordpresse.services.mirror_prober import BROWSER_UA
+    import httpx
+
+    fn = book["filename"] if book else f"{cleaned_md5}.epub"
+    target_path = books_dir / fn
+    async with httpx.AsyncClient(
+        verify=False,
+        headers={"User-Agent": BROWSER_UA},
+        follow_redirects=True,
+        timeout=httpx.Timeout(120.0, connect=15.0),
+    ) as client:
+        r = await client.get(ticket["download_url"])
+        if r.status_code == 200 and len(r.content) > 1000:
+            target_path.write_bytes(r.content)
+            db.save_downloaded_book(
+                md5=cleaned_md5,
+                title=book["title"] if book else fn[:-5],
+                author=book["author"] if book else "Ukendt",
+                filename=fn,
+                size_bytes=len(r.content),
+            )
+            return FileResponse(
+                target_path,
+                media_type="application/epub+zip",
+                filename=fn,
+                headers={
+                    "X-MD5": cleaned_md5,
+                    "Accept-Ranges": "bytes",
+                    "Content-Disposition": f'attachment; filename="{fn}"',
+                },
+            )
+        raise HTTPException(status_code=502, detail="Fejl ved hentning af bog fra spejl.")
+
+
+@app.get("/api/books")
+def api_list_books(request: Request):
+    """List all downloaded books in the local archive (session or API key protected)."""
+    db = Database()
+    token = request.cookies.get("ordpresse_session")
+    is_valid_session = token and verify_session_token(token)
+    if not is_valid_session:
+        raw_key = extract_request_api_key(request)
+        if raw_key:
+            verify_api_key(raw_key, db)
+        else:
+            raise HTTPException(status_code=401, detail="Log venligst ind for at se bogarkivet.")
+    return db.list_downloaded_books()
+
+
+@app.delete("/api/books/{md5}")
+def api_delete_book(md5: str, request: Request):
+    """Delete a book from database and physical disk (admin session required)."""
+    token = request.cookies.get("ordpresse_session")
+    if not token or not verify_session_token(token):
+        raise HTTPException(status_code=401, detail="Kræver administrator-adgang.")
+
+    cleaned_md5 = md5.strip().lower()
+    db = Database()
+    book = db.get_downloaded_book(cleaned_md5)
+    if book:
+        books_dir = get_books_dir()
+        target_file = books_dir / book["filename"]
+        target_file.unlink(missing_ok=True)
+        db.delete_downloaded_book(cleaned_md5)
+        return {"status": "ok", "message": f"Bogen '{book['title']}' blev slettet fra arkivet."}
+    return {"status": "ok", "message": "Bogen fandtes ikke i arkivet."}
 
 

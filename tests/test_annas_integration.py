@@ -97,7 +97,7 @@ def test_api_store_download_annas_fetch():
     assert res.status_code == 200
     assert res.headers["content-type"] == "application/zip"
     assert res.headers["x-plugin-id"] == "annas-fetch"
-    assert res.headers["x-plugin-version"] == "1.2.5-ordpresse"
+    assert res.headers["x-plugin-version"] == "1.2.6-ordpresse"
     assert 'filename="annas-fetch.koplugin.zip"' in res.headers["content-disposition"]
 
     with zipfile.ZipFile(io.BytesIO(res.content), "r") as zf:
@@ -108,7 +108,7 @@ def test_api_store_download_annas_fetch():
         assert "annas-fetch.koplugin/src/scraper.lua" in names
 
         meta = zf.read("annas-fetch.koplugin/_meta.lua").decode("utf-8")
-        assert "1.2.5-ordpresse" in meta
+        assert "1.2.6-ordpresse" in meta
         ota = zf.read("annas-fetch.koplugin/annas/ota.lua").decode("utf-8")
         assert "plugins/annas%-fetch(%.koplugin)?/?$" in ota
         scraper = zf.read("annas-fetch.koplugin/src/scraper.lua").decode("utf-8")

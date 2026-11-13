@@ -382,7 +382,10 @@ function Scraper.download_book(book, path, progress_callback, is_cancelled_func)
     local cfg = Scraper.getOrdpresseConfig()
     if cfg and cfg.endpoint_url then
         local sep = string.find(cfg.endpoint_url, "?", 1, true) and "&" or "?"
-        local stream_url = cfg.endpoint_url .. sep .. "action=annas_download&md5=" .. url_encode(book.md5) .. "&title=" .. url_encode(clean_title)
+        local title_param = url_encode(clean_title)
+        local author_param = url_encode(clean_author)
+        local fn_param = url_encode(clean_title .. "_" .. clean_author .. "." .. ext)
+        local stream_url = cfg.endpoint_url .. sep .. "action=annas_download&md5=" .. url_encode(book.md5) .. "&title=" .. title_param .. "&author=" .. author_param .. "&filename=" .. fn_param
         if cfg.api_key and cfg.api_key ~= "" then
             stream_url = stream_url .. "&api_key=" .. url_encode(cfg.api_key)
         end

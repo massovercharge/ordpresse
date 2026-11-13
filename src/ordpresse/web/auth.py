@@ -1,5 +1,6 @@
 """Zero-Trust authentication, session security, and Two-Zone network boundary utilities."""
 
+import base64
 import hashlib
 import hmac
 import ipaddress
@@ -89,6 +90,47 @@ def is_external_request(request: Request) -> bool:
         return not (ip.is_private or ip.is_loopback)
     except ValueError:
         return True
+
+
+def extract_request_api_key(request: Request) -> Optional[str]:
+    """
+    Extract API key from X-API-Key header, query param (?api_key=), HTTP Basic Auth, or Bearer.
+    Enables seamless authentication for KOReader, CrossPoint OPDS, and curl/scripts.
+    """
+    # 1. Custom Header
+    if "X-API-Key" in request.headers:
+        val = request.headers["X-API-Key"].strip()
+        if val:
+            return val
+
+    # 2. Query Parameter
+    if "api_key" in request.query_params:
+        val = request.query_params["api_key"].strip()
+        if val:
+            return val
+
+    # 3. HTTP Basic Auth (username or password matching ord_...)
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("basic "):
+        try:
+            decoded = base64.b64decode(auth_header[6:].strip()).decode("utf-8")
+            username, _, password = decoded.partition(":")
+            u_clean = username.strip()
+            p_clean = password.strip()
+            if u_clean.startswith("ord_"):
+                return u_clean
+            if p_clean.startswith("ord_"):
+                return p_clean
+        except Exception:
+            pass
+
+    # 4. Bearer token
+    if auth_header.lower().startswith("bearer "):
+        val = auth_header[7:].strip()
+        if val.startswith("ord_"):
+            return val
+
+    return None
 
 
 def verify_api_key(raw_key: Optional[str], db: Database) -> dict:
