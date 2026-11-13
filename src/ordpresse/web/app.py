@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import json
 import logging
 from pathlib import Path
+import re
 import shutil
 import tempfile
 from typing import Dict, List, Optional
@@ -933,6 +934,44 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
         md5 = request.query_params.get("md5", "").strip()
         payload = await mirror_prober.resolve_download_ticket(md5)
         return JSONResponse(content=payload)
+    elif action == "annas_download":
+        md5 = request.query_params.get("md5", "").strip().lower()
+        if not re.match(r"^[0-9a-fA-F]{32}$", md5):
+            raise HTTPException(status_code=400, detail="Ugyldigt MD5-hash.")
+        ticket_res = await mirror_prober.resolve_download_ticket(md5)
+        if ticket_res.get("status") != "ok" or not ticket_res.get("download_url"):
+            raise HTTPException(status_code=404, detail="Kunne ikke finde aktivt download-link.")
+
+        download_url = ticket_res["download_url"]
+        from ordpresse.services.mirror_prober import BROWSER_UA
+        import httpx
+
+        async def stream_generator():
+            async with httpx.AsyncClient(
+                verify=False,
+                headers={"User-Agent": BROWSER_UA},
+                follow_redirects=True,
+                timeout=httpx.Timeout(120.0, connect=15.0),
+            ) as client:
+                async with client.stream("GET", download_url) as resp:
+                    if resp.status_code != 200:
+                        raise HTTPException(status_code=502, detail="Fejl ved hentning fra spejl.")
+                    async for chunk in resp.aiter_bytes(chunk_size=65536):
+                        yield chunk
+
+        raw_title = request.query_params.get("title", "book")
+        clean_fn = re.sub(r"[^\w\s.-]", "", raw_title).strip().replace(" ", "_")
+        if not clean_fn.endswith(".epub"):
+            clean_fn += ".epub"
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{clean_fn}"',
+                "X-MD5": md5,
+            },
+        )
     elif action == "store_catalog":
         return JSONResponse(content=get_catalog_json())
     elif action == "store_download":

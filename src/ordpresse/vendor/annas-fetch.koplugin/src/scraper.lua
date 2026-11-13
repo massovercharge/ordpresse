@@ -378,8 +378,48 @@ function Scraper.download_book(book, path, progress_callback, is_cancelled_func)
     local filename = string.format("%s/%s_%s.%s", path:gsub("/+$", ""), clean_title, clean_author, ext)
     local temp_file = filename .. ".part"
 
-    -- 1. Try server-assisted download ticket resolution if Ordpresse available
+    -- 1. Try server-assisted streaming download through Ordpresse
     local cfg = Scraper.getOrdpresseConfig()
+    if cfg and cfg.endpoint_url then
+        local sep = string.find(cfg.endpoint_url, "?", 1, true) and "&" or "?"
+        local stream_url = cfg.endpoint_url .. sep .. "action=annas_download&md5=" .. url_encode(book.md5) .. "&title=" .. url_encode(clean_title)
+        if cfg.api_key and cfg.api_key ~= "" then
+            stream_url = stream_url .. "&api_key=" .. url_encode(cfg.api_key)
+        end
+        local extra_header = (cfg.api_key and cfg.api_key ~= "") and string.format("-H %s", shell_quote("X-API-Key: " .. cfg.api_key)) or ""
+
+        pcall(os.remove, temp_file)
+        logger.info("AnnasFetch: Streaming book download from Ordpresse server: " .. stream_url)
+        local dl_cmd = string.format(
+            "curl -k -L -sS --max-time 180 %s -A %s -o %s %s 2>&1",
+            extra_header,
+            shell_quote(USER_AGENT),
+            shell_quote(temp_file),
+            shell_quote(stream_url)
+        )
+        os.execute(dl_cmd)
+        local f = io.open(temp_file, "rb")
+        if f then
+            local head = f:read(512) or ""
+            local sz = f:seek("end")
+            f:close()
+            local is_html = head:find("^%s*<!doctype html") or head:find("^%s*<html")
+            if sz and sz > 1000 and not is_html then
+                os.rename(temp_file, filename)
+                logger.info("AnnasFetch: Download complete via server stream: " .. filename .. " (" .. sz .. " bytes)")
+                return filename
+            else
+                logger.warn("AnnasFetch: Server stream download returned invalid content or HTML. Falling back to ticket/mirrors.")
+                pcall(os.remove, temp_file)
+            end
+        end
+    end
+
+    if is_cancelled_func and is_cancelled_func() then
+        return "Download cancelled"
+    end
+
+    -- 2. Try server-assisted download ticket resolution if Ordpresse available
     local direct_ticket_url = nil
     if cfg and cfg.endpoint_url then
         local sep = string.find(cfg.endpoint_url, "?", 1, true) and "&" or "?"
