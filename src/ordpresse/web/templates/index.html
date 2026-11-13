@@ -64,6 +64,9 @@
                     <span class="w-2 h-2 rounded-full bg-blue-400"></span>
                     <span class="text-slate-300">Ordbog: <strong class="text-slate-200">36.963 opslagsord · 121.856 bøjninger</strong></span>
                 </div>
+                <a href="#plugin-store-section" class="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95" title="Gå til Plugin Butik & Bogsøgning">
+                    <span>🛍️</span> <span>Plugin Butik</span>
+                </a>
                 <a href="/api/download/latest" class="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95" title="Hent seneste komplette ordbog">
                     <span>⬇</span> <span>Hent komplet ordbog</span>
                 </a>
@@ -647,6 +650,151 @@
                     <p class="text-[11px] text-slate-500 pt-1">
                         Virker både offline med de lokale StarDict-ordbøger og online via Cloudflare Tunnelen, når enheden er forbundet til Wi-Fi.
                     </p>
+                </div>
+            </details>
+        </div>
+
+        <!-- Section: 🛍️ KOReader Plugin Butik & Bogsøgning (Anna Fetch Ordpresse Edition) -->
+        <div id="plugin-store-section" class="bg-slate-900/80 rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-xl space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 text-xl font-bold">
+                        🛍️
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-white tracking-tight flex flex-wrap items-center gap-2">
+                            <span>KOReader Plugin Butik & Bogsøgning</span>
+                            <span class="text-[11px] bg-purple-500/15 text-purple-300 border border-purple-500/30 px-2.5 py-0.5 rounded-full font-mono font-semibold">Anna Fetch v1.2.1</span>
+                            <span class="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono uppercase">Dual-Source Orkestrering</span>
+                        </h3>
+                        <p class="text-xs text-slate-400">
+                            Kurateret lokal plugin-distribution, aktiv spejl-overvågning (Libgen + Anna's Archive) og lynhurtig server-aflastet bogsøgning til din Kindle/Kobo.
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <a href="/api/v1/store/download/annas-fetch" class="px-3.5 py-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm active:scale-95" title="Hent seneste annas-fetch.koplugin.zip direkte til computeren">
+                        <span>⬇</span> <span>Hent Plugin (.zip)</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Plugin Catalog Cards -->
+            <div class="grid grid-cols-1 gap-4">
+                {% for plugin in store_catalog %}
+                <div class="bg-slate-950/60 p-5 rounded-xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div class="space-y-1.5 max-w-2xl">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h4 class="text-sm font-bold text-white">{{ plugin.name }}</h4>
+                            <span class="text-[10px] bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded-full font-mono font-semibold">v{{ plugin.version }}</span>
+                            <span class="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-mono">{{ plugin.category | upper }}</span>
+                            <span class="text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20 px-2 py-0.5 rounded-full font-mono">KOReader &ge; {{ plugin.min_koreader }}</span>
+                        </div>
+                        <p class="text-xs text-slate-300 leading-relaxed">{{ plugin.description }}</p>
+                        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
+                            <span>Forfatter: <strong class="text-slate-400">{{ plugin.author }}</strong></span>
+                            <span>Mappe: <code class="text-amber-400/90 font-mono">{{ plugin.koplugin_name }}</code></span>
+                            {% if plugin.install_note %}
+                            <span class="text-emerald-400/90">✓ {{ plugin.install_note }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 self-start md:self-center">
+                        <a href="/api/v1/store/download/{{ plugin.id }}" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5">
+                            <span>📦</span> <span>Hent v{{ plugin.version }}</span>
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Active Mirror Prober Status -->
+            <div class="bg-slate-950/60 p-5 rounded-xl border border-slate-800 space-y-3">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                            🛡️ Mirror Authority (Aktive spejle & sundhedstjek)
+                        </span>
+                        <span id="mirror-cache-badge" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">Indlæser...</span>
+                    </div>
+                    <button type="button" id="refresh-mirrors-btn" class="text-[11px] text-slate-400 hover:text-amber-400 flex items-center gap-1 transition-colors cursor-pointer">
+                        <span>↻</span> <span>Mål spejle nu</span>
+                    </button>
+                </div>
+                <div id="mirrors-container" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div class="p-3 rounded-lg bg-slate-900 border border-slate-800/80 text-slate-400 italic">
+                        Måler spejle...
+                    </div>
+                </div>
+                <p class="text-[11px] text-slate-500">
+                    Ordpresse scanner automatisk spejle, frasorterer parkerede/kaprede domæner (f.eks. .li og .org), rangerer efter laveste latenstid og leverer spejllisten direkte til din Kindle via <code class="text-slate-400 font-mono">action=annas_mirrors</code>.
+                </p>
+            </div>
+
+            <!-- Live Server-Assisted Search Sandbox -->
+            <div class="bg-slate-950/60 p-5 rounded-xl border border-slate-800 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h4 class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                            <span>⚡</span> <span>Afprøv Server-Assisteret Bogsøgning (Live Preview)</span>
+                        </h4>
+                        <p class="text-[11px] text-slate-400 mt-0.5">
+                            Test det lynhurtige <code class="text-amber-400 font-mono">action=annas_search</code> endpoint, som din Kindle kalder over det lokale Wi-Fi.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Search Input Form -->
+                <div class="space-y-2">
+                    <div class="flex gap-2">
+                        <input
+                            type="text"
+                            id="book-search-input"
+                            placeholder="Indtast bogtitel eller forfatter (fx Frankenstein, Dracula, Moberg)..."
+                            class="flex-1 px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors"
+                        >
+                        <button
+                            type="button"
+                            id="book-search-submit-btn"
+                            class="px-5 py-2.5 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-500/20 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                        >
+                            <span>🔍</span> <span>Søg</span>
+                        </button>
+                    </div>
+                    <!-- Chips -->
+                    <div class="flex flex-wrap items-center gap-1.5 pt-1">
+                        <span class="text-[11px] text-slate-500 mr-1">Prøv hurtig-søgning:</span>
+                        <button type="button" onclick="runBookSearch('Frankenstein')" class="px-2 py-0.5 bg-slate-800/80 hover:bg-slate-700 text-purple-300 border border-purple-500/20 rounded-md text-[11px] transition-colors cursor-pointer">Frankenstein</button>
+                        <button type="button" onclick="runBookSearch('Dracula')" class="px-2 py-0.5 bg-slate-800/80 hover:bg-slate-700 text-purple-300 border border-purple-500/20 rounded-md text-[11px] transition-colors cursor-pointer">Dracula</button>
+                        <button type="button" onclick="runBookSearch('Vilhelm Moberg')" class="px-2 py-0.5 bg-slate-800/80 hover:bg-slate-700 text-purple-300 border border-purple-500/20 rounded-md text-[11px] transition-colors cursor-pointer">Vilhelm Moberg</button>
+                        <button type="button" onclick="runBookSearch('Henrik Pontoppidan')" class="px-2 py-0.5 bg-slate-800/80 hover:bg-slate-700 text-purple-300 border border-purple-500/20 rounded-md text-[11px] transition-colors cursor-pointer">Henrik Pontoppidan</button>
+                    </div>
+                </div>
+
+                <!-- Search Results Output -->
+                <div id="book-search-results-box" class="hidden border border-slate-800 rounded-xl overflow-hidden bg-slate-900/90">
+                    <div class="p-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-xs">
+                        <span id="book-search-count" class="font-semibold text-slate-200">Fundne resultater</span>
+                        <span id="book-search-latency" class="text-slate-400 font-mono text-[11px]"></span>
+                    </div>
+                    <div id="book-search-results-list" class="divide-y divide-slate-800/60 max-h-80 overflow-y-auto text-xs text-slate-300">
+                    </div>
+                </div>
+            </div>
+
+            <!-- KOReader Plugin Butik Guide -->
+            <details class="bg-slate-950/60 rounded-xl p-4 border border-slate-800 text-xs space-y-2 text-slate-400">
+                <summary class="font-semibold text-slate-300 cursor-pointer hover:text-purple-300 select-none flex items-center gap-2">
+                    <span>📱</span> <span>Sådan bruger du Plugin Butikken direkte på din Kindle/Kobo</span>
+                </summary>
+                <div class="pt-3 space-y-2 text-slate-300">
+                    <ol class="list-decimal list-inside space-y-1.5 leading-relaxed">
+                        <li>Sørg for at din e-bogslæser har <code class="text-amber-400 font-mono">ordpresse.koplugin</code> installeret og er forbundet til Wi-Fi.</li>
+                        <li>Åbn KOReader &gt; Åbn værktøjsmenuen (eller Den Danske Ordpresse menuen).</li>
+                        <li>Vælg <strong class="text-purple-300">🛍️ Ordpresse Plugin Butik</strong> for at gennemse listen over kuraterede plugins.</li>
+                        <li>Tryk på <strong class="text-purple-300">📚 Anna's Archive (Ordpresse)</strong> og vælg <strong class="text-emerald-400">Installer / Opdater</strong>.</li>
+                        <li>Genstart KOReader &mdash; du kan nu søge og hente bøger direkte fra læseren med lynhurtig server-aflastning!</li>
+                    </ol>
                 </div>
             </details>
         </div>
@@ -1503,6 +1651,146 @@
                 }
             });
         }
+
+        // Plugin Store & Mirror Authority
+        const mirrorsContainer = document.getElementById('mirrors-container');
+        const mirrorCacheBadge = document.getElementById('mirror-cache-badge');
+        const refreshMirrorsBtn = document.getElementById('refresh-mirrors-btn');
+
+        async function loadStoreMirrors(forceRefresh = false) {
+            if (!mirrorsContainer) return;
+            try {
+                if (mirrorCacheBadge) mirrorCacheBadge.textContent = forceRefresh ? 'Måler...' : 'Indlæser...';
+                const url = forceRefresh ? '/api/v1/store/mirrors?refresh=true' : '/api/v1/store/mirrors';
+                const res = await fetch(url);
+                if (!res.ok) throw new Error('Kunne ikke hente spejle');
+                const data = await res.json();
+
+                if (mirrorCacheBadge) mirrorCacheBadge.textContent = `TTL: ${data.ttl_seconds || 3600}s`;
+                mirrorsContainer.innerHTML = '';
+
+                // Libgen section
+                const libgenDiv = document.createElement('div');
+                libgenDiv.className = 'p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2';
+                libgenDiv.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <strong class="text-white text-xs font-semibold">📚 Libgen Spejle (Primær)</strong>
+                        <span class="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">Rå HTML</span>
+                    </div>
+                    <div class="space-y-1.5 pt-1">
+                        ${(data.sources && data.sources.libgen || []).map(m => `
+                            <div class="flex items-center justify-between text-[11px]">
+                                <a href="${m.url}" target="_blank" rel="noopener" class="text-purple-300 hover:underline font-mono">${m.url}</a>
+                                <span class="text-slate-400 font-mono">${m.latency_ms} ms</span>
+                            </div>
+                        `).join('') || '<div class="text-slate-500 italic">Ingen aktive spejle fundet</div>'}
+                    </div>
+                `;
+                mirrorsContainer.appendChild(libgenDiv);
+
+                // Anna's Archive section
+                const annasDiv = document.createElement('div');
+                annasDiv.className = 'p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2';
+                annasDiv.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <strong class="text-white text-xs font-semibold">🔍 Anna's Archive (Sekundær)</strong>
+                        <span class="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">Fallback</span>
+                    </div>
+                    <div class="space-y-1.5 pt-1">
+                        ${(data.sources && data.sources.annas || []).map(m => `
+                            <div class="flex items-center justify-between text-[11px]">
+                                <a href="${m.url}" target="_blank" rel="noopener" class="text-purple-300 hover:underline font-mono">${m.url}</a>
+                                <div class="flex items-center gap-1.5">
+                                    ${m.ddos_guard ? '<span class="text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-1 rounded">DDG</span>' : ''}
+                                    <span class="text-slate-400 font-mono">${m.latency_ms} ms</span>
+                                </div>
+                            </div>
+                        `).join('') || '<div class="text-slate-500 italic">Ingen aktive spejle fundet</div>'}
+                    </div>
+                `;
+                mirrorsContainer.appendChild(annasDiv);
+            } catch (err) {
+                if (mirrorsContainer) mirrorsContainer.innerHTML = `<div class="p-3 text-red-400 col-span-2">Fejl ved hentning af spejle: ${err.message}</div>`;
+                if (mirrorCacheBadge) mirrorCacheBadge.textContent = 'Fejl';
+            }
+        }
+
+        if (refreshMirrorsBtn) {
+            refreshMirrorsBtn.addEventListener('click', () => loadStoreMirrors(true));
+        }
+
+        // Live Book Search Sandbox
+        const bookSearchInput = document.getElementById('book-search-input');
+        const bookSearchSubmitBtn = document.getElementById('book-search-submit-btn');
+        const bookSearchResultsBox = document.getElementById('book-search-results-box');
+        const bookSearchCount = document.getElementById('book-search-count');
+        const bookSearchLatency = document.getElementById('book-search-latency');
+        const bookSearchResultsList = document.getElementById('book-search-results-list');
+
+        window.runBookSearch = async function(query) {
+            if (bookSearchInput) bookSearchInput.value = query;
+            if (!query || !query.trim()) return;
+
+            if (bookSearchResultsBox) bookSearchResultsBox.classList.remove('hidden');
+            if (bookSearchCount) bookSearchCount.textContent = `Søger efter "${query}"...`;
+            if (bookSearchLatency) bookSearchLatency.textContent = '';
+            if (bookSearchResultsList) bookSearchResultsList.innerHTML = '<div class="p-4 text-center text-slate-400 italic">Søger over aktive spejle (Libgen / Anna)...</div>';
+            if (bookSearchSubmitBtn) bookSearchSubmitBtn.disabled = true;
+
+            const t0 = performance.now();
+            try {
+                const res = await fetch(`/api/v1/store/search?q=${encodeURIComponent(query.trim())}`);
+                if (!res.ok) throw new Error('Søgning fejlede på serveren');
+                const data = await res.json();
+                const latency = Math.round(performance.now() - t0);
+
+                const count = (data.results || []).length;
+                if (bookSearchCount) bookSearchCount.textContent = `Fundet ${count} ${count === 1 ? 'bog' : 'bøger'} for "${data.query}"`;
+                if (bookSearchLatency) bookSearchLatency.textContent = `⚡ ${latency} ms`;
+
+                if (count === 0) {
+                    if (bookSearchResultsList) bookSearchResultsList.innerHTML = '<div class="p-4 text-center text-slate-500 italic">Ingen bøger fundet for denne søgning.</div>';
+                    return;
+                }
+
+                if (bookSearchResultsList) {
+                    bookSearchResultsList.innerHTML = data.results.map(b => `
+                        <div class="p-3.5 hover:bg-slate-800/50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div class="space-y-1 max-w-2xl">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold text-white text-xs">${b.title}</span>
+                                    ${b.year ? `<span class="text-slate-400 text-[11px]">(${b.year})</span>` : ''}
+                                </div>
+                                <div class="flex flex-wrap items-center gap-x-3 text-[11px] text-slate-400">
+                                    <span>Forfatter: <strong class="text-slate-300">${b.author}</strong></span>
+                                    ${b.language ? `<span>Sprog: <span class="text-slate-300">${b.language}</span></span>` : ''}
+                                    ${b.size ? `<span>Størrelse: <span class="text-slate-300">${b.size}</span></span>` : ''}
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 self-start sm:self-center shrink-0">
+                                <span class="px-2 py-0.5 rounded font-mono text-[10px] font-semibold ${b.format === 'epub' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-300 border border-slate-700'}">${(b.format || 'epub').toUpperCase()}</span>
+                                ${b.download_page ? `<a href="${b.download_page}" target="_blank" rel="noopener" class="px-2.5 py-1 bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 rounded text-[11px] font-medium transition-colors">Hent</a>` : ''}
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (err) {
+                if (bookSearchCount) bookSearchCount.textContent = 'Fejl under søgning';
+                if (bookSearchResultsList) bookSearchResultsList.innerHTML = `<div class="p-4 text-red-400">Fejl: ${err.message}</div>`;
+            } finally {
+                if (bookSearchSubmitBtn) bookSearchSubmitBtn.disabled = false;
+            }
+        };
+
+        if (bookSearchSubmitBtn && bookSearchInput) {
+            bookSearchSubmitBtn.addEventListener('click', () => runBookSearch(bookSearchInput.value));
+            bookSearchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') runBookSearch(bookSearchInput.value);
+            });
+        }
+
+        // Load mirrors on page load
+        loadStoreMirrors();
     </script>
 </body>
 </html>

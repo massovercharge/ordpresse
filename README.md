@@ -8,8 +8,8 @@
 [![E-Reader](https://img.shields.io/badge/e--reader-KOReader%20Ready-emerald.svg)](#-installation-i-koreader)
 [![Zero-Trust API](https://img.shields.io/badge/API-Zero--Trust%20Online-purple.svg)](#-zero-trust-koreader-online-opslag-api--plugin)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Store](https://img.shields.io/badge/OTA-Plugin%20Butik-ff69b4.svg)](#-ota-plugin-butik-v120)
-[![Tests](https://img.shields.io/badge/tests-89%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
+[![Plugin Store](https://img.shields.io/badge/OTA-Plugin%20Butik%20v1.2.1-ff69b4.svg)](#-koreader-plugin-butik--anna-fetch-orkestrering-v121)
+[![Tests](https://img.shields.io/badge/tests-101%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
 
 ---
 
@@ -48,7 +48,13 @@ flowchart TD
         DEVICE["📱 E-læser (KOReader)<br/>(⚡ Ordpresse Online)"]
         TUNNEL["🔒 Cloudflare Tunnel / WAF<br/>(Skip-regel for lookup)"]
         LOOKUP_API["⚡ GET /api/v1/koreader/lookup<br/>(X-API-Key Auth, Token-Bucket & Cache)"]
-        ADMIN_UI["🔐 LAN Web UI (:18088)<br/>(Login, Adgangskode & Nøglestyring)"]
+        ADMIN_UI["🔐 LAN Web UI (:18088)<br/>(Login, Dashboard, Spejle & Bogsøgning)"]
+    end
+
+    subgraph Store [🛍️ 3. KOReader Plugin Butik & Bogsøgning]
+        ANNAS_FETCH["📚 Anna Fetch (Ordpresse Edition v1.2.1)<br/>(annas-fetch.koplugin)"]
+        PROBER["🛡️ Mirror Authority & Prober<br/>(Libgen + Anna's Archive)"]
+        SERVER_SEARCH["⚡ Server Search & Ticket Resolver<br/>(Lynhurtig BeautifulSoup + HTTP/2)"]
     end
 
     SCAN --> ORTHO --> HYGIENE --> SCRAPE --> COMPILER --> BUNDLE
@@ -57,6 +63,10 @@ flowchart TD
     BUNDLE -.->|USB-overførsel| DEVICE
     DEVICE <==>|HTTPS X-API-Key| TUNNEL <==> LOOKUP_API
     ADMIN_UI -.->|1-klik provisionering| DEVICE
+    LOOKUP_API <--> PROBER
+    LOOKUP_API <--> SERVER_SEARCH
+    DEVICE <==>|🛍️ Butik & Search| LOOKUP_API
+    ANNAS_FETCH <--> DEVICE
 ```
 
 ---
@@ -98,6 +108,14 @@ DSLs COR og ODS fuldformsregistre indeholder over 3 millioner rækker. Ordpresse
 - **To-Zone Forsvar i dybden:** Ekstern Cloudflare-adgang er strengt begrænset til ét enkelt endpoint (`GET /api/v1/koreader/lookup`). Web UI, byggekø og administrations-endpoints er fuldstændig usynlige udefra (returnerer HTTP 404).
 - **Hashed API-nøgler & Provisionering:** Hver e-bogslæser får sin egen kryptografiske API-nøgle med præfiks (*ord_...*), gemt sikkert som SHA-256 hash. Download et nøglefærdigt `ordpresse.koplugin` med 1 klik direkte fra webbrugerfladen.
 - **Realtidsopslag i KOReader:** Knappen `⚡ Ordpresse Online` er integreret direkte i ordbogsvinduet, i markeringsmenuen og i KOReaders værktøjsmenu.
+
+### 8. 🛍️ KOReader Plugin Butik & Anna Fetch Dual-Source Bogsøgning (v1.2.1+)
+- **Kurateret OTA Plugin Butik:** Installer og opdater KOReader-plugins direkte fra læserens skærm uden computer eller USB-kabel.
+- **Anna Fetch (Ordpresse Edition):** Dual-source orkestrering mellem Libgen (primær, rå HTML) og Anna's Archive (sekundær fallback).
+- **Lyn-hurtig Server-Search (`action=annas_search`):** Serveren udfører søgningen via BeautifulSoup og HTTP/2, prioriterer læsevenlige bogformater (`epub`, `mobi`, `azw3`, `pdf`) over tegneseriehæfter, og returnerer rene resultater på < 200 ms.
+- **Mirror Authority (`action=annas_mirrors`):** Automatisk periodisk prober, der tester latenstid, sorterer efter hastighed, opdager DDoS-Guard og automatisk frasorterer kaprede/parkerede domæner (`.li`, `.org`).
+- **Kindle TLS-Hærdning:** Løser Kindles manglende Linux-rodcertifikater med tvungen `-k` SSL-omgåelse og søskende-opdagelse af enhedens API-nøgle.
+- **Direkte Download-Billet (`action=annas_download_ticket`):** Udtrækker dynamiske Libgen `get.php` nøgler direkte for enheden.
 
 ---
 
@@ -383,12 +401,64 @@ For at sikre, at KOReaders online opslag ikke blokeres af Cloudflares automatisk
 
 Nu kan din e-bogslæser foretage lynhurtige online opslag hvor som helst, så længe den har Wi-Fi-forbindelse.
 
-### 5. 🛍️ OTA Plugin Butik (v1.2.0+) <a id="-ota-plugin-butik-v120"></a>
-- **Kurateret tredjeparts-katalog:** Gennemse og installer udvalgte KOReader community-plugins direkte fra din e-bogslæser — ingen computer nødvendig.
-- **1-klik installation:** Vælg et plugin fra butikken, download, udpakning og installation sker automatisk. KOReader genstartes for at aktivere.
-- **Zero-Trust beskyttet:** Butikken kører over det eksisterende API-nøgle-system. Alle downloads proxyes sikkert gennem din Ordpresse-server.
-- **Medfølgende plugins:**
-  - 📚 **Anna's Archive** (`annas-fetch.koplugin`): Søg og download bøger direkte fra Anna's Archive med sprogfiltrering og formatvalg.
+### 5. 🛍️ KOReader Plugin Butik & Anna Fetch Orkestrering (v1.2.1+) <a id="-koreader-plugin-butik--anna-fetch-orkestrering-v121"></a>
+
+I takt med at KOReader community-plugins udvides, opstår der ofte kritiske driftsproblemer på e-bogslæsere:
+- **Upstream OTA-fejl:** GitHub API rate-limits, blokerede stinavne (`plugins/annas-fetch.koplugin` vs `plugins/annas-fetch`) og inkompatible zipball-strukturer bryder hyppigt automatiske opdateringer.
+- **DNS-blokeringer og Cloudflare challenges:** I Danmark blokerer internetudbydere via DNS for kendte skyggebiblioteker, og sider som Anna's Archive kræver JavaScript-løsning af DDoS-Guard / Cloudflare Turnstile, som en Kindles minimale browser/curl ikke kan gennemføre.
+- **Kindle SSL/TLS rodcertifikater:** Amazon Kindles indlejrede Linux mangler opdaterede CA-rodcertifikater i `/etc/ssl/certs`, hvorved rå `curl` over HTTPS fejler med SSL-fejl 60 medmindre `-k` anvendes.
+
+Den Danske Ordpresse løser dette ved at agere **lokal distributionscentral, mirror authority og søgemotor-proxy**:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant K as 📱 Kindle (KOReader)
+    participant O as ⚡ Ordpresse Server (:18088)
+    participant L as 📚 Libgen Mirror (libgen.li)
+    participant A as 🔍 Anna's Archive (annas-archive.pk)
+
+    Note over K,O: 1. Automatisk Spejlstyring & Bogsøgning
+    K->>O: GET /lookup?action=annas_search&q=Frankenstein (X-API-Key)
+    alt Server Assisteret Søgning (Hurtigst)
+        O->>L: GET /index.php?req=Frankenstein&curtab=f (HTTP/2)
+        L-->>O: Rå HTML tabel
+        O->>O: BeautifulSoup parsing, renser metadata & prioriterer EPUB/MOBI/PDF
+        O-->>K: JSON resultater (25 bøger med titel, forfatter, format, størrelse, md5)
+    else Offline Fallback (Kindle på farten)
+        K->>O: GET /lookup?action=annas_mirrors
+        O-->>K: JSON (libgen: [libgen.li], annas: [annas-archive.pk])
+        K->>L: curl -k -L -sS libgen.li/index.php?...
+        K->>K: Lokal Lua HTML parsing (med -k SSL bypass)
+    end
+
+    Note over K,O: 2. Download af e-bog
+    K->>O: GET /lookup?action=annas_download_ticket&md5=...
+    O->>L: GET /ads.php?md5=...
+    O-->>K: Direkte billet (get.php?md5=...&key=...)
+    K->>L: curl -k -L -sS -o /mnt/us/.../bog.epub <billet-url>
+    Note over K: Bog tilføjet til bibliotek!
+```
+
+#### Nøglekomponenter i Plugin-orkestreringen:
+1. **Kurateret OTA Plugin Butik:**
+   - E-læseren kalder `action=store_catalog` for at hente det godkendte katalog.
+   - Ved opdatering kalder den `action=store_download&id=annas-fetch`, hvor Ordpresse streamer et færdigpakket zip-arkiv genereret direkte fra de kuraterede kildefiler i `src/ordpresse/vendor/annas-fetch.koplugin/`.
+2. **Mirror Authority (`action=annas_mirrors`):**
+   - Prober-servicen tester periodisk Libgen og Anna's Archive kandidatdomæner.
+   - Frasorterer overtagne/parkerede domæner (`annas-archive.li`, `annas-archive.org`).
+   - Måler TCP/TLS svartid og rangerer de hurtigste fungerende spejle øverst med 3600 sekunders cache og eksponentiel backoff for fejlede værter.
+3. **Server-Assisteret Bogsøgning (`action=annas_search`):**
+   - Kindlen sender søgetermen til Ordpresse, som foretager forespørgslen med moderne HTTP/2 og BeautifulSoup.
+   - Omgår danske udbyderes DNS-blokeringer og Kindle CPU-belastning.
+   - Formatsortering: Prioriterer altid `epub`, `mobi`, `azw3` og `pdf` øverst frem for store tegneseriearkiver (`cbz`/`cbr`).
+   - Responstid: Under 200 ms mod e-læseren.
+4. **Dynamisk Billet-Opløsning (`action=annas_download_ticket`):**
+   - Henter automatisk engangs-tokens fra Libgens `ads.php`, så e-læseren kan hente den rene binære bogfil direkte uden at skulle håndtere reklamebannere eller mellemsider.
+5. **Kindle Klienthærdning (`annas-fetch.koplugin`):**
+   - **`-k` (`--insecure`) og `-sS`:** `curl`-kald fra Kindle eksekveres med SSL-verifikationsomgåelse, så certifikatfejl på Amazon Linux undgås.
+   - **Zero-config Søskendeopdagelse:** Læser automatisk API-nøgle og serverendpoint fra `plugins/ordpresse.koplugin/config.lua`.
+   - **Offline-robust:** Hvis e-læseren er uden for hjemmenetværket, falder den automatisk tilbage til den lokale spejlcache og direkte klient-scraping.
 
 ---
 
@@ -454,7 +524,7 @@ Hvis du benytter Cloudflare Tunnels (`cloudflared`):
 
 ## 🧪 Testsuite & Kvalitetssikring
 
-Projektet har en omfattende automatiseret testsuite med **89 tests**, der sikrer leksikalsk, kryptografisk og binær integritet:
+Projektet har en omfattende automatiseret testsuite med **101 tests**, der sikrer leksikalsk, kryptografisk og binær integritet:
 
 ```bash
 # Kør hele testsuiten
@@ -462,7 +532,8 @@ pytest -v
 ```
 
 ### Hvad dækker testene?
-- **`tests/test_koreader_online.py`:** Verificerer Zero-Trust to-zone grænsen (HTTP 404 for eksterne ikke-lookup stier), LAN login-flow, signerede session-cookies, hashed API-nøgle provisionering og livscyklus, KOReader plugin-generering (`addToDictButtons`, `addToHighlightDialog`, `onDictButtonsReady`), rate-limiting, negativ caching og skift af administratoradgangskode.
+- **`tests/test_annas_integration.py`:** Verificerer spejlovervågning, frasortering af parkerede domæner, in-memory zip-pakning af `annas-fetch.koplugin`, `action=store_download`, `action=annas_mirrors`, server-assisteret bogsøgning (`action=annas_search`) og download-billet opløsning (`action=annas_download_ticket`).
+- **`tests/test_koreader_online.py`:** Verificerer Zero-Trust to-zone grænsen (HTTP 404 for eksterne ikke-lookup stier), LAN login-flow, signerede session-cookies, hashed API-nøgle provisionering og livscyklus, KOReader plugin-generering (`addToDictButtons`, `addToHighlightDialog`, `onDictButtonsReady`), rate-limiting, negativ caching, in-app plugin-opdateringer og skift af administratoradgangskode.
 - **`tests/test_stardict_writer.py`:** Verificerer GLib `g_ascii_strcasecmp` sorteringsloven, binærlæsning og StarDict v2.4.2 overholdelse.
 - **`tests/test_index_hygiene.py`:** Verificerer sanering af romertal, parentesudvidelse, varemærkestripning og eliminering af ASCII versal-dubletter i `.syn`.
 - **`tests/test_lexical_integrity.py`:** Verificerer 3-lags prioriteringssystem, bøjningsvalidering og beskyttelse mod forkortede COR-SEM definitioner.

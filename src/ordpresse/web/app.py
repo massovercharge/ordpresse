@@ -233,6 +233,7 @@ async def index_page(request: Request):
             "version": __version__,
             "plugin_version": PLUGIN_VERSION,
             "plugin_release_notes": PLUGIN_RELEASE_NOTES,
+            "store_catalog": get_catalog_json(),
             "datasets_ready": datasets_ready,
             "cache_ready": cache_ready,
             "default_bookname": DEFAULT_BOOKNAME,
@@ -1037,6 +1038,37 @@ def delete_api_key_endpoint(key_id: int):
 def get_store_catalog_admin():
     """List all plugins in the curated store catalog (LAN-Only, session protected)."""
     return get_catalog_json()
+
+
+@app.get("/api/v1/store/mirrors")
+async def get_store_mirrors_admin(refresh: bool = False):
+    """Get active mirror health and latency metrics (LAN-Only, session protected)."""
+    return await mirror_prober.get_mirrors(force_refresh=refresh)
+
+
+@app.get("/api/v1/store/search")
+async def search_store_books_admin(q: str = ""):
+    """Test server-assisted book search against active mirrors (LAN-Only, session protected)."""
+    return await mirror_prober.search_books(q)
+
+
+@app.get("/api/v1/store/download/annas-fetch")
+def download_annas_fetch_admin():
+    """Direct web browser download of curated annas-fetch.koplugin.zip."""
+    try:
+        zip_bytes = build_annas_fetch_zip()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="annas-fetch.koplugin.zip"',
+            "X-Plugin-Id": "annas-fetch",
+            "X-Plugin-Version": "1.2.1-ordpresse",
+        },
+    )
 
 
 class ChangePasswordPayload(BaseModel):
