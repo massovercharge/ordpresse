@@ -186,9 +186,13 @@ class MirrorProberService:
         ) as client:
             for base_url in libgen_mirrors:
                 encoded_q = urllib.parse.quote_plus(cleaned_query)
+                # Prioritize fiction (topics[]=f) and books (topics[]=l).
+                # Never query without topics or with topics[]=a to avoid polluting results with scientific journal papers.
                 search_urls = [
-                    f"{base_url}/index.php?req={encoded_q}&columns[]=t&columns[]=a&curtab=f&res=50",
-                    f"{base_url}/index.php?req={encoded_q}&res=50",
+                    f"{base_url}/index.php?req={encoded_q}&columns[]=t&columns[]=a&topics[]=f&res=50",
+                    f"{base_url}/index.php?req={encoded_q}&columns[]=t&columns[]=a&topics[]=l&res=50",
+                    f"{base_url}/index.php?req={encoded_q}&topics[]=f&res=50",
+                    f"{base_url}/index.php?req={encoded_q}&topics[]=l&res=50",
                 ]
                 for s_url in search_urls:
                     try:
@@ -203,11 +207,16 @@ class MirrorProberService:
                                         md5_match = re.search(r"md5=([0-9a-fA-F]{32})", str(tr))
                                         if md5_match:
                                             md5 = md5_match.group(1).lower()
+                                            if any(r["md5"] == md5 for r in results):
+                                                continue
                                             title_a = tds[0].find("a", href=re.compile(r"edition\.php"))
                                             title = title_a.get_text(strip=True) if title_a else tds[0].get_text(strip=True)
                                             title = re.sub(r"\s+", " ", title).strip()
 
                                             author = tds[1].get_text(strip=True) if len(tds) > 1 else "Unknown Author"
+                                            author = re.sub(r"\s*\((?:Author|author|auth\.)\)", "", author).strip()
+                                            author = re.sub(r"\s+", " ", author).strip()
+
                                             publisher = tds[2].get_text(strip=True) if len(tds) > 2 else ""
                                             year = tds[3].get_text(strip=True) if len(tds) > 3 else ""
                                             lang = tds[4].get_text(strip=True) if len(tds) > 4 else ""
@@ -215,22 +224,21 @@ class MirrorProberService:
                                             size = tds[6].get_text(strip=True) if len(tds) > 6 else ""
                                             ext = tds[7].get_text(strip=True).lower() if len(tds) > 7 else "epub"
 
-                                            if not any(r["md5"] == md5 for r in results):
-                                                results.append({
-                                                    "title": title or "Unknown Title",
-                                                    "author": author or "Unknown Author",
-                                                    "year": year,
-                                                    "format": ext,
-                                                    "extension": ext,
-                                                    "size": size,
-                                                    "language": lang,
-                                                    "pages": pages,
-                                                    "publisher": publisher,
-                                                    "md5": md5,
-                                                    "source": "libgen",
-                                                    "download_page": f"{base_url}/ads.php?md5={md5}",
-                                                })
-                        if results:
+                                            results.append({
+                                                "title": title or "Unknown Title",
+                                                "author": author or "Unknown Author",
+                                                "year": year,
+                                                "format": ext,
+                                                "extension": ext,
+                                                "size": size,
+                                                "language": lang,
+                                                "pages": pages,
+                                                "publisher": publisher,
+                                                "md5": md5,
+                                                "source": "libgen",
+                                                "download_page": f"{base_url}/ads.php?md5={md5}",
+                                            })
+                        if len(results) >= 20:
                             break
                     except Exception:
                         continue

@@ -22,7 +22,7 @@ VENDOR_ANNAS_DIR = _get_vendor_annas_dir()
 
 def build_annas_fetch_zip() -> bytes:
     """Generate in-memory zipball for annas-fetch.koplugin from vendor files."""
-    vendor_dir = _get_vendor_annas_dir()
+    vendor_dir = VENDOR_ANNAS_DIR if VENDOR_ANNAS_DIR.exists() else _get_vendor_annas_dir()
     if not vendor_dir.exists():
         raise FileNotFoundError(f"Missing vendor directory: {vendor_dir}")
 
@@ -63,7 +63,7 @@ PLUGIN_CATALOG: List[StorePlugin] = [
         id="annas-fetch",
         name="📚 Anna's Archive (Ordpresse)",
         description="Dual-source bogsøgning (Libgen + Anna's Archive) med Ordpresse server-search og mirror-orkestrering.",
-        version="1.2.1-ordpresse",
+        version="1.2.2-ordpresse",
         author="right9code / Ordpresse",
         github_repo="right9code/annas-fetch.koplugin",
         koplugin_name="annas-fetch.koplugin",

@@ -40,7 +40,7 @@ def test_store_download_builds_valid_koplugin_zip(tmp_path, monkeypatch):
     vendor_dir = tmp_path / "annas-fetch.koplugin"
     (vendor_dir / "annas").mkdir(parents=True)
     (vendor_dir / "src").mkdir(parents=True)
-    (vendor_dir / "_meta.lua").write_text('return { version = "1.2.1-ordpresse" }')
+    (vendor_dir / "_meta.lua").write_text('return { version = "1.2.2-ordpresse" }')
     (vendor_dir / "annas" / "ota.lua").write_text("plugins/annas%-fetch(%.koplugin)?/?$")
     (vendor_dir / "src" / "scraper.lua").write_text("return {}")
 
@@ -53,7 +53,7 @@ def test_store_download_builds_valid_koplugin_zip(tmp_path, monkeypatch):
         assert "annas-fetch.koplugin/annas/ota.lua" in names
         assert "annas-fetch.koplugin/src/scraper.lua" in names
         meta_content = zf.read("annas-fetch.koplugin/_meta.lua").decode("utf-8")
-        assert "1.2.1-ordpresse" in meta_content
+        assert "1.2.2-ordpresse" in meta_content
 
 
 def test_api_annas_mirrors_endpoint(monkeypatch):
@@ -97,7 +97,7 @@ def test_api_store_download_annas_fetch():
     assert res.status_code == 200
     assert res.headers["content-type"] == "application/zip"
     assert res.headers["x-plugin-id"] == "annas-fetch"
-    assert res.headers["x-plugin-version"] == "1.2.1-ordpresse"
+    assert res.headers["x-plugin-version"] == "1.2.2-ordpresse"
     assert 'filename="annas-fetch.koplugin.zip"' in res.headers["content-disposition"]
 
     with zipfile.ZipFile(io.BytesIO(res.content), "r") as zf:
@@ -108,7 +108,7 @@ def test_api_store_download_annas_fetch():
         assert "annas-fetch.koplugin/src/scraper.lua" in names
 
         meta = zf.read("annas-fetch.koplugin/_meta.lua").decode("utf-8")
-        assert "1.2.1-ordpresse" in meta
+        assert "1.2.2-ordpresse" in meta
         ota = zf.read("annas-fetch.koplugin/annas/ota.lua").decode("utf-8")
         assert "plugins/annas%-fetch(%.koplugin)?/?$" in ota
         scraper = zf.read("annas-fetch.koplugin/src/scraper.lua").decode("utf-8")
@@ -160,3 +160,41 @@ def test_api_annas_search_and_ticket_endpoints(monkeypatch):
     data_ticket = res_ticket.json()
     assert data_ticket["status"] == "ok"
     assert "TESTKEY" in data_ticket["download_url"]
+
+
+def test_mirror_prober_search_books_parses_fiction_cleanly(monkeypatch):
+    prober = MirrorProberService(ttl_seconds=3600, timeout=1.0)
+
+    sample_html = """
+    <table id="tablelibgen">
+      <tr><th>Title</th><th>Author</th><th>Publisher</th><th>Year</th><th>Lang</th><th>Pages</th><th>Size</th><th>Ext</th><th>Mirrors</th></tr>
+      <tr>
+        <td><b><a href="series.php?id=123">Kingsbridge</a> №3</b><br/><a href="edition.php?id=456">A Column of Fire<i></i></a></td>
+        <td>Follett, Ken(Author)</td>
+        <td>Macmillan</td>
+        <td>2017</td>
+        <td>English</td>
+        <td>741</td>
+        <td>3 MB</td>
+        <td>epub</td>
+        <td><a href="ads.php?md5=0123456789abcdef0123456789abcdef">get</a></td>
+      </tr>
+    </table>
+    """
+
+    async def mock_get(self, url: str, **kwargs):
+        if "topics%5B%5D=f" in url or "topics[]=f" in url:
+            return httpx.Response(200, text=sample_html)
+        return httpx.Response(200, text="<table></table>")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+
+    result = asyncio.run(prober.search_books("a column of fire"))
+    assert result["status"] == "ok"
+    assert result["count"] == 1
+    hit = result["results"][0]
+    assert hit["title"] == "A Column of Fire"
+    assert hit["author"] == "Follett, Ken"
+    assert hit["format"] == "epub"
+    assert hit["md5"] == "0123456789abcdef0123456789abcdef"
+

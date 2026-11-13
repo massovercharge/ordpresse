@@ -171,7 +171,7 @@ function Scraper.parseLibgenHtml(html, base_url)
 
             local author = "Unknown Author"
             if cells[2] and cells[2] ~= "" then
-                author = cells[2]:gsub("<[^>]+>", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
+                author = cells[2]:gsub("<[^>]+>", ""):gsub("%s*%(.-[Aa]uthor.-%)", ""):gsub("%s*%(.-[Aa]uth%..-%)", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
                 if author == "" then author = "Unknown Author" end
             end
 
@@ -284,22 +284,24 @@ function Scraper.search(query)
         end
     end
 
-    -- Step 2: Client-side Libgen scraping (with fiction tab prioritized)
+    -- Step 2: Client-side Libgen scraping (with fiction and books prioritized)
     local mirrors = Scraper.getActiveMirrors()
     local encoded_q = url_encode(query)
 
     for _, base_url in ipairs(mirrors.libgen or DEFAULT_MIRRORS.libgen) do
-        local search_url = string.format("%s/index.php?req=%s&columns%%5B%%5D=t&columns%%5B%%5D=a&curtab=f&res=50", base_url, encoded_q)
-        local html = Scraper.execCurl(search_url, 15)
-        local hits = Scraper.parseLibgenHtml(html, base_url)
-        if #hits == 0 then
-            search_url = string.format("%s/index.php?req=%s&res=50", base_url, encoded_q)
-            html = Scraper.execCurl(search_url, 15)
-            hits = Scraper.parseLibgenHtml(html, base_url)
-        end
-        if #hits > 0 then
-            logger.info("AnnasFetch: Found " .. #hits .. " hits via Libgen mirror " .. base_url)
-            return hits
+        local search_urls = {
+            string.format("%s/index.php?req=%s&columns%%5B%%5D=t&columns%%5B%%5D=a&topics%%5B%%5D=f&res=50", base_url, encoded_q),
+            string.format("%s/index.php?req=%s&columns%%5B%%5D=t&columns%%5B%%5D=a&topics%%5B%%5D=l&res=50", base_url, encoded_q),
+            string.format("%s/index.php?req=%s&topics%%5B%%5D=f&res=50", base_url, encoded_q),
+            string.format("%s/index.php?req=%s&topics%%5B%%5D=l&res=50", base_url, encoded_q),
+        }
+        for _, s_url in ipairs(search_urls) do
+            local html = Scraper.execCurl(s_url, 15)
+            local hits = Scraper.parseLibgenHtml(html, base_url)
+            if #hits > 0 then
+                logger.info("AnnasFetch: Found " .. #hits .. " hits via Libgen mirror " .. base_url)
+                return hits
+            end
         end
     end
 
