@@ -900,7 +900,7 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
     Strictly authenticated via X-API-Key header.
     Supports in-app plugin updates via action=check_update and action=download_update.
     """
-    api_key = request.headers.get("X-API-Key")
+    api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
     db = Database()
     verify_api_key(api_key, db)
 

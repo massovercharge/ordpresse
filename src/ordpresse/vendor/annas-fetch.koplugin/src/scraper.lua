@@ -41,12 +41,17 @@ function Scraper.sanitize_name(name)
     return sanitized:gsub("^_+", ""):gsub("_+$", "")
 end
 
-function Scraper.getOrdpresseEndpoint()
+function Scraper.getOrdpresseConfig()
     local ok, cfg = pcall(dofile, "plugins/ordpresse.koplugin/config.lua")
     if ok and type(cfg) == "table" and cfg.endpoint_url and cfg.endpoint_url ~= "" then
-        return cfg.endpoint_url
+        return cfg
     end
     return nil
+end
+
+function Scraper.getOrdpresseEndpoint()
+    local cfg = Scraper.getOrdpresseConfig()
+    return cfg and cfg.endpoint_url or nil
 end
 
 function Scraper.execCurl(url, max_time)
@@ -100,11 +105,28 @@ function Scraper.getActiveMirrors()
         return cached.flat_mirrors
     end
 
-    local endpoint = Scraper.getOrdpresseEndpoint()
-    if endpoint then
-        local sep = string.find(endpoint, "?", 1, true) and "&" or "?"
-        local api_url = endpoint .. sep .. "action=annas_mirrors"
-        local raw = Scraper.execCurl(api_url, 3)
+    local cfg = Scraper.getOrdpresseConfig()
+    if cfg and cfg.endpoint_url then
+        local sep = string.find(cfg.endpoint_url, "?", 1, true) and "&" or "?"
+        local api_url = cfg.endpoint_url .. sep .. "action=annas_mirrors"
+        if cfg.api_key and cfg.api_key ~= "" then
+            api_url = api_url .. "&api_key=" .. url_encode(cfg.api_key)
+        end
+        local extra_header = (cfg.api_key and cfg.api_key ~= "") and string.format("-H %s", shell_quote("X-API-Key: " .. cfg.api_key)) or ""
+        local cmd = string.format(
+            "curl -L -s --max-time 3 %s -A %s -c %s -b %s %s 2>&1",
+            extra_header,
+            shell_quote(USER_AGENT),
+            shell_quote(COOKIE_JAR),
+            shell_quote(COOKIE_JAR),
+            shell_quote(api_url)
+        )
+        local handle = io.popen(cmd, "r")
+        local raw = nil
+        if handle then
+            raw = handle:read("*a")
+            handle:close()
+        end
         if raw then
             local ok, payload = pcall(json.decode, raw)
             if ok and type(payload) == "table" and payload.flat_mirrors then
