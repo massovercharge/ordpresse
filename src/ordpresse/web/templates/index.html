@@ -881,15 +881,77 @@
                 </div>
 
                 <!-- Step-by-step CrossPoint guide -->
-                <details class="bg-slate-900/60 rounded-xl p-3.5 border border-slate-800/80 text-xs space-y-2 text-slate-300">
-                    <summary class="font-semibold text-slate-200 cursor-pointer hover:text-emerald-300 select-none flex items-center gap-2">
-                        <span>📖</span> <span>Trin-for-trin: Sådan opsætter du CrossPoint (Xteink X4 Pro)</span>
+                <details open class="bg-slate-900/60 rounded-xl p-4 sm:p-5 border border-slate-800/80 text-xs space-y-4 text-slate-300">
+                    <summary class="font-bold text-sm text-white cursor-pointer hover:text-emerald-300 select-none flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span>📖</span> <span>Udførlig opsætningsguide: Forbind CrossPoint (Xteink X4 Pro) og synkroniser med Kindle</span>
+                        </div>
+                        <span class="text-[11px] text-slate-500 font-normal">Klik for at folde sammen/ud</span>
                     </summary>
-                    <div class="pt-2 pl-4 text-xs space-y-1.5 text-slate-300 border-l-2 border-emerald-500/40">
-                        <p><strong>1. Wi-Fi:</strong> Forbind din CrossPoint e-læser til Wi-Fi eller mobil hotspot.</p>
-                        <p><strong>2. OPDS Browser:</strong> Åbn CrossPoint menuen &gt; vælg <strong class="text-white">Settings &gt; System &gt; OPDS Browser</strong> (eller <em>Calibre Wireless</em>).</p>
-                        <p><strong>3. Tilføj katalog:</strong> Opret et nyt katalog ved navn <code class="text-emerald-400 font-mono">Ordpresse</code> og indsæt URL'en ovenfor (den indeholder automatisk din <code class="text-slate-300 font-mono">?api_key=ord_...</code>).</p>
-                        <p><strong>4. Hent &amp; CrossPoint Sync:</strong> Når du henter bogen, gemmes den med det <em>nøjagtig samme filnavn og uændrede binære EPUB-indhold</em> som på din Kindle. CrossPoint Sync genkender den med det samme og synkroniserer din læseposition automatisk!</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                        <!-- Step 1 & 2 -->
+                        <div class="space-y-3">
+                            <div class="p-3.5 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1.5">
+                                <div class="flex items-center gap-2 font-bold text-white text-xs">
+                                    <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center justify-center text-[11px]">1</span>
+                                    <span>Hent din API-nøgle</span>
+                                </div>
+                                <p class="text-slate-400 text-[11px] leading-relaxed">
+                                    Hvis du ikke allerede har din API-nøgle i feltet ovenfor, kan du generere en dedikeret nøgle i sektionen <em>"Enhedsadgang &amp; KOReader API-Nøgler"</em> længere nede (skriv f.eks. <code class="text-amber-300 font-mono">CrossPoint X4</code> og tryk <em>Opret &amp; Hent</em>). Indsæt den i nøglefeltet ovenfor for at få din færdige URL.
+                                </p>
+                            </div>
+
+                            <div class="p-3.5 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1.5">
+                                <div class="flex items-center gap-2 font-bold text-white text-xs">
+                                    <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center justify-center text-[11px]">2</span>
+                                    <span>Tilføj katalog i CrossPoint OS</span>
+                                </div>
+                                <ul class="list-disc list-inside text-slate-400 text-[11px] space-y-1 leading-relaxed">
+                                    <li>Forbind CrossPoint til Wi-Fi (eller telefonens hotspot).</li>
+                                    <li>Gå til menuen &gt; <strong>Settings &gt; System &gt; OPDS Browser</strong> (eller <em>Calibre Wireless</em>).</li>
+                                    <li>Vælg <strong>"Add Catalog"</strong> og udfyld:
+                                        <div class="mt-1 pl-3 space-y-0.5 font-mono text-[10px] text-slate-300">
+                                            <div>Navn: <span class="text-emerald-400">Ordpresse</span></div>
+                                            <div class="break-all">URL: <span class="text-emerald-400">https://ordpresse.seame.click/opds?api_key=ord_...</span></div>
+                                        </div>
+                                    </li>
+                                    <li><em>Brugernavn/Adgangskode:</em> Efterlad blanke (nøglen er i URL'en).</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Step 3 & 4 -->
+                        <div class="space-y-3">
+                            <div class="p-3.5 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1.5">
+                                <div class="flex items-center gap-2 font-bold text-white text-xs">
+                                    <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center justify-center text-[11px]">3</span>
+                                    <span>Gennemse og hent bøger med ét klik</span>
+                                </div>
+                                <p class="text-slate-400 text-[11px] leading-relaxed">
+                                    Åbn <strong>Ordpresse</strong>-kataloget på din CrossPoint. Alle bøger, du har hentet på din Kindle eller i søgefeltet herover, vises overskueligt med omslag og metadata. Tryk på en bog for at downloade den til offline-læsning.
+                                </p>
+                            </div>
+
+                            <div class="p-3.5 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1.5">
+                                <div class="flex items-center gap-2 font-bold text-white text-xs">
+                                    <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center justify-center text-[11px]">4</span>
+                                    <span>CrossPoint Sync (KOSync) synkronisering</span>
+                                </div>
+                                <p class="text-slate-400 text-[11px] leading-relaxed">
+                                    Sørg for at <strong>CrossPoint Sync</strong> er aktiveret i indstillingerne med samme konto som din Kindle KOReader. Da Ordpresse bevarer de rå binære EPUB-bytes og standardiserer filnavnet (<code class="text-amber-300 font-mono">Titel_Forfatter.epub</code>), er fil-hashen identisk på begge enheder — din læseposition, fremdrift og bogmærker følger dig automatisk!
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Security & Privacy note -->
+                    <div class="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20 flex items-start gap-2.5 text-[11px] text-slate-300">
+                        <span class="text-emerald-400 text-sm">🔒</span>
+                        <div>
+                            <strong class="text-emerald-300">100% Privat &amp; Sikker adgang:</strong>
+                            Dette OPDS-feed er beskyttet af kryptografisk nøglevalidering. Uden en gyldig <code class="text-emerald-400 font-mono">ord_...</code> API-nøgle afviser serveren øjeblikkeligt enhver forespørgsel med <code class="text-slate-400 font-mono">401 Unauthorized</code>. Ingen udenforstående kan se hvilke bøger du har i biblioteket.
+                        </div>
                     </div>
                 </details>
             </div>
