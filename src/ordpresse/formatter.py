@@ -37,6 +37,12 @@ def normalize_pos(pos: str) -> str:
 
     if p in ("sb", "sb.", "substantiv", "subst.", "navneord"):
         return "sb."
+    if p.startswith("substantiv"):
+        if "fælleskøn" in p or "faelleskoen" in p or "fk" in p:
+            return "sb. fk."
+        if "intetkøn" in p or "intetkoen" in p or "itk" in p:
+            return "sb. itk."
+        return "sb."
     if p.startswith("sb.") or p.startswith("sb "):
         return "sb."
 
@@ -54,6 +60,17 @@ def normalize_pos(pos: str) -> str:
         return "adv."
     if p.startswith("adv.") or p.startswith("adv ") or p.startswith("adverbium"):
         return "adv."
+
+    if p in ("præp", "præp.", "præposition", "forholdsord") or p.startswith("præp.") or p.startswith("præposition"):
+        return "præp."
+    if p in ("konj", "konj.", "konjunktion", "bindeord") or p.startswith("konj.") or p.startswith("konjunktion"):
+        return "konj."
+    if p in ("pron", "pron.", "pronomen", "stedord") or p.startswith("pron.") or p.startswith("pronomen"):
+        return "pron."
+    if p in ("interj", "interj.", "interjektion", "udråbsord") or p.startswith("interj.") or p.startswith("interjektion"):
+        return "interj."
+    if p in ("talord", "num", "num.") or p.startswith("talord"):
+        return "talord"
 
     # Fallback to normalized prefix if starts with sb/adj/vb/adv
     m = re.match(r"^(sb\.?|adj\.?|vb\.?|adv\.?)", p)
@@ -155,17 +172,21 @@ def render_canonical_html(entry: CanonicalEntry) -> str:
             parts.append(f"<li>{lbl}{s.definition}{q}</li>")
         parts.append("</ol></div>")
 
-    # Layer 2B: Modern Senses (COR-SEM)
+    # Layer 2B: Modern Senses (COR-SEM / DDO)
     if entry.modern_senses:
-        hdr = '<small><b>NUTIDSDANSK (COR-SEM)</b></small>' if entry.historical_senses else ""
+        has_ddo = any((s.source_tag or "").upper() == "DDO" for s in entry.modern_senses)
+        hdr_label = "NUTIDSDANSK (DDO)" if has_ddo else "NUTIDSDANSK (COR-SEM)"
+        hdr = f"<small><b>{hdr_label}</b></small>" if entry.historical_senses else ""
+        sense_limit = 6 if has_ddo else 3
         parts.append(f"<div>{hdr}<ol>")
-        for s in entry.modern_senses[:3]:
+        for s in entry.modern_senses[:sense_limit]:
+            lbl = f"<i>({s.label})</i> " if s.label else ""
             q = ""
             if s.quote:
                 clean_q = s.quote.split("|")[0].strip()
                 if clean_q:
                     q = f'<br><small><i>»{clean_q}«</i></small>'
-            parts.append(f"<li>{s.definition}{q}</li>")
+            parts.append(f"<li>{lbl}{s.definition}{q}</li>")
         parts.append("</ol></div>")
 
     # Layer 3: Cultural & Historical Realia Note

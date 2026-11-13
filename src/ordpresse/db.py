@@ -124,6 +124,27 @@ def clean_corrupted_cached_definitions(conn: sqlite3.Connection) -> int:
         )
         deleted = cur.rowcount
 
+        # Check if online_lookup_cache exists before attempting cleanup
+        has_online_cache = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'online_lookup_cache'"
+        ).fetchone()
+        if has_online_cache:
+            cur_online = conn.execute(
+                """
+                DELETE FROM online_lookup_cache
+                WHERE status = 'FOUND' AND (
+                    payload_json IS NULL
+                    OR trim(payload_json) = ''
+                    OR payload_json LIKE '%…%'
+                    OR payload_json LIKE '%\\u2026%'
+                    OR payload_json LIKE '%Historisk opslag for%'
+                    OR payload_json LIKE '%ingen betydningsangivelse%'
+                    OR payload_json LIKE '%SITATER%'
+                )
+                """
+            )
+            deleted += cur_online.rowcount
+
         cur = conn.execute("SELECT word, headword, html_content, synonyms_json FROM definitions")
         to_delete = []
         to_update = []
@@ -369,12 +390,26 @@ class Database:
                 )
                 row = cur.fetchone()
             if not row:
+                # Fallback: check if 'w' matches an inflected surface form recorded in synonyms_json
+                cur.execute(
+                    "SELECT word, source, headword, html_content, synonyms_json FROM definitions WHERE synonyms_json LIKE ? LIMIT 20",
+                    (f'%"{w}"%',),
+                )
+                for cand in cur.fetchall():
+                    try:
+                        syns = json.loads(cand["synonyms_json"]) if cand["synonyms_json"] else []
+                        if any(s.strip().lower() == w or s.strip().lower().replace("-", "") == w.replace("-", "") for s in syns):
+                            row = cand
+                            break
+                    except Exception:
+                        continue
+            if not row:
                 return None
             html_content = row["html_content"] or ""
             if ("Historisk opslag for »" in html_content or
                 "SITATER" in html_content or
                 bool(re.search(r"<i>[^<]*(?:adjektiv|substantiv)</i>", html_content)) or
-                not any(m in html_content for m in ["<ol>", "<li>", "▸", "<p>", "[Historisk kontekst]"])):
+                not any(m in html_content for m in ["<ol>", "<li>", "▸", "•", "<p>", "[Historisk kontekst]"])):
                 with self.cache_conn:
                     self.cache_conn.execute("DELETE FROM definitions WHERE word = ?", (row["word"],))
                 return None
@@ -405,6 +440,16 @@ class Database:
         cur = self.cache_conn.cursor()
         cur.execute("SELECT word FROM not_found_words")
         return {r[0] for r in cur.fetchall()}
+
+    def delete_cached(self, word: str) -> bool:
+        """Delete an entry from definitions by word key."""
+        w = word.strip().lower()
+        if not w:
+            return False
+        with self._write_lock:
+            with self.cache_conn:
+                cur = self.cache_conn.execute("DELETE FROM definitions WHERE word = ?", (w,))
+                return cur.rowcount > 0
 
     def set_cached(
         self,

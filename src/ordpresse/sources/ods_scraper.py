@@ -12,7 +12,7 @@ import logging
 import re
 import time
 from typing import Dict, List, Optional, Set
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, unquote, urlparse
 from bs4 import BeautifulSoup
 import requests
 
@@ -190,6 +190,9 @@ def clean_ods_definition_text(text: str) -> str:
         if t and not t.endswith((".", "!", "?")):
             t += "."
 
+    # Strip trailing empty parentheses left by removed cross-refs/sources (e.g. 'knyttet til et kapel ()')
+    t = re.sub(r"\s*\(\s*\)", "", t)
+
     # Balance parentheses if any unclosed '(' remains
     open_count = t.count("(")
     close_count = t.count(")")
@@ -201,6 +204,7 @@ def clean_ods_definition_text(text: str) -> str:
 
     # Trim trailing punctuation and ensure proper ending if needed
     t = re.sub(r"\s+([,.;:!)])", r"\1", t).strip()
+    t = re.sub(r":\s*$", ".", t)
     return t
 
 
@@ -248,14 +252,19 @@ class ODSScraperRateLimitError(Exception):
 class ODSScraper:
     """Robust scraper for Ordbog over det danske Sprog (ordnet.dk/ods)."""
 
-    def __init__(self, session: Optional[requests.Session] = None):
+    def __init__(
+        self,
+        session: Optional[requests.Session] = None,
+        request_delay: Optional[float] = None,
+    ):
         if session is not None:
             self.session = session
         else:
             self.session = requests.Session()
             self.session.headers.update({"User-Agent": USER_AGENT})
+        self.request_delay = REQUEST_DELAY_SECONDS if request_delay is None else request_delay
 
-    def scrape_ods(self, word: str) -> Optional[dict]:
+    def scrape_ods(self, word: str, max_senses: int = 8) -> Optional[dict]:
         """Scrape ODS articles, aggregating all homographs and following cross-references."""
         w_clean = word.strip().lower()
         if not w_clean:
@@ -265,18 +274,29 @@ class ODSScraper:
         if not soup:
             return None
 
-        return self._parse_soup_into_entry(w_clean, soup)
+        return self._parse_soup_into_entry(w_clean, soup, max_senses=max_senses)
 
-    def parse_ods_html(self, word: str, html: str) -> Optional[dict]:
+    def parse_ods_html(self, word: str, html: str, max_senses: int = 8) -> Optional[dict]:
         """Parse raw ODS HTML (e.g. from bookmarklet or external submission) into a canonical entry."""
         w_clean = word.strip().lower()
         if not w_clean or not html:
             return None
 
         soup = BeautifulSoup(html, "html.parser")
-        return self._parse_soup_into_entry(w_clean, soup)
+        return self._parse_soup_into_entry(w_clean, soup, max_senses=max_senses)
 
-    def _parse_soup_into_entry(self, w_clean: str, soup: BeautifulSoup) -> Optional[dict]:
+    @staticmethod
+    def _extract_raw_art_hw(art) -> str:
+        """Extract stripped article headline lowercase, preserving trailing '-' for prefix detection."""
+        m = art.find("span", class_="match") or art.find("span", class_="headline") or art.find("h1")
+        if not m:
+            return ""
+        hw = m.get_text(" ", strip=True)
+        hw = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s+", "", hw, flags=re.IGNORECASE)
+        hw = re.sub(r"[,\s\d]+$", "", hw).strip().lower()
+        return hw
+
+    def _parse_soup_into_entry(self, w_clean: str, soup: BeautifulSoup, max_senses: int = 8) -> Optional[dict]:
         articles = soup.find_all("div", class_="artikel")
         if not articles:
             if soup.name == "div" and "artikel" in soup.get("class", []):
@@ -295,7 +315,8 @@ class ODSScraper:
                     target_url = first_link["href"]
                     if not target_url.startswith("http"):
                         target_url = f"https://ordnet.dk/ods/{target_url.lstrip('/')}"
-                    time.sleep(REQUEST_DELAY_SECONDS)
+                    if self.request_delay > 0:
+                        time.sleep(self.request_delay)
                     try:
                         r2 = self.session.get(target_url, timeout=REQUEST_TIMEOUT)
                         if r2.status_code == 200:
@@ -326,54 +347,89 @@ class ODSScraper:
                 }
             return None
 
-        # Detect headword and select matching article if page contains multiple entries
+        # Detect headword and select matching standalone article(s), skipping compound prefixes ending in '-'
         from ordpresse.orthography import sanitize_headword
-        matching_article = None
+        matching_articles = []
+        hw_elem = None
         for art in articles:
-            m = art.find("span", class_="match") or art.find("span", class_="headline") or art.find("h1")
-            if m:
-                art_hw = re.sub(r"^[0-9.]+\s*", "", m.get_text(" ", strip=True)).rstrip(",").strip().lower()
-                clean_art_hw, _ = sanitize_headword(art_hw)
-                if (
-                    art_hw == w_clean
-                    or art_hw.replace("-", "") == w_clean.replace("-", "")
-                    or clean_art_hw == w_clean
-                    or clean_art_hw.replace("-", "") == w_clean.replace("-", "")
-                ):
-                    matching_article = art
-                    hw_elem = m
-                    break
+            art_hw = self._extract_raw_art_hw(art)
+            if not art_hw:
+                continue
+            if art_hw.endswith("-") and not w_clean.endswith("-"):
+                continue
+            clean_art_hw, _ = sanitize_headword(art_hw)
+            if (
+                art_hw == w_clean
+                or art_hw.replace("-", "") == w_clean.replace("-", "")
+                or clean_art_hw.lower() == w_clean
+                or clean_art_hw.replace("-", "").lower() == w_clean.replace("-", "")
+            ):
+                matching_articles.append(art)
+                if hw_elem is None:
+                    hw_elem = art.find("span", class_="match") or art.find("span", class_="headline") or art.find("h1")
 
-        if matching_article:
-            articles = [matching_article]
+        if matching_articles:
+            articles = matching_articles
             headword_raw = hw_elem.get_text(" ", strip=True)
         else:
-            hw_elem = soup.find("span", class_="match") or soup.find("h1") or soup.find("span", class_="headline")
+            non_prefix = [a for a in articles if not self._extract_raw_art_hw(a).endswith("-")]
+            if non_prefix:
+                articles = non_prefix
+            first_art = articles[0]
+            hw_elem = (
+                first_art.find("span", class_="match")
+                or first_art.find("span", class_="headline")
+                or first_art.find("h1")
+                or soup.find("span", class_="match")
+                or soup.find("h1")
+            )
             headword_raw = hw_elem.get_text(" ", strip=True) if hw_elem else w_clean.capitalize()
-        headword = re.sub(r"^[0-9.]+\s*", "", headword_raw)
+        headword = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", headword_raw, flags=re.IGNORECASE)
         headword = re.sub(r"[,\s\d]+$", "", headword).strip()
         if not headword:
             headword = w_clean
 
-        # Collect all homograph soups from search result box
+        # Track already-rendered article headers in soup to avoid redundant sibling fetches
+        seen_match_headers: Set[str] = set()
+        for art in articles:
+            m_tag = art.find("span", class_="match") or art.find("span", class_="headline") or art.find("h1")
+            if m_tag:
+                m_norm = re.sub(r"[,;\s]+$", "", m_tag.get_text(" ", strip=True).lower()).strip()
+                if m_norm:
+                    seen_match_headers.add(m_norm)
+
+        # Collect homograph soups from search result box (capped for fast interactive latency)
         all_soups = [soup]
         res_box = soup.find("div", class_="searchResultBox")
         if res_box:
-            links = res_box.find_all("a")
-            for link in links:
+            sibling_fetches = 0
+            seen_hrefs: Set[str] = set()
+            for link in res_box.find_all("a"):
+                if sibling_fetches >= 2:
+                    break
                 txt = link.get_text(" ", strip=True)
-                clean_txt = re.sub(r"^[0-9.]+\s*", "", txt)
+                txt_norm = re.sub(r"[,;\s]+$", "", txt.lower()).strip()
+                if txt_norm in seen_match_headers:
+                    continue
+                clean_txt = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", txt, flags=re.IGNORECASE)
                 clean_txt = re.sub(r"[,\s\d]+$", "", clean_txt).strip()
-                if clean_txt.lower() == headword.lower() and link.get("href"):
+                if clean_txt.lower() == headword.lower() and not clean_txt.endswith("-") and link.get("href"):
                     href = link["href"]
+                    if "fejlrapport" in href.lower() or href in seen_hrefs:
+                        continue
+                    seen_hrefs.add(href)
                     if not href.startswith("http"):
                         href = f"https://ordnet.dk/ods/{href.lstrip('/')}"
                     try:
-                        time.sleep(REQUEST_DELAY_SECONDS)
+                        if self.request_delay > 0:
+                            time.sleep(self.request_delay)
                         sub_r = self.session.get(href, timeout=REQUEST_TIMEOUT)
+                        sibling_fetches += 1
                         if sub_r.status_code == 200:
                             sub_soup = BeautifulSoup(sub_r.text, "html.parser")
                             all_soups.append(sub_soup)
+                    except requests.exceptions.ConnectionError:
+                        break
                     except Exception as e:
                         logger.debug(f"Failed to fetch homograph sibling {href}: {e}")
 
@@ -381,22 +437,28 @@ class ODSScraper:
         detected_pos = ""
         historical_spellings: List[str] = []
         visited_refs: Set[str] = {w_clean, headword.lower()}
+        hw_norm_cmp = headword.lower().replace("-", "")
 
         for sp in all_soups:
-            # Extract definitions from .artikel nodes matching headword
-            for art in sp.find_all("div", class_="artikel"):
-                m = art.find("span", class_="match") or art.find("span", class_="headline") or art.find("h1")
-                if m:
-                    art_hw = re.sub(r"^[0-9.]+\s*", "", m.get_text(" ", strip=True)).rstrip(",").strip().lower()
-                    clean_art_hw, _ = sanitize_headword(art_hw)
+            art_list = matching_articles if (sp is soup and matching_articles) else sp.find_all("div", class_="artikel")
+            if not art_list and sp is soup:
+                art_list = articles
+            for art in art_list:
+                raw_hw = self._extract_raw_art_hw(art)
+                if raw_hw:
+                    if raw_hw.endswith("-") and not w_clean.endswith("-"):
+                        continue
+                    clean_art_hw, _ = sanitize_headword(raw_hw)
                     if not (
-                        art_hw == headword.lower()
-                        or art_hw.replace("-", "") == headword.lower().replace("-", "")
-                        or clean_art_hw == headword.lower()
-                        or clean_art_hw.replace("-", "") == headword.lower().replace("-", "")
+                        raw_hw == headword.lower()
+                        or raw_hw.replace("-", "") == hw_norm_cmp
+                        or clean_art_hw.lower() == headword.lower()
+                        or clean_art_hw.replace("-", "").lower() == hw_norm_cmp
                     ):
                         continue
-                parsed_senses, art_pos, spellings = self._parse_article(art, visited_refs)
+                parsed_senses, art_pos, spellings = self._parse_article(
+                    art, visited_refs, max_senses=max_senses
+                )
                 if not detected_pos and art_pos:
                     detected_pos = art_pos
                 historical_spellings.extend(spellings)
@@ -404,17 +466,18 @@ class ODSScraper:
                 for sense in parsed_senses:
                     if not any(sense.definition == existing.definition for existing in historical_senses):
                         historical_senses.append(sense)
-                        if len(historical_senses) >= 4:
+                        if len(historical_senses) >= max_senses:
                             break
-                if len(historical_senses) >= 4:
+                if len(historical_senses) >= max_senses:
                     break
+            if len(historical_senses) >= max_senses:
+                break
 
         # STRICT PROHIBITION AGAINST DUMMY DEFINITIONS:
         # If no authentic historical senses could be extracted, return None to trigger fallbacks!
         if not historical_senses:
             return None
 
-        from ordpresse.orthography import sanitize_headword
         clean_hw, extra_syns = sanitize_headword(headword)
         headword_norm = (clean_hw or w_clean).lower()
         all_synonyms = {w_clean, headword_norm, headword_norm.replace("-", "")} | extra_syns
@@ -431,7 +494,7 @@ class ODSScraper:
             pos=detected_pos or "sb.",
             inflections=all_synonyms,
             summary_hook=summary_hook,
-            historical_senses=historical_senses[:4],
+            historical_senses=historical_senses[:max_senses],
             sources_used=["ODS"],
         )
 
@@ -452,7 +515,8 @@ class ODSScraper:
         ]
         for url in urls_to_try:
             try:
-                time.sleep(REQUEST_DELAY_SECONDS)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
                 resp = self.session.get(url, timeout=REQUEST_TIMEOUT)
                 if resp.status_code == 429:
                     logger.warning(f"ODS scraper received HTTP 429 Too Many Requests for {url}")
@@ -464,10 +528,85 @@ class ODSScraper:
                     soup = BeautifulSoup(resp.text, "html.parser")
                     if soup.find("div", class_="artikel") or soup.find("div", class_="searchResultBox"):
                         return soup
+                    # HTTP 200 confirmed no ODS article on ordnet.dk -> skip duplicate ?query= URL
+                    return None
             except ODSScraperRateLimitError:
                 raise
+            except requests.exceptions.ConnectionError as e:
+                logger.debug(f"Connection error fetching ODS for {url}: {e}")
+                break
             except Exception as e:
                 logger.debug(f"Failed to fetch {url}: {e}")
+        return None
+
+    @staticmethod
+    def _is_bare_etymology_fragment(text: str) -> bool:
+        """Reject bare ODS etymology/cross-reference fragments like 'af I. Mare', 'af Marie', 'se Lejd'."""
+        if not text:
+            return True
+        t = re.sub(r"^\([^)]+\)\s*", "", text.strip()).strip()
+        if re.match(r"^(?:[Ss]e\b|[IVXLCDM]+\.\s*[Ss]e\b|\d+\.\s*[Ss]e\b)", t):
+            return True
+        if re.match(r"^(?:af|fra|afl\.?\s+af|samme\s+ord\s+som)\s+(?:[IVXLCDM]+\.\s*)?[A-ZÆØÅ][a-zæøåA-ZÆØÅ\-]*\.?$", t):
+            return True
+        if re.match(r"^(?:af|fra)\s+(?:ty\.|lty\.|hty\.|lat\.|gr\.|fr\.|eng\.|oldn\.|sv\.|no\.)\b", t, re.IGNORECASE) and len(t) < 40:
+            return True
+        return False
+
+    @staticmethod
+    def _extract_ods_ref_target(art: BeautifulSoup, clean_raw_text: str) -> Optional[str]:
+        """Extract clean cross-reference headword from cleaned ODS article."""
+        ref_match = re.search(
+            r"\bse\s+(?:u\.\s+|under\s+)?([A-ZÆØÅa-zæøå][A-ZÆØÅa-zæøå0-9.,\- ]{0,40})",
+            clean_raw_text,
+        )
+        for a in art.find_all("a"):
+            href = (a.get("href") or "").strip()
+            if not href or href.startswith(("#", "mailto:", "javascript:")):
+                continue
+            low_href = href.lower()
+            if any(skip in low_href for skip in ("fejlrapport", "om-ods", "forkortelser", "hjaelp", "login")):
+                continue
+            cand = ""
+            if "ordbog" in low_href or "query=" in low_href or "select=" in low_href:
+                parsed = urlparse(href)
+                qs = parse_qs(parsed.query)
+                if qs.get("query") and qs["query"][0].strip():
+                    cand = qs["query"][0].strip()
+                elif qs.get("select") and qs["select"][0].strip():
+                    cand = qs["select"][0].strip()
+                elif "/ods/ordbog/" in low_href:
+                    cand = unquote(parsed.path.split("/ods/ordbog/")[-1]).strip()
+                else:
+                    cand = a.get_text(" ", strip=True)
+            elif ref_match:
+                link_txt = a.get_text(" ", strip=True)
+                if link_txt and link_txt.rstrip(".,") in ref_match.group(1):
+                    cand = link_txt
+            if cand:
+                cand = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", cand, flags=re.I).strip()
+                cand = re.sub(r"[,\s\d]+$", "", cand).strip()
+                if (
+                    cand
+                    and len(cand) <= 50
+                    and "/" not in cand
+                    and "?" not in cand
+                    and re.match(r"^[a-zæøåA-ZÆØÅ\- ]+$", cand)
+                ):
+                    return cand
+
+        if ref_match:
+            cand = ref_match.group(1).strip()
+            cand = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", cand, flags=re.I).strip()
+            cand = re.sub(r"[,\s\d]+$", "", cand).strip()
+            if (
+                cand
+                and len(cand) <= 50
+                and "/" not in cand
+                and "?" not in cand
+                and re.match(r"^[a-zæøåA-ZÆØÅ\- ]+$", cand)
+            ):
+                return cand
         return None
 
     def _parse_article(
@@ -475,26 +614,18 @@ class ODSScraper:
         art: BeautifulSoup,
         visited_refs: Set[str],
         depth: int = 0,
+        max_senses: int = 8,
     ) -> tuple[List[SenseItem], str, List[str]]:
         """Parse an ODS .artikel node, extracting senses, POS, and following cross-references."""
         senses: List[SenseItem] = []
         detected_pos = ""
         historical_spellings: List[str] = []
 
-        # 1. Detect cross-reference link before cleaning DOM
         raw_text = art.get_text(" ", strip=True)
-        ref_match = re.search(r"\bse\s+(?:u\.\s+|under\s+)?([A-ZÆØÅa-zæøå0-9.,\- ]+)", raw_text)
-        ref_link = None
-        for a in art.find_all("a"):
-            href = a.get("href", "")
-            if href and not href.startswith("mailto:") and not href.startswith("#"):
-                ref_link = href
-                break
 
-        # 2. Extract POS and archaic spellings if available in match header
+        # 1. Extract POS and archaic spellings if available in match header
         headword_match = art.find("span", class_="match")
         if headword_match:
-            # Detect POS from elements immediately following match
             header_text = ""
             for sib in headword_match.next_siblings:
                 if getattr(sib, "name", None) == "span" and "semdel" in getattr(sib, "get", lambda _: [])("class", []):
@@ -506,14 +637,13 @@ class ODSScraper:
             if pos_match:
                 detected_pos = normalize_pos(pos_match.group(1))
 
-            # Archaic spelling in dagger / parentheses: († uefterretlig)
             dag_elem = art.find(title=re.compile(r"forældet", re.IGNORECASE))
             if dag_elem and dag_elem.parent:
                 b_elem = dag_elem.parent.find("b")
                 if b_elem:
                     historical_spellings.append(b_elem.get_text(" ", strip=True).rstrip("."))
 
-        # 3. Clean unwanted DOM elements
+        # 2. Clean unwanted DOM elements before extracting cross-reference targets or senses
         for unwanted in art.find_all(["script", "style", "nav", "header", "footer"]):
             unwanted.decompose()
         for unwanted_class in [
@@ -531,7 +661,10 @@ class ODSScraper:
         if headword_match:
             headword_match.decompose()
 
-        # 4. Extract structured definitions from .semem / .subsem
+        clean_raw_text = art.get_text(" ", strip=True)
+        ref_target = self._extract_ods_ref_target(art, clean_raw_text)
+
+        # 3. Extract structured definitions from .semem / .subsem
         semems = art.find_all(class_="semem")
         if semems:
             for s in semems:
@@ -556,6 +689,16 @@ class ODSScraper:
                         txt = ch.get_text(" ", strip=True) if hasattr(ch, "get_text") else str(ch).strip()
                         if not txt:
                             continue
+
+                        if tag_name:
+                            cls_list = [c.lower() for c in (ch.get("class") or [])]
+                            if "citat" in cls_list or "cit" in cls_list:
+                                hit_cit = True
+                                q_clean = re.sub(r"^[*\s]+", "", txt).strip()
+                                if not quote_text and len(q_clean) > 4:
+                                    quote_text = q_clean.strip("»« ")
+                                continue
+
                         if txt.startswith("*") or hit_cit:
                             hit_cit = True
                             if not quote_text and txt.startswith("*"):
@@ -567,11 +710,18 @@ class ODSScraper:
                                         break
                             continue
 
-                        if tag_name is None:
-                            if len(txt) > 20 and not txt.startswith("III.") and not txt.startswith("II.") and not txt.startswith("I."):
+                        if tag_name is None and def_tokens:
+                            if "»" in txt or (
+                                len(txt) > 20
+                                and not txt.startswith(("I.", "II.", "III."))
+                                and (
+                                    re.search(r"^[A-ZÆØÅ][a-zæøå]+\.\s", txt)
+                                    or any(p.search(txt) for p, _ in AUTHOR_EXPANSIONS)
+                                )
+                            ):
                                 hit_cit = True
                                 if not quote_text:
-                                    quote_text = txt
+                                    quote_text = txt.strip("»«* ")
                                 continue
 
                         def_tokens.append(txt)
@@ -579,12 +729,20 @@ class ODSScraper:
                     raw_def = sanitize_ods_text(" ".join(def_tokens))
                     clean_def = clean_ods_definition_text(raw_def)
 
-                    if not is_meta_header_not_definition(clean_def) and is_valid_definition(clean_def) and not clean_def.lower().startswith("se "):
+                    if (
+                        not is_meta_header_not_definition(clean_def)
+                        and is_valid_definition(clean_def)
+                        and not self._is_bare_etymology_fragment(clean_def)
+                    ):
                         label = self._extract_label(clean_def)
                         if label:
                             clean_def = re.sub(r"^\([^)]+\)\s*", "", clean_def).strip()
                         clean_def = clean_ods_definition_text(clean_def)
-                        if clean_def and not is_meta_header_not_definition(clean_def):
+                        if (
+                            clean_def
+                            and not is_meta_header_not_definition(clean_def)
+                            and not self._is_bare_etymology_fragment(clean_def)
+                        ):
                             if not any(clean_def == existing.definition for existing in senses):
                                 senses.append(
                                     SenseItem(
@@ -595,35 +753,47 @@ class ODSScraper:
                                         source_tag="ODS",
                                     )
                                 )
-                                if len(senses) >= 4:
+                                if len(senses) >= max_senses:
                                     break
-                if len(senses) >= 4:
+                if len(senses) >= max_senses:
                     break
 
-        # 5. Fallback: Extract from .betydning or .definition
+        # 4. Fallback: Extract from .betydning or .definition
         if not senses:
             betyd_nodes = art.find_all(class_=re.compile(r"\b(?:betydning|definition)\b"))
             if betyd_nodes:
                 for bn in betyd_nodes:
                     clean_def = clean_ods_definition_text(sanitize_ods_text(bn.get_text(" ", strip=True)))
-                    if not is_meta_header_not_definition(clean_def) and is_valid_definition(clean_def) and not clean_def.lower().startswith("se "):
+                    if (
+                        not is_meta_header_not_definition(clean_def)
+                        and is_valid_definition(clean_def)
+                        and not self._is_bare_etymology_fragment(clean_def)
+                    ):
                         label = self._extract_label(clean_def)
                         if label:
                             clean_def = re.sub(r"^\([^)]+\)\s*", "", clean_def).strip()
                         clean_def = clean_ods_definition_text(clean_def)
-                        if clean_def and not is_meta_header_not_definition(clean_def):
+                        if (
+                            clean_def
+                            and not is_meta_header_not_definition(clean_def)
+                            and not self._is_bare_etymology_fragment(clean_def)
+                        ):
                             if not any(clean_def == existing.definition for existing in senses):
                                 senses.append(SenseItem(definition=clean_def, label=label or "hist.", source_tag="ODS"))
-                                if len(senses) >= 4:
+                                if len(senses) >= max_senses:
                                     break
 
-        # 6. Fallback: Check for inline editorial gloss (: ...) or body text
+        # 5. Fallback: Check for inline editorial gloss (: ...) or body text
         if not senses:
             gloss_match = re.search(r"\(\s*:\s*([^)]+)\)", raw_text)
             if gloss_match:
                 gloss_text = gloss_match.group(1).strip()
                 gloss_text = clean_ods_definition_text(sanitize_ods_text(gloss_text))
-                if not is_meta_header_not_definition(gloss_text) and is_valid_definition(gloss_text):
+                if (
+                    not is_meta_header_not_definition(gloss_text)
+                    and is_valid_definition(gloss_text)
+                    and not self._is_bare_etymology_fragment(gloss_text)
+                ):
                     label = self._extract_label(gloss_text)
                     if label:
                         gloss_text = re.sub(r"^\([^)]+\)\s*", "", gloss_text).strip()
@@ -649,38 +819,50 @@ class ODSScraper:
         if not senses:
             for it in art.find_all("i"):
                 t = clean_ods_definition_text(sanitize_ods_text(it.get_text(" ", strip=True)))
-                if not is_meta_header_not_definition(t) and is_valid_definition(t) and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", t):
+                if (
+                    not is_meta_header_not_definition(t)
+                    and is_valid_definition(t)
+                    and not self._is_bare_etymology_fragment(t)
+                    and not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", t)
+                ):
                     label = self._extract_label(t)
                     if label:
                         t = re.sub(r"^\([^)]+\)\s*", "", t).strip()
-                    senses.append(SenseItem(definition=t, label=label or "hist.", source_tag="ODS"))
-                    break
+                    if t and not self._is_bare_etymology_fragment(t):
+                        senses.append(SenseItem(definition=t, label=label or "hist.", source_tag="ODS"))
+                        break
 
             if not senses:
                 art_text = clean_ods_definition_text(sanitize_ods_text(art.get_text(" ", strip=True)))
                 art_text = re.sub(r"^(?:en|et|adj\.|sb\.|v\.|adv\.)\s*[.]?\s*", "", art_text).strip()
-                if not is_meta_header_not_definition(art_text) and is_valid_definition(art_text) and not art_text.lower().startswith("se "):
+                if (
+                    len(art_text) >= 10
+                    and not is_meta_header_not_definition(art_text)
+                    and is_valid_definition(art_text)
+                    and not self._is_bare_etymology_fragment(art_text)
+                ):
                     if not re.match(r"^[A-Z][a-zA-Z0-9.\-]+\.[0-9]+", art_text):
                         label = self._extract_label(art_text)
                         if label:
                             art_text = re.sub(r"^\([^)]+\)\s*", "", art_text).strip()
-                        senses.append(SenseItem(definition=art_text, label=label or "hist.", source_tag="ODS"))
+                        if art_text and not self._is_bare_etymology_fragment(art_text):
+                            senses.append(SenseItem(definition=art_text, label=label or "hist.", source_tag="ODS"))
 
-        # 7. Follow cross-reference articles (e.g. 'I. Lægd, en. se I. Lejd.')
+        # 6. Follow cross-reference articles (e.g. 'I. Lægd, en. se I. Lejd.') — capped cleanly
         is_pure_ref = (not senses) or (
-            len(senses) == 1 and re.match(r"^(?:se\s+|[I|V|X\d.\s]+se\s+)", senses[0].definition, re.IGNORECASE)
+            len(senses) == 1 and re.match(r"^(?:se\s+|[IVXLCDM]+\.\s*se\s+|\d+\.\s*se\s+)", senses[0].definition, re.IGNORECASE)
         )
-        if is_pure_ref and depth < 2 and (ref_link or ref_match):
-            target_ref = ref_link.split("#")[0] if ref_link else ref_match.group(1).strip()
-            target_ref = re.sub(r"^(?:[IVXLCDM]+|[0-9]+)\.\s*", "", target_ref, flags=re.I).strip()
-            target_ref = re.sub(r"[,\s\d]+$", "", target_ref).strip()
-            if target_ref and target_ref.lower() not in visited_refs:
-                visited_refs.add(target_ref.lower())
-                ref_soup = self._fetch_ods_soup(target_ref)
+        if is_pure_ref and depth < 1 and len(visited_refs) < 5 and ref_target:
+            if ref_target.lower() not in visited_refs:
+                visited_refs.add(ref_target.lower())
+                ref_soup = self._fetch_ods_soup(ref_target)
                 if ref_soup:
                     for sub_art in ref_soup.find_all("div", class_="artikel"):
+                        sub_hw = self._extract_raw_art_hw(sub_art)
+                        if sub_hw.endswith("-"):
+                            continue
                         sub_senses, sub_pos, sub_spellings = self._parse_article(
-                            sub_art, visited_refs, depth=depth + 1
+                            sub_art, visited_refs, depth=depth + 1, max_senses=max_senses
                         )
                         if sub_senses:
                             senses = sub_senses

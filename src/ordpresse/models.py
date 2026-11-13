@@ -28,3 +28,4 @@ class CanonicalEntry:
     modern_senses: List[SenseItem] = field(default_factory=list)  # Layer 2B: Max 3 items
     realia_note: Optional[str] = None  # Layer 3: Encyclopedic context (currencies, parish law)
     sources_used: List[str] = field(default_factory=list)
+    phonetic: str = ""  # Optional IPA pronunciation (e.g. from DDO)

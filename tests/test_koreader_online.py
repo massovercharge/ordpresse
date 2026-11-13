@@ -1,6 +1,7 @@
 """Automated tests for V10.2 Zero-Trust Two-Zone KOReader integration & API key provisioning."""
 
 import io
+import json
 import zipfile
 import pytest
 from fastapi.testclient import TestClient
@@ -605,5 +606,301 @@ def test_store_download_github_error_returns_502(client, monkeypatch):
     )
     assert res.status_code == 502
     assert "Kunne ikke hente plugin fra GitHub" in res.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# 7. Live ordnet.dk Scraping, Multi-Homograph Merging, and De-truncation
+# ---------------------------------------------------------------------------
+
+def test_ddo_scraper_parse_inflected_kapellanen():
+    """Verify DDO scraper resolves inflected query 'kapellanen' -> 'kapellan' with IPA and inflections."""
+    from ordpresse.sources.ddo_scraper import DDOScraper
+
+    html = """
+    <div class="artikel modern-article">
+      <h1 class="modern-match">kapellan</h1>
+      <span class="allow-glossing"><span class="part-of-speech">substantiv</span>, fælleskøn</span>
+      <div id="id-udt"><span class="lydskrift">[ˈkʰɑb̥əˌlɑn]</span></div>
+      <div id="id-boj">
+        <table class="flex-table">
+          <tr>
+            <td>kapellan<span class="mark-flex">en</span></td>
+            <td>kapellan<span class="mark-flex">er</span></td>
+            <td>kapellan<span class="mark-flex">erne</span></td>
+          </tr>
+        </table>
+      </div>
+      <div class="modern-sense-block">
+        <div class="modern-definition-box">
+          <span class="modern-inline-label">SPROGBRUG</span>
+          <span class="text-normal">historisk</span>
+          <span class="dividerDot"></span>
+          præst som er ansat som hjælper for en sognepræst
+        </div>
+        <div class="modern-citat">
+          »han var kapellan i sognet« <span class="modern-source">Kilde</span>
+        </div>
+      </div>
+    </div>
+    """
+    scraper = DDOScraper()
+    res = scraper.parse_ddo_html("kapellanen", html)
+    assert res is not None
+    assert res["headword"] == "kapellan"
+    assert res["phonetic"] == "ˈkʰɑb̥əˌlɑn"
+    can = res["canonical_entry"]
+    assert can.pos == "sb. fk."
+    assert "kapellanen" in can.inflections
+    assert "kapellaner" in can.inflections
+    assert len(can.modern_senses) >= 1
+    s0 = can.modern_senses[0]
+    assert "præst som er ansat som hjælper" in s0.definition
+    assert s0.label == "historisk"
+    assert s0.quote == "»han var kapellan i sognet«"
+
+
+def test_ddo_scraper_parse_griller_multi_articles():
+    """Verify DDO scraper collects sibling homographs / inflected matching articles on same page."""
+    from ordpresse.sources.ddo_scraper import DDOScraper
+
+    html = """
+    <div>
+      <div class="artikel">
+        <h1 class="modern-match">1. grill</h1>
+        <span class="allow-glossing"><span class="part-of-speech">substantiv</span>, fælleskøn</span>
+        <div id="id-boj"><table class="flex-table"><tr><td>grill<span class="mark-flex">er</span></td></tr></table></div>
+        <div class="modern-sense-block"><div class="modern-definition-box">apparat til at grille mad på</div></div>
+      </div>
+      <div class="artikel">
+        <h1 class="modern-match">2. grille</h1>
+        <span class="allow-glossing"><span class="part-of-speech">verbum</span></span>
+        <div id="id-boj"><table class="flex-table"><tr><td>grill<span class="mark-flex">er</span></td></tr></table></div>
+        <div class="modern-sense-block"><div class="modern-definition-box">tilberede kød eller grøntsager på en grill</div></div>
+      </div>
+    </div>
+    """
+    scraper = DDOScraper()
+    res = scraper.parse_ddo_html("griller", html)
+    assert res is not None
+    assert res["headword"] == "grill"
+    assert len(res["additional_entries"]) >= 1
+    assert res["additional_entries"][0].headword == "grille"
+
+
+def test_ods_scraper_skips_hyphen_prefix_and_merges_mare_homographs():
+    """Verify ODS scraper skips prefix 'Mare-' and parses authentic homographs without etymology stubs."""
+    from ordpresse.sources.ods_scraper import ODSScraper
+
+    html = """
+    <div>
+      <div class="artikel">
+        <span class="match">Mare-</span>
+        <div class="semem"><span class="definition">i sms. som Marehalm, Marelok.</span></div>
+      </div>
+      <div class="artikel">
+        <span class="match">I. Mare,</span>
+        <span class="allow-glossing">en.</span>
+        <div class="semem">
+          <span class="definition">ondt kvindeligt væsen der i folketroen plager sovende mennesker og dyr ved at ride på deres bryst.</span>
+          * Blicher. »Maren red ham«
+        </div>
+      </div>
+      <div class="artikel">
+        <span class="match">II. mare,</span>
+        <span class="allow-glossing">en.</span>
+        <div class="semem">
+          <span class="definition">af Marie. kvindenavn.</span>
+        </div>
+      </div>
+    </div>
+    """
+    scraper = ODSScraper()
+    res = scraper.parse_ods_html("mare", html)
+    assert res is not None
+    assert res["headword"] == "mare"
+    can = res["canonical_entry"]
+    # Mare- prefix must NOT be headword
+    assert not can.headword.endswith("-")
+    # Authentic sense must be present
+    assert any("ondt kvindeligt væsen" in s.definition for s in can.historical_senses)
+    # Bare etymology fragment "af Marie." must be filtered
+    assert not any(s.definition.strip() == "af Marie." for s in can.historical_senses)
+
+
+def test_koreader_lookup_always_calls_live_first_and_replaces_truncated_cache(client, monkeypatch):
+    """
+    Core User Requirement:
+    Every lookup through KOReader must ALWAYS query ordnet.dk live first,
+    never short-circuiting to stale/truncated entries, and save the full result to local cache.
+    """
+    from ordpresse.formatter import render_canonical_html
+    from ordpresse.models import CanonicalEntry, SenseItem
+    from ordpresse.sources.ddo_scraper import DDOScraper
+    from ordpresse.sources.ods_scraper import ODSScraper
+
+    db = Database()
+    raw_key, _ = db.create_api_key("Live Priority Tester")
+    headers = {"X-API-Key": raw_key}
+
+    # 1. Pre-seed online_lookup_cache with a truncated StarDict entry (with '…')
+    stale_payload = {
+        "query": "kapellanen",
+        "resolved_lemma": "kapellan",
+        "display_text": "kapellan (sb.)\n  • præst som er ansat som…\n  Kilde: StarDict",
+        "entries": [{
+            "headword": "kapellan",
+            "homonym_index": 1,
+            "part_of_speech": "sb.",
+            "inflections": "kapellan",
+            "phonetic": "",
+            "definitions": ["1. præst som er ansat som…"],
+            "etymology": "",
+        }],
+    }
+    db.set_online_cache("kapellanen", "FOUND", json.dumps(stale_payload, ensure_ascii=False))
+
+    # Also seed a corrupted row in definitions table
+    db.set_cached(
+        word="kapellanen",
+        source="stardict",
+        headword="kapellan",
+        html_content="<div><b>kapellan</b> <i>substantiv</i><ol><li>præst som er ansat som…</li></ol></div>",
+        synonyms=["kapellanen"],
+    )
+
+    # 2. Mock live scrapers returning rich, untruncated DDO and ODS articles
+    live_ddo_called = []
+    live_ods_called = []
+
+    def mock_scrape_ddo(self, word, max_senses=8):
+        live_ddo_called.append(word)
+        can = CanonicalEntry(
+            headword="kapellan",
+            pos="sb. fk.",
+            inflections={"kapellan", "kapellanen", "kapellaner", "kapellanerne"},
+            modern_senses=[
+                SenseItem(
+                    definition="præst som er ansat som hjælper for en sognepræst i folkekirken",
+                    label="historisk",
+                    quote="han virkede som kapellan",
+                    quote_author="Pastoratet",
+                    source_tag="DDO",
+                )
+            ],
+            sources_used=["DDO"],
+            phonetic="ˈkʰɑb̥əˌlɑn",
+        )
+        return {
+            "headword": "kapellan",
+            "html_content": render_canonical_html(can),
+            "synonyms": list(can.inflections),
+            "canonical_entry": can,
+            "phonetic": "ˈkʰɑb̥əˌlɑn",
+            "source": "ddo",
+        }
+
+    def mock_scrape_ods(self, word, max_senses=8):
+        live_ods_called.append(word)
+        can = CanonicalEntry(
+            headword="kapellan",
+            pos="sb. fk.",
+            historical_senses=[
+                SenseItem(
+                    definition="hjælpepræst; præst i et embede af anden rang under en sognepræst",
+                    label="hist.",
+                    quote="i Kapellanens Gaard",
+                    quote_author="Blicher",
+                    source_tag="ODS",
+                )
+            ],
+            sources_used=["ODS"],
+        )
+        return {
+            "headword": "kapellan",
+            "html_content": render_canonical_html(can),
+            "synonyms": ["kapellan", "kapellanen"],
+            "canonical_entry": can,
+            "source": "ods",
+        }
+
+    monkeypatch.setattr(DDOScraper, "scrape_ddo", mock_scrape_ddo)
+    monkeypatch.setattr(ODSScraper, "scrape_ods", mock_scrape_ods)
+
+    # 3. Perform lookup
+    res = client.get("/api/v1/koreader/lookup?q=kapellanen", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+
+    # 4. Verify live scrapers WERE called (never short-circuited to truncated cache!)
+    assert len(live_ddo_called) >= 1
+    assert "kapellanen" in live_ddo_called
+    assert len(live_ods_called) >= 1
+    assert "kapellanen" in live_ods_called
+
+    # 5. Verify response contains untruncated DDO + ODS merged data
+    assert data["query"] == "kapellanen"
+    assert data["resolved_lemma"] == "kapellan"
+    assert "præst som er ansat som hjælper for en sognepræst i folkekirken" in data["display_text"]
+    assert "hjælpepræst; præst i et embede af anden rang" in data["display_text"]
+    assert "…" not in data["display_text"]
+    assert "StarDict" not in data["display_text"]
+    assert "DDO" in data["display_text"]
+    assert "ODS" in data["display_text"]
+    assert "[ˈkʰɑb̥əˌlɑn]" in data["display_text"]
+    assert data["entries"][0]["phonetic"] == "ˈkʰɑb̥əˌlɑn"
+
+    # 6. Verify result was written into local database cache (both definitions & online_lookup_cache)
+    cached_def = db.get_cached("kapellan")
+    assert cached_def is not None
+    assert "præst som er ansat som hjælper" in cached_def["html_content"]
+    assert "hjælpepræst" in cached_def["html_content"]
+
+    # Querying inflected form 'kapellanen' in DB also resolves to 'kapellan' via synonyms_json
+    cached_inf = db.get_cached("kapellanen")
+    assert cached_inf is not None
+    assert cached_inf["headword"] == "kapellan"
+
+    # online_lookup_cache updated with untruncated JSON
+    online_row = db.get_online_cache("kapellanen")
+    assert online_row is not None
+    assert online_row["status"] == "FOUND"
+    assert "præst som er ansat som hjælper" in online_row["payload_json"]
+    assert "…" not in online_row["payload_json"]
+
+
+def test_koreader_lookup_offline_fallback_skips_truncated_cache(client, monkeypatch):
+    """When live scrapers are offline, lookup must ignore truncated cached rows and use clean fallbacks."""
+    from ordpresse.sources.ddo_scraper import DDOScraper
+    from ordpresse.sources.ods_scraper import ODSScraper
+
+    db = Database()
+    raw_key, _ = db.create_api_key("Fallback Tester")
+    headers = {"X-API-Key": raw_key}
+
+    # Pre-seed online_lookup_cache with a truncated row
+    db.set_online_cache(
+        "lægdslemmer",
+        "FOUND",
+        json.dumps({
+            "query": "lægdslemmer",
+            "resolved_lemma": "lægdslem",
+            "display_text": "lægdslem (sb.)\n  • Fattiglem tildelt et…\n  Kilde: StarDict",
+            "entries": [],
+        }, ensure_ascii=False),
+    )
+
+    # Scrapers return None (simulating offline / network failure)
+    monkeypatch.setattr(DDOScraper, "scrape_ddo", lambda self, w, max_senses=8: None)
+    monkeypatch.setattr(ODSScraper, "scrape_ods", lambda self, w, max_senses=8: None)
+
+    res = client.get("/api/v1/koreader/lookup?q=lægdslemmer", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+
+    # Must resolve via clean Nordic 1800s entry, not the truncated row
+    assert data["resolved_lemma"] == "lægdslem"
+    assert "…" not in data["display_text"]
+    assert "Fattiglem el. almisselem på landet" in data["display_text"]
+
 
 
