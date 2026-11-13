@@ -926,7 +926,8 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
         return JSONResponse(content=payload)
     elif action == "annas_search":
         q = request.query_params.get("q") or request.query_params.get("query") or ""
-        payload = await mirror_prober.search_books(q)
+        cat = request.query_params.get("category") or request.query_params.get("topics") or "all_books"
+        payload = await mirror_prober.search_books(q, category=cat)
         return JSONResponse(content=payload)
     elif action == "annas_download_ticket":
         md5 = request.query_params.get("md5", "").strip()
@@ -1047,9 +1048,9 @@ async def get_store_mirrors_admin(refresh: bool = False):
 
 
 @app.get("/api/v1/store/search")
-async def search_store_books_admin(q: str = ""):
+async def search_store_books_admin(q: str = "", category: str = "all_books"):
     """Test server-assisted book search against active mirrors (LAN-Only, session protected)."""
-    return await mirror_prober.search_books(q)
+    return await mirror_prober.search_books(q, category=category)
 
 
 @app.get("/api/v1/store/download/annas-fetch")

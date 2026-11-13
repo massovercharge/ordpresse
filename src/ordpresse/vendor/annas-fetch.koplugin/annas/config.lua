@@ -13,6 +13,7 @@ Config.SETTINGS_USER_KEY_KEY = "annas_user_key"
 Config.SETTINGS_SEARCH_LANGUAGES_KEY = "annas_search_languages"
 Config.SETTINGS_SEARCH_EXTENSIONS_KEY = "annas_search_extensions"
 Config.SETTINGS_SEARCH_ORDERS_KEY = "annas_search_order"
+Config.SETTINGS_SEARCH_CATEGORY_KEY = "annas_search_category"
 Config.SETTINGS_DOWNLOAD_DIR_KEY = "annas_download_dir"
 Config.SETTINGS_CUSTOM_MIRROR_KEY = "annas_custom_mirror_url"
 Config.SETTINGS_TURN_OFF_WIFI_AFTER_DOWNLOAD_KEY = "annas_turn_off_wifi_after_download"
@@ -126,6 +127,15 @@ Config.SUPPORTED_ORDERS = {
     { name = T("Newest Added"), value = "newest_added"},
     { name = T("Oldest Added"), value = "oldest_added"},
     { name = T("Random"), value = "random"}
+}
+
+Config.SUPPORTED_CATEGORIES = {
+    { name = T("All Books (Fiction & Non-fiction)"), value = "all_books" },
+    { name = T("Fiction (Novels & Literature)"), value = "fiction" },
+    { name = T("Non-fiction (Academic & Technical)"), value = "nonfiction" },
+    { name = T("Comics & Manga"), value = "comic" },
+    { name = T("Magazines"), value = "magazine" },
+    { name = T("Scientific Articles"), value = "article" },
 }
     --[[ { name = T("Most popular"), value = "popular" },
     { name = T("Best match"), value = "bestmatch" },
@@ -274,6 +284,26 @@ function Config.getSearchOrderName()
         end
     end
     return search_order_name
+end
+
+function Config.getSearchCategory()
+    local selected = Config.getSetting(Config.SETTINGS_SEARCH_CATEGORY_KEY, {})
+    if type(selected) == "table" and #selected > 0 then
+        return selected[1]
+    elseif type(selected) == "string" and selected ~= "" then
+        return selected
+    end
+    return "all_books"
+end
+
+function Config.getSearchCategoryName()
+    local cat_val = Config.getSearchCategory()
+    for _, v in ipairs(Config.SUPPORTED_CATEGORIES) do
+        if v.value == cat_val then
+            return v.name
+        end
+    end
+    return T("All Books")
 end
 
 function Config.getTurnOffWifiAfterDownload()

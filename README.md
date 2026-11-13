@@ -8,8 +8,8 @@
 [![E-Reader](https://img.shields.io/badge/e--reader-KOReader%20Ready-emerald.svg)](#-installation-i-koreader)
 [![Zero-Trust API](https://img.shields.io/badge/API-Zero--Trust%20Online-purple.svg)](#-zero-trust-koreader-online-opslag-api--plugin)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Store](https://img.shields.io/badge/OTA-Plugin%20Butik%20v1.2.2-ff69b4.svg)](#-koreader-plugin-butik--anna-fetch-orkestrering-v122)
-[![Tests](https://img.shields.io/badge/tests-102%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
+[![Plugin Store](https://img.shields.io/badge/OTA-Plugin%20Butik%20v1.2.3-ff69b4.svg)](#-koreader-plugin-butik--anna-fetch-orkestrering-v123)
+[![Tests](https://img.shields.io/badge/tests-103%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
 
 ---
 
@@ -401,13 +401,13 @@ For at sikre, at KOReaders online opslag ikke blokeres af Cloudflares automatisk
 
 Nu kan din e-bogslæser foretage lynhurtige online opslag hvor som helst, så længe den har Wi-Fi-forbindelse.
 
-### 5. 🛍️ KOReader Plugin Butik & Anna Fetch Orkestrering (v1.2.2+) <a id="-koreader-plugin-butik--anna-fetch-orkestrering-v122"></a>
+### 5. 🛍️ KOReader Plugin Butik & Anna Fetch Orkestrering (v1.2.3+) <a id="-koreader-plugin-butik--anna-fetch-orkestrering-v123"></a>
 
 I takt med at KOReader community-plugins udvides, opstår der ofte kritiske driftsproblemer på e-bogslæsere:
 - **Upstream OTA-fejl:** GitHub API rate-limits, blokerede stinavne (`plugins/annas-fetch.koplugin` vs `plugins/annas-fetch`) og inkompatible zipball-strukturer bryder hyppigt automatiske opdateringer.
 - **DNS-blokeringer og Cloudflare challenges:** I Danmark blokerer internetudbydere via DNS for kendte skyggebiblioteker, og sider som Anna's Archive kræver JavaScript-løsning af DDoS-Guard / Cloudflare Turnstile, som en Kindles minimale browser/curl ikke kan gennemføre.
 - **Kindle SSL/TLS rodcertifikater:** Amazon Kindles indlejrede Linux mangler opdaterede CA-rodcertifikater i `/etc/ssl/certs`, hvorved rå `curl` over HTTPS fejler med SSL-fejl 60 medmindre `-k` anvendes.
-- **Søgestøj fra videnskabelige artikler:** Uden eksplicit emnefiltrering (`topics[]=f` / `topics[]=l`) oversvømmes søgninger af millioner af tekniske forskningsartikler frem for skønlitteratur og bøger.
+- **Søgestøj & manglende kategorifiltre:** Uden emnefiltrering oversvømmes søgninger af irrelevante videnskabelige artikler. Ordpresse introducerer en dynamisk kategorivælger (**Alle bøger**, **Skønlitteratur**, **Faglitteratur**, **Tegneserier**, **Magasiner** og **Artikler**) direkte i Kindlens søgedialog og i web-interfacet.
 
 Den Danske Ordpresse løser dette ved at agere **lokal distributionscentral, mirror authority og søgemotor-proxy**:
 
@@ -420,7 +420,7 @@ sequenceDiagram
     participant A as 🔍 Anna's Archive (annas-archive.pk)
 
     Note over K,O: 1. Automatisk Spejlstyring & Bogsøgning
-    K->>O: GET /lookup?action=annas_search&q=Frankenstein (X-API-Key)
+    K->>O: GET /lookup?action=annas_search&q=Frankenstein&category=fiction (X-API-Key)
     alt Server Assisteret Søgning (Hurtigst)
         O->>L: GET /index.php?req=Frankenstein&topics[]=f (HTTP/2)
         L-->>O: Rå HTML tabel

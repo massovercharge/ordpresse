@@ -747,6 +747,17 @@
                 <!-- Search Input Form -->
                 <div class="space-y-2">
                     <div class="flex gap-2">
+                        <select
+                            id="book-search-category"
+                            class="px-3 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors"
+                        >
+                            <option value="all_books" selected>📚 Alle bøger</option>
+                            <option value="fiction">📖 Skønlitteratur</option>
+                            <option value="nonfiction">🔬 Faglitteratur</option>
+                            <option value="comic">🦸 Tegneserier</option>
+                            <option value="magazine">📰 Magasiner</option>
+                            <option value="article">📄 Videnskabelige artikler</option>
+                        </select>
                         <input
                             type="text"
                             id="book-search-input"
@@ -1731,6 +1742,9 @@
             if (bookSearchInput) bookSearchInput.value = query;
             if (!query || !query.trim()) return;
 
+            const categorySelect = document.getElementById('book-search-category');
+            const category = categorySelect ? categorySelect.value : 'all_books';
+
             if (bookSearchResultsBox) bookSearchResultsBox.classList.remove('hidden');
             if (bookSearchCount) bookSearchCount.textContent = `Søger efter "${query}"...`;
             if (bookSearchLatency) bookSearchLatency.textContent = '';
@@ -1739,7 +1753,7 @@
 
             const t0 = performance.now();
             try {
-                const res = await fetch(`/api/v1/store/search?q=${encodeURIComponent(query.trim())}`);
+                const res = await fetch(`/api/v1/store/search?q=${encodeURIComponent(query.trim())}&category=${encodeURIComponent(category)}`);
                 if (!res.ok) throw new Error('Søgning fejlede på serveren');
                 const data = await res.json();
                 const latency = Math.round(performance.now() - t0);

@@ -253,12 +253,26 @@ function Scraper.parseAnnasHtml(html, base_url)
     return results
 end
 
-function Scraper.search(query)
+function Scraper.search(query, options)
+    local category = (type(options) == "table" and options.category)
+        or (type(options) == "string" and options)
+    if not category or category == "" then
+        local ok, Config = pcall(require, "annas.config")
+        if ok and Config and Config.getSearchCategory then
+            category = Config.getSearchCategory()
+        else
+            category = "all_books"
+        end
+    end
+
     -- Step 1: Zero-config server-assisted search via Ordpresse if reachable
     local cfg = Scraper.getOrdpresseConfig()
     if cfg and cfg.endpoint_url then
         local sep = string.find(cfg.endpoint_url, "?", 1, true) and "&" or "?"
         local api_url = cfg.endpoint_url .. sep .. "action=annas_search&q=" .. url_encode(query)
+        if category and category ~= "" then
+            api_url = api_url .. "&category=" .. url_encode(category)
+        end
         if cfg.api_key and cfg.api_key ~= "" then
             api_url = api_url .. "&api_key=" .. url_encode(cfg.api_key)
         end
@@ -278,36 +292,66 @@ function Scraper.search(query)
         if raw and #raw > 0 then
             local ok, payload = pcall(json.decode, raw)
             if ok and type(payload) == "table" and payload.results and #payload.results > 0 then
-                logger.info(string.format("AnnasFetch: Server search found %d hits for '%s'", #payload.results, query))
+                logger.info(string.format("AnnasFetch: Server search found %d hits for '%s' (category=%s)", #payload.results, query, category))
                 return payload.results
             end
         end
     end
 
-    -- Step 2: Client-side Libgen scraping (with fiction and books prioritized)
+    -- Step 2: Client-side Libgen scraping fallback with category mapping
     local mirrors = Scraper.getActiveMirrors()
     local encoded_q = url_encode(query)
 
+    local topic_params = {}
+    if category == "fiction" then
+        topic_params = { "topics%5B%5D=f" }
+    elseif category == "nonfiction" then
+        topic_params = { "topics%5B%5D=l" }
+    elseif category == "comic" then
+        topic_params = { "topics%5B%5D=c" }
+    elseif category == "magazine" then
+        topic_params = { "topics%5B%5D=m" }
+    elseif category == "article" then
+        topic_params = { "topics%5B%5D=a" }
+    else -- all_books (novels and non-fiction books)
+        topic_params = { "topics%5B%5D=f", "topics%5B%5D=l" }
+    end
+
     for _, base_url in ipairs(mirrors.libgen or DEFAULT_MIRRORS.libgen) do
-        local search_urls = {
-            string.format("%s/index.php?req=%s&columns%%5B%%5D=t&columns%%5B%%5D=a&topics%%5B%%5D=f&res=50", base_url, encoded_q),
-            string.format("%s/index.php?req=%s&columns%%5B%%5D=t&columns%%5B%%5D=a&topics%%5B%%5D=l&res=50", base_url, encoded_q),
-            string.format("%s/index.php?req=%s&topics%%5B%%5D=f&res=50", base_url, encoded_q),
-            string.format("%s/index.php?req=%s&topics%%5B%%5D=l&res=50", base_url, encoded_q),
-        }
-        for _, s_url in ipairs(search_urls) do
-            local html = Scraper.execCurl(s_url, 15)
-            local hits = Scraper.parseLibgenHtml(html, base_url)
-            if #hits > 0 then
-                logger.info("AnnasFetch: Found " .. #hits .. " hits via Libgen mirror " .. base_url)
-                return hits
+        for _, tp in ipairs(topic_params) do
+            local search_urls = {
+                string.format("%s/index.php?req=%s&columns%%5B%%5D=t&columns%%5B%%5D=a&%s&res=50", base_url, encoded_q, tp),
+                string.format("%s/index.php?req=%s&%s&res=50", base_url, encoded_q, tp),
+            }
+            for _, s_url in ipairs(search_urls) do
+                local html = Scraper.execCurl(s_url, 15)
+                local hits = Scraper.parseLibgenHtml(html, base_url)
+                if #hits > 0 then
+                    logger.info("AnnasFetch: Found " .. #hits .. " hits via Libgen mirror " .. base_url .. " (" .. tp .. ")")
+                    return hits
+                end
             end
         end
     end
 
     -- Step 3: Client-side Anna's Archive scraping fallback
+    local annas_cat_param = ""
+    if category == "fiction" then
+        annas_cat_param = "&category=book_fiction"
+    elseif category == "nonfiction" then
+        annas_cat_param = "&category=book_nonfiction"
+    elseif category == "comic" then
+        annas_cat_param = "&category=book_comic"
+    elseif category == "magazine" then
+        annas_cat_param = "&category=magazine"
+    elseif category == "article" then
+        annas_cat_param = "&category=journal_article"
+    else
+        annas_cat_param = "&category=book_any"
+    end
+
     for _, base_url in ipairs(mirrors.annas or DEFAULT_MIRRORS.annas) do
-        local search_url = string.format("%s/search?q=%s", base_url, encoded_q)
+        local search_url = string.format("%s/search?q=%s%s", base_url, encoded_q, annas_cat_param)
         local html = Scraper.execCurl(search_url, 20)
         local hits = Scraper.parseAnnasHtml(html, base_url)
         if #hits > 0 then
@@ -448,8 +492,12 @@ function Scraper.download_book(book, path, progress_callback, is_cancelled_func)
 end
 
 -- Backward compatibility for callers in main.lua & ui.lua
-function scraper(query)
-    return Scraper.search(query)
+function scraper(query, page, options)
+    local opts = options
+    if not opts and type(page) == "table" then
+        opts = page
+    end
+    return Scraper.search(query, opts)
 end
 
 function download_book(...)

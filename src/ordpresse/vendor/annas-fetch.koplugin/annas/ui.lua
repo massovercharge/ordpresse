@@ -415,6 +415,10 @@ function Ui.showOrdersSelectionDialog(parent_ui, ok_callback)
     _showRadioSelectionDialog(parent_ui, T("Select search order"), Config.SETTINGS_SEARCH_ORDERS_KEY, Config.SUPPORTED_ORDERS, ok_callback)
 end
 
+function Ui.showCategoriesSelectionDialog(parent_ui, ok_callback)
+    _showRadioSelectionDialog(parent_ui, T("Select content type"), Config.SETTINGS_SEARCH_CATEGORY_KEY, Config.SUPPORTED_CATEGORIES, ok_callback)
+end
+
 function Ui.showGenericInputDialog(title, setting_key, current_value_or_default, is_password, validate_and_save_callback)
     local dialog
 
@@ -470,6 +474,7 @@ function Ui.showSearchDialog(parent_annas, def_input, Ota)
 
     local dialog
     local search_order_name = Config.getSearchOrderName()
+    local category_name = Config.getSearchCategoryName()
     
     local selected_languages = Config.getSearchLanguages()
     local selected_extensions = Config.getSearchExtensions()
@@ -516,6 +521,14 @@ function Ui.showSearchDialog(parent_annas, def_input, Ota)
             parent_annas:performSearch(trimmed_query)
         end,
         }},{{
+            text = string.format("%s: %s \u{25BC}", T("Category"), category_name),
+            callback = function()
+                _closeAndUntrackDialog(dialog)
+                Ui.showCategoriesSelectionDialog(parent_annas, function(count)
+                    Ui.showSearchDialog(parent_annas, def_input)
+                end)
+            end
+        },{
             text = string.format("%s: %s \u{25BC}", T("Sort by"), search_order_name),
             callback = function()
                 _closeAndUntrackDialog(dialog)
@@ -547,7 +560,7 @@ function Ui.showSearchDialog(parent_annas, def_input, Ota)
                 logger.dbg("Ui: showing settings dialog")
                 Ui.showSettingsDialog(Ota)
             end,
-        }},{{
+        },{
             text = T("Cancel"),
             id = "close",
             callback = function() _closeAndUntrackDialog(dialog) end,

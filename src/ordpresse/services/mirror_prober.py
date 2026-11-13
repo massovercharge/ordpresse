@@ -165,18 +165,40 @@ class MirrorProberService:
             }
             return self._cache
 
-    async def search_books(self, query: str) -> dict[str, Any]:
+    async def search_books(self, query: str, category: str = "all_books") -> dict[str, Any]:
         cleaned_query = (query or "").strip()
+        cat = (category or "all_books").strip().lower()
         if not cleaned_query:
-            return {"status": "ok", "query": "", "count": 0, "results": []}
+            return {"status": "ok", "query": "", "category": cat, "count": 0, "results": []}
 
+        cache_key = f"{cleaned_query.lower()}::{cat}"
         now = time.time()
-        cached = self._search_cache.get(cleaned_query.lower())
+        cached = self._search_cache.get(cache_key)
         if cached and (now - cached[0]) < self.ttl_seconds:
-            return {"status": "ok", "query": cleaned_query, "count": len(cached[1]), "results": cached[1]}
+            return {
+                "status": "ok",
+                "query": cleaned_query,
+                "category": cat,
+                "count": len(cached[1]),
+                "results": cached[1],
+            }
 
         mirrors = await self.get_mirrors()
         libgen_mirrors = mirrors.get("flat_mirrors", {}).get("libgen", ["https://libgen.li"])
+
+        # Determine topic query parameters based on category
+        if cat in ("fiction", "book_fiction", "f"):
+            topic_params = ["topics%5B%5D=f"]
+        elif cat in ("nonfiction", "book_nonfiction", "non_fiction", "l"):
+            topic_params = ["topics%5B%5D=l"]
+        elif cat in ("comic", "book_comic", "comics", "c"):
+            topic_params = ["topics%5B%5D=c"]
+        elif cat in ("magazine", "magazines", "m"):
+            topic_params = ["topics%5B%5D=m"]
+        elif cat in ("article", "journal_article", "articles", "a"):
+            topic_params = ["topics%5B%5D=a"]
+        else:  # all_books (default: novels, literature, textbooks, general non-fiction)
+            topic_params = ["topics%5B%5D=f", "topics%5B%5D=l"]
 
         results: list[dict[str, Any]] = []
         async with httpx.AsyncClient(
@@ -186,14 +208,10 @@ class MirrorProberService:
         ) as client:
             for base_url in libgen_mirrors:
                 encoded_q = urllib.parse.quote_plus(cleaned_query)
-                # Prioritize fiction (topics[]=f) and books (topics[]=l).
-                # Never query without topics or with topics[]=a to avoid polluting results with scientific journal papers.
-                search_urls = [
-                    f"{base_url}/index.php?req={encoded_q}&columns[]=t&columns[]=a&topics[]=f&res=50",
-                    f"{base_url}/index.php?req={encoded_q}&columns[]=t&columns[]=a&topics[]=l&res=50",
-                    f"{base_url}/index.php?req={encoded_q}&topics[]=f&res=50",
-                    f"{base_url}/index.php?req={encoded_q}&topics[]=l&res=50",
-                ]
+                search_urls: list[str] = []
+                for tp in topic_params:
+                    search_urls.append(f"{base_url}/index.php?req={encoded_q}&columns[]=t&columns[]=a&{tp}&res=50")
+                    search_urls.append(f"{base_url}/index.php?req={encoded_q}&{tp}&res=50")
                 for s_url in search_urls:
                     try:
                         resp = await client.get(s_url, follow_redirects=True)
@@ -245,11 +263,17 @@ class MirrorProberService:
                 if results:
                     break
 
-        format_priority = {"epub": 1, "azw3": 2, "mobi": 3, "pdf": 4}
+        format_priority = {"epub": 1, "azw3": 2, "mobi": 3, "pdf": 4, "cbz": 5, "cbr": 6}
         results.sort(key=lambda r: format_priority.get(r.get("format", "").lower(), 10))
 
-        self._search_cache[cleaned_query.lower()] = (now, results)
-        return {"status": "ok", "query": cleaned_query, "count": len(results), "results": results}
+        self._search_cache[cache_key] = (now, results)
+        return {
+            "status": "ok",
+            "query": cleaned_query,
+            "category": cat,
+            "count": len(results),
+            "results": results,
+        }
 
     async def resolve_download_ticket(self, md5: str) -> dict[str, Any]:
         cleaned_md5 = (md5 or "").strip().lower()
