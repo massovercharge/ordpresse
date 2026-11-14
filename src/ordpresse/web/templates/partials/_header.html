@@ -1,52 +1,42 @@
-<!-- Top Navigation Bar -->
-<header class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur sticky top-0 z-50">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        <div class="flex items-center gap-3">
+<!-- Top Brand & Action Bar -->
+<div class="border-b border-slate-800/60 bg-slate-900/90 backdrop-blur">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-4">
+        <!-- Brand -->
+        <div class="flex items-center gap-3 min-w-0">
             <div
-                class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center shadow-lg shadow-amber-500/20 text-slate-950 font-bold text-xl cursor-pointer select-none active:scale-95 transition-transform"
+                class="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center shadow-md shadow-amber-500/20 text-slate-950 font-bold text-lg cursor-pointer select-none active:scale-95 transition-transform flex-shrink-0"
                 data-tab-switch="tab-dictionary"
                 title="Gå til Ordbog">
                 📖
             </div>
-            <div>
-                <h1 class="text-lg font-bold tracking-tight flex items-center gap-2">
-                    <span class="font-serif-title text-amber-400 cursor-pointer" data-tab-switch="tab-dictionary">Den Danske Ordpresse</span>
-                    <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono"
-                        title="Ordpresse server- og compilerversion">Server v{{ version }}</span>
-                </h1>
-                <p class="text-xs text-slate-400">Historisk & moderne dansk StarDict v2.4.2 compiler til KOReader
-                </p>
+            <div class="flex items-center gap-2.5 min-w-0">
+                <span class="font-serif-title text-amber-400 font-bold text-base sm:text-lg tracking-tight cursor-pointer whitespace-nowrap hover:text-amber-300 transition-colors"
+                    data-tab-switch="tab-dictionary">
+                    Den Danske Ordpresse
+                </span>
+                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-mono bg-slate-800/80 border border-slate-700/60 text-slate-300 whitespace-nowrap flex-shrink-0"
+                    title="Server v{{ version }} — {{ 'Datasæt klar' if datasets_ready else 'Offline frø' }}">
+                    <span class="w-1.5 h-1.5 rounded-full {{ 'bg-emerald-400 animate-pulse' if datasets_ready else 'bg-amber-400' }}"></span>
+                    <span>v{{ version }}</span>
+                </span>
             </div>
         </div>
 
-        <div class="flex items-center gap-3 text-xs">
-            <div
-                class="hidden sm:flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/50">
-                <span
-                    class="w-2 h-2 rounded-full {{ 'bg-emerald-400 animate-pulse' if datasets_ready else 'bg-amber-400' }}"></span>
-                <span class="text-slate-300">Datasæt: <strong>{{ 'Klar' if datasets_ready else 'Offline frø' }}</strong></span>
-            </div>
-            <div
-                class="hidden md:flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/50">
-                <span class="w-2 h-2 rounded-full bg-blue-400"></span>
-                <span class="text-slate-300">Ordbog: <strong class="text-slate-200">36.963 opslagsord · 121.856 bøjninger</strong></span>
-            </div>
+        <!-- Global Quick Actions -->
+        <div class="flex items-center gap-2.5 text-xs flex-shrink-0">
             <a href="/api/download/latest"
-                class="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95 whitespace-nowrap"
                 title="Hent seneste komplette ordbog">
-                <span>⬇</span> <span class="hidden sm:inline">Hent komplet ordbog</span><span class="sm:hidden">Hent .zip</span>
+                <span>⬇</span>
+                <span class="hidden sm:inline">Hent ordbog</span>
+                <span class="sm:hidden">.zip</span>
             </a>
-            <button type="button" id="open-change-pwd-btn" onclick="togglePasswordModal(true)"
-                class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95 cursor-pointer"
-                title="Skift administrator-adgangskode">
-                <span>🔑</span> <span class="hidden sm:inline">Skift kode</span>
-            </button>
             <a href="/logout"
-                class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 rounded-lg text-xs font-semibold transition-all shadow-sm active:scale-95 whitespace-nowrap"
                 title="Log ud af Ordpresse">
-                <span>🔒</span> <span class="hidden sm:inline">Log ud</span>
+                <span>🔒</span>
+                <span class="hidden sm:inline">Log ud</span>
             </a>
         </div>
     </div>
-</header>
-
+</div>
