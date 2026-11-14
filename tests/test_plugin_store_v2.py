@@ -124,3 +124,25 @@ def test_store_admin_download_resource(auth_client):
     assert res.headers["content-type"] == "application/zip"
     assert res.headers["x-plugin-id"] == "hyph-da"
 
+
+def test_lua_code_syntax():
+    """Ensure Lua templates have no syntax errors if luac is available, and no raw newlines in string literals."""
+    import shutil
+    import subprocess
+    import tempfile
+    from ordpresse.web.plugin_builder import MAIN_LUA, BRIDGE_LUA, META_LUA
+
+    for name, code in [("MAIN_LUA", MAIN_LUA), ("BRIDGE_LUA", BRIDGE_LUA), ("META_LUA", META_LUA)]:
+        if shutil.which("luac"):
+            with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False) as f:
+                f.write(code)
+                f_name = f.name
+            try:
+                res = subprocess.run(["luac", "-p", f_name], capture_output=True, text=True)
+                assert res.returncode == 0, f"Lua syntax error in {name}: {res.stderr}"
+            finally:
+                import os
+                if os.path.exists(f_name):
+                    os.remove(f_name)
+
+

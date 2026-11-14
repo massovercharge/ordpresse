@@ -717,10 +717,10 @@ function Ordpresse:performLookup(raw_word)
         if cached then
             local def_txt = cached.definition or cached.display_text or ""
             local pos_str = cached.pos and (" (" .. cached.pos .. ")") or ""
-            local src_str = cached.source and ("\n\n[Kilde: " .. cached.source .. " — Offline Bogcache]") or ""
+            local src_str = cached.source and ("\\n\\n[Kilde: " .. cached.source .. " — Offline Bogcache]") or ""
             UIManager:show(TextViewer:new{
                 title = _("Den Danske Ordpresse (Offline Bogcache): ") .. (cached.headword or word),
-                text = (cached.headword or word) .. pos_str .. "\n\n" .. def_txt .. src_str,
+                text = (cached.headword or word) .. pos_str .. "\\n\\n" .. def_txt .. src_str,
             })
             return
         end
