@@ -220,7 +220,7 @@ Webinterfacet gør det utroligt nemt at bygge ordbøger og teste opslag:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  📖 Den Danske Ordpresse v0.2.0    [Datasæt: Klar] [Ordbog: 36.963 opslag · 121.856 bøjninger]  │
+│  📖 Den Danske Ordpresse v1.0.0    [Datasæt: Klar] [Ordbog: 36.963 opslag · 121.856 bøjninger]  │
 ├─────────────────────────────────────────────────────────────────────────────────────────────────┤
 │  ⚡ Afprøv opslag (KOReader E-Ink Preview)                                                       │
 │  [ lægdslemmer ] [ jordebog ] [ bissekræmmer ] [ værkbrudne ] [ banco ] [ baad ] [ daabskjole ] │
