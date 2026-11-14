@@ -969,7 +969,7 @@ local function inspectInstalledPackage(item)
                     local mcontent = mf:read("*a")
                     mf:close()
                     if mcontent then
-                        local ver = mcontent:match('version%s*=%s*["\']([^"\']+)["\']')
+                        local ver = mcontent:match('version%s*=%s*"(.-)"') or mcontent:match("version%s*=%s*'(.-)'")
                         if ver and ver ~= "" then
                             installed_version = ver
                         end
