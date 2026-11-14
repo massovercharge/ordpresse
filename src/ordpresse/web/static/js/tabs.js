@@ -73,6 +73,8 @@ function switchTab(tabId, updateHash = true) {
     }
 }
 
+window.switchTab = switchTab;
+
 function initTabs() {
     // Bind click events on tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {

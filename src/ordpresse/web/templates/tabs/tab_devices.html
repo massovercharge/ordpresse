@@ -119,32 +119,65 @@
             </div>
         </div>
 
-        <!-- Installation Guide Details -->
-        <details class="bg-slate-950/60 rounded-xl p-4 border border-slate-800 text-xs space-y-2 text-slate-400">
-            <summary
-                class="font-semibold text-slate-300 cursor-pointer hover:text-amber-300 select-none flex items-center gap-2">
-                <span>📖</span> <span>Sådan installerer du pluginet på din e-læser (Zero-Config)</span>
-            </summary>
-            <div class="pt-3 space-y-2 text-slate-300">
-                <ol class="list-decimal list-inside space-y-1.5 leading-relaxed">
-                    <li>Udpak den hentede <code
-                            class="text-amber-400 font-mono">ordpresse-koplugin-&lt;enhed&gt;.zip</code> fil på din
-                        computer.</li>
-                    <li>Kopiér mappen <code class="text-amber-400 font-mono">ordpresse.koplugin</code> over i <code
-                            class="text-slate-200 font-mono">koreader/plugins/</code> på din Kindle, Kobo eller Boox
-                        enhed.</li>
-                    <li>Genstart KOReader — enhedens unikke API-nøgle og server-URL er allerede indkodet i <code
-                            class="text-amber-400 font-mono">config.lua</code>.</li>
-                    <li>Marker et ord i en e-bog &gt; Vælg <strong class="text-amber-300">⚡ Slå op i Ordpresse
-                            (Online)</strong> eller tryk på knappen <strong class="text-amber-300">⚡ Ordpresse
-                            Online</strong> i KOReaders hurtigopslag.</li>
-                </ol>
-                <p class="text-[11px] text-slate-500 pt-1">
-                    Virker både offline med de lokale StarDict-ordbøger og online via Cloudflare Tunnelen, når
-                    enheden er forbundet til Wi-Fi.
-                </p>
-            </div>
-        </details>
+        <!-- Guides Grid: KOReader & CrossPoint -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Installation Guide Details (KOReader) -->
+            <details class="bg-slate-950/60 rounded-xl p-4 border border-slate-800 text-xs space-y-2 text-slate-400">
+                <summary
+                    class="font-semibold text-slate-200 cursor-pointer hover:text-amber-300 select-none flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span>📖</span> <span>KOReader (Kindle, Kobo, Boox)</span>
+                    </div>
+                    <span class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-semibold uppercase">Zero-Config</span>
+                </summary>
+                <div class="pt-3 space-y-2 text-slate-300">
+                    <ol class="list-decimal list-inside space-y-1.5 leading-relaxed">
+                        <li>Udpak den hentede <code
+                                class="text-amber-400 font-mono">ordpresse-koplugin-&lt;enhed&gt;.zip</code> fil på din
+                            computer.</li>
+                        <li>Kopiér mappen <code class="text-amber-400 font-mono">ordpresse.koplugin</code> over i <code
+                                class="text-slate-200 font-mono">koreader/plugins/</code> på din enhed.</li>
+                        <li>Genstart KOReader — enhedens unikke API-nøgle og server-URL er allerede indkodet i <code
+                                class="text-amber-400 font-mono">config.lua</code>.</li>
+                        <li>Marker et ord i en e-bog &gt; Vælg <strong class="text-amber-300">⚡ Slå op i Ordpresse
+                                (Online)</strong> i KOReaders hurtigopslag.</li>
+                    </ol>
+                    <p class="text-[11px] text-slate-500 pt-1">
+                        Virker både offline med de lokale StarDict-ordbøger og online via Cloudflare Tunnelen, når
+                        enheden er på Wi-Fi.
+                    </p>
+                </div>
+            </details>
+
+            <!-- CrossPoint Web UI Guide Details -->
+            <details class="bg-slate-950/60 rounded-xl p-4 border border-emerald-500/30 text-xs space-y-2 text-slate-400" open>
+                <summary
+                    class="font-semibold text-emerald-300 cursor-pointer hover:text-emerald-200 select-none flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span>📱</span> <span>CrossPoint (Xteink X4) via Web UI</span>
+                    </div>
+                    <span class="text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold uppercase">0 tastning</span>
+                </summary>
+                <div class="pt-3 space-y-2 text-slate-300">
+                    <p class="text-slate-300 text-xs">
+                        CrossPoint har en indbygget webside, så du nemt kan tilføje OPDS-kataloget og API-nøglen uden at taste på e-ink:
+                    </p>
+                    <ol class="list-decimal list-inside space-y-1.5 leading-relaxed text-slate-300">
+                        <li>Tænd Wi-Fi på din <strong>CrossPoint</strong>.</li>
+                        <li>Find IP-adressen på skærmen (eller åbn <code class="text-emerald-300 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">http://crosspoint.local/settings</code>) på din PC/telefon.</li>
+                        <li>Gå til <strong>OPDS</strong> i CrossPoint Web UI og tryk <em>Add</em>.</li>
+                        <li>Indsæt katalog-URL'en med din API-nøgle:<br>
+                            <code class="text-amber-300 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 block my-1 break-all">https://ordpresse.seame.click/opds?key=&lt;din_nøgle&gt;</code>
+                        </li>
+                        <li>Tryk <strong>Save</strong> i CrossPoint Web UI. Du er klar!</li>
+                    </ol>
+                    <div class="pt-2 text-[11px] text-slate-400 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 flex items-center justify-between">
+                        <span>💡 Se også fanen <strong>🛍️ Butik & Bogarkiv</strong> for direkte 1-klik kopiering af URL eller download af <code class="text-slate-200">opds.json</code>.</span>
+                        <button type="button" data-tab-switch="tab-store" class="text-emerald-400 hover:text-emerald-300 underline font-medium ml-2 shrink-0 cursor-pointer">Gå til Butik →</button>
+                    </div>
+                </div>
+            </details>
+        </div>
     </div>
 
 </div>
