@@ -9,10 +9,12 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from ordpresse.pipeline import BuildResult
+from ordpresse.services.epub_laundry import EpubLaundryService
 from ordpresse.services.mirror_prober import MirrorProberService
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 mirror_prober = MirrorProberService()
+laundry_service = EpubLaundryService()
 
 
 @dataclass

@@ -47,6 +47,23 @@ class StorePlugin:
 # -------------------------------------------------------------------
 PLUGIN_CATALOG: List[StorePlugin] = [
     StorePlugin(
+        id="bogdoktor",
+        name="[🩺] Ordpresse Bogdoktor (EPUB Vaskeri)",
+        description="Dybdegående EPUB-restaurering: fletter knækkede OCR-afsnit, opgraderer til dansk bogtrykker-typografi og renser låst forlagslayout.",
+        version="2.0.0",
+        author="Ordpresse Team",
+        github_repo="ordpresse/bogdoktor.koplugin",
+        koplugin_name="bogdoktor.koplugin",
+        zipball_url="",
+        category="books",
+        min_koreader="2023.01",
+        size_estimate_kb=45,
+        license="GPL-3.0",
+        install_note="Aktiveres i topmenuen under Læseværktøjer -> 🩺 Ordpresse Bogdoktor når en EPUB er åben.",
+        target_type="plugin",
+        target_dir="plugins",
+    ),
+    StorePlugin(
         id="annas-fetch",
         name="[Bog] Anna's Archive (Ordpresse)",
         description="Dual-source bogsøgning (Libgen + Anna's Archive) med Ordpresse server-search og mirror-orkestrering.",

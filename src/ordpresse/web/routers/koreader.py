@@ -1,19 +1,21 @@
 """Router for KOReader Online Lookup and Anna Fetch / Store Orchestration."""
 
 import logging
+from pathlib import Path
 import re
 import sys
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 from ordpresse.db import Database
+from ordpresse.services.epub_laundry import LaundryOptions
 from ordpresse.services.opds_service import canonical_filename, get_books_dir
 from ordpresse.web.auth import verify_api_key
 from ordpresse.web.lookup_service import perform_koreader_lookup
 from ordpresse.web.plugin_store import build_annas_fetch_zip, get_catalog_json, get_plugin_by_id, get_plugin_zip
-from ordpresse.web.state import mirror_prober
+from ordpresse.web.state import laundry_service, mirror_prober
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +167,16 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
             if p_file:
                 p_file.close()
                 if total_bytes > 1000:
+                    if fn.lower().endswith(".epub"):
+                        try:
+                            epub_raw = temp_part.read_bytes()
+                            wash_res = await laundry_service.process_epub(
+                                epub_raw, LaundryOptions(heal_ocr_paragraphs=False)
+                            )
+                            temp_part.write_bytes(wash_res.epub_bytes)
+                            total_bytes = len(wash_res.epub_bytes)
+                        except Exception as e:
+                            logger.warning(f"Standard bogvask i download fejlede: {e}")
                     temp_part.replace(target_path)
                     db.save_downloaded_book(
                         md5=md5,
@@ -234,3 +246,121 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
         )
 
     return await perform_koreader_lookup(q, db)
+
+
+def find_existing_book_in_archive(
+    books_dir: Path,
+    db: Database,
+    x_book_md5: Optional[str] = None,
+    x_book_filename: Optional[str] = None,
+) -> Optional[bytes]:
+    """Finder en eksisterende bog i data/books/ ud fra MD5, partial MD5 eller filnavn."""
+    if not books_dir.is_dir():
+        return None
+
+    # 1. Match via database opslag
+    if x_book_md5:
+        clean_md5 = x_book_md5.strip().lower()
+        rec = db.get_downloaded_book(clean_md5)
+        if rec and (books_dir / rec["filename"]).is_file():
+            try:
+                return (books_dir / rec["filename"]).read_bytes()
+            except Exception:
+                pass
+
+    # 2. Match direkte på filnavn
+    if x_book_filename:
+        clean_fn = Path(x_book_filename).name
+        target = books_dir / clean_fn
+        if target.is_file():
+            try:
+                return target.read_bytes()
+            except Exception:
+                pass
+
+    # 3. Match mod filer på disken via fuld MD5 eller KOReader partial MD5
+    if x_book_md5:
+        clean_md5 = x_book_md5.strip().lower()
+        import hashlib
+        for p in books_dir.glob("*.epub"):
+            if not p.is_file():
+                continue
+            try:
+                content = p.read_bytes()
+                if hashlib.md5(content).hexdigest().lower() == clean_md5:
+                    return content
+                sz = len(content)
+                if sz <= 3072:
+                    p_bytes = content
+                else:
+                    mid = sz // 2
+                    p_bytes = content[:1024] + content[mid:mid + 1024] + content[-1024:]
+                if hashlib.md5(p_bytes).hexdigest().lower() == clean_md5:
+                    return content
+            except Exception:
+                continue
+
+    return None
+
+
+@router.post("/api/v1/koreader/laundry")
+async def run_epub_laundry_endpoint(
+    request: Request,
+    x_api_key: Optional[str] = Header(default=None),
+    x_book_md5: Optional[str] = Header(default=None),
+    x_book_filename: Optional[str] = Header(default=None),
+    x_laundry_heal_ocr: str = Header(default="true"),
+    x_laundry_quote_style: str = Header(default="guillemets"),
+):
+    """
+    Kører Ordpresse Bogvaskeri & Restaurerings-pipeline (v2.0) for KOReader.
+    Understøtter zero-upload fast-path via X-Book-MD5 / X-Book-Filename og chunked streaming.
+    """
+    api_key = (
+        x_api_key
+        or request.headers.get("X-API-Key")
+        or request.headers.get("x-api-key")
+        or request.query_params.get("api_key")
+    )
+    db = Database()
+    verify_api_key(api_key, db)
+
+    raw_bytes: Optional[bytes] = None
+    books_dir = get_books_dir()
+
+    # 1. Tjek om bogen allerede ligger i serverens data/books/ (0 bytes upload!)
+    if x_book_md5 or x_book_filename:
+        raw_bytes = find_existing_book_in_archive(books_dir, db, x_book_md5, x_book_filename)
+
+    # 2. Ellers modtag den streamede EPUB-body fra KOReader
+    if raw_bytes is None:
+        raw_bytes = await request.body()
+        if len(raw_bytes) < 100 or not raw_bytes.startswith(b"PK\x03\x04"):
+            raise HTTPException(
+                status_code=404 if (x_book_md5 or x_book_filename) else 400,
+                detail="Bogen findes ikke på serveren, eller uploadet fil er ikke en gyldig EPUB.",
+            )
+
+    opts = LaundryOptions(
+        heal_ocr_paragraphs=(str(x_laundry_heal_ocr).lower() in ("true", "1", "yes")),
+        rebuild_missing_toc=(str(x_laundry_heal_ocr).lower() in ("true", "1", "yes")),
+        danish_quote_style="baseline" if str(x_laundry_quote_style).lower() == "baseline" else "guillemets",
+    )
+
+    result = await laundry_service.process_epub(raw_bytes, opts)
+
+    return Response(
+        content=result.epub_bytes,
+        media_type="application/epub+zip",
+        headers={
+            "X-Ordpresse-Lang": result.detected_language,
+            "X-Ordpresse-MD5": result.book_md5,
+            "X-Ordpresse-Size-Before-KB": str(result.original_size_kb),
+            "X-Ordpresse-Size-After-KB": str(result.polished_size_kb),
+            "X-Ordpresse-Paragraphs-Healed": str(result.paragraphs_healed),
+            "X-Ordpresse-TOC-Rebuilt": str(result.toc_entries_rebuilt),
+            "X-Ordpresse-Prewarmed-Words": str(result.prewarmed_words_count),
+            "X-Ordpresse-Time-Ms": str(result.processing_ms),
+        },
+    )
+

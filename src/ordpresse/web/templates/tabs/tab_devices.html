@@ -119,8 +119,8 @@
             </div>
         </div>
 
-        <!-- Guides Grid: KOReader & CrossPoint -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Guides Grid: KOReader, CrossPoint & Bogdoktor -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <!-- Installation Guide Details (KOReader) -->
             <details class="bg-slate-950/60 rounded-xl p-4 border border-slate-800 text-xs space-y-2 text-slate-400">
                 <summary
@@ -150,31 +150,49 @@
             </details>
 
             <!-- CrossPoint Web UI Guide Details -->
-            <details class="bg-slate-950/60 rounded-xl p-4 border border-emerald-500/30 text-xs space-y-2 text-slate-400" open>
+            <details class="bg-slate-950/60 rounded-xl p-4 border border-emerald-500/30 text-xs space-y-2 text-slate-400">
                 <summary
                     class="font-semibold text-emerald-300 cursor-pointer hover:text-emerald-200 select-none flex items-center justify-between">
                     <div class="flex items-center gap-2">
-                        <span>📱</span> <span>CrossPoint (Xteink X4) via Web UI</span>
+                        <span>📱</span> <span>CrossPoint (Xteink X4)</span>
                     </div>
                     <span class="text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold uppercase">0 tastning</span>
                 </summary>
                 <div class="pt-3 space-y-2 text-slate-300">
                     <p class="text-slate-300 text-xs">
-                        CrossPoint har en indbygget webside, så du nemt kan tilføje OPDS-kataloget og API-nøglen uden at taste på e-ink:
+                        CrossPoint har en indbygget webside til nem opsætning:
                     </p>
                     <ol class="list-decimal list-inside space-y-1.5 leading-relaxed text-slate-300">
                         <li>Tænd Wi-Fi på din <strong>CrossPoint</strong>.</li>
-                        <li>Find IP-adressen på skærmen (eller åbn <code class="text-emerald-300 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">http://crosspoint.local/settings</code>) på din PC/telefon.</li>
-                        <li>Gå til <strong>OPDS</strong> i CrossPoint Web UI og tryk <em>Add</em>.</li>
+                        <li>Åbn <code class="text-emerald-300 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">http://crosspoint.local/settings</code> på PC/telefon.</li>
+                        <li>Gå til <strong>OPDS</strong> og tryk <em>Add</em>.</li>
                         <li>Indsæt katalog-URL'en med din API-nøgle:<br>
                             <code class="text-amber-300 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 block my-1 break-all">https://ordpresse.seame.click/opds?key=&lt;din_nøgle&gt;</code>
                         </li>
-                        <li>Tryk <strong>Save</strong> i CrossPoint Web UI. Du er klar!</li>
+                        <li>Tryk <strong>Save</strong>. Du er klar!</li>
                     </ol>
-                    <div class="pt-2 text-[11px] text-slate-400 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 flex items-center justify-between">
-                        <span>💡 Se også fanen <strong>🛍️ Butik & Bogarkiv</strong> for direkte 1-klik kopiering af URL eller download af <code class="text-slate-200">opds.json</code>.</span>
-                        <button type="button" data-tab-switch="tab-store" class="text-emerald-400 hover:text-emerald-300 underline font-medium ml-2 shrink-0 cursor-pointer">Gå til Butik →</button>
+                </div>
+            </details>
+
+            <!-- Bogdoktor Guide Details -->
+            <details class="bg-slate-950/60 rounded-xl p-4 border border-cyan-500/30 text-xs space-y-2 text-slate-400" open>
+                <summary
+                    class="font-semibold text-cyan-300 cursor-pointer hover:text-cyan-200 select-none flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span>🩺</span> <span>Bogdoktor (EPUB Vaskeri v2.0)</span>
                     </div>
+                    <span class="text-[10px] bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-semibold uppercase">Restaurering</span>
+                </summary>
+                <div class="pt-3 space-y-2 text-slate-300">
+                    <p class="text-slate-300 text-xs">
+                        Gør dine EPUB-bøger perfekte til E-Ink læsning direkte på din e-bogslæser:
+                    </p>
+                    <ol class="list-decimal list-inside space-y-1.5 leading-relaxed text-slate-300">
+                        <li>Åbn <strong>Ordpresse Butik</strong> i KOReader og installer <code class="text-cyan-300 font-mono">[🩺] Bogdoktor</code>.</li>
+                        <li>Åbn en vilkårlig EPUB og vælg <strong class="text-cyan-300">🩺 Ordpresse Bogdoktor</strong> i topmenuen.</li>
+                        <li>Vælg <em>✨ Dybdevask</em> for automatisk OCR-heling, dansk typografi («...») og indlejret offline ordbog.</li>
+                        <li>Originalfilen gemmes altid som backup i bogens <code class="text-slate-200 font-mono">.sdr</code>-mappe med 1-klik fortryd.</li>
+                    </ol>
                 </div>
             </details>
         </div>

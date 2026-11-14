@@ -4,15 +4,15 @@ import io
 import re
 import zipfile
 
-PLUGIN_VERSION = "1.3.1"
-PLUGIN_RELEASE_NOTES = "Ny v1.3.1: Skarpe universelle e-blæk-symboler og typografiske tags i butik og menuer (erstatter farve-emojis for fejlfri gengivelse på Kindle)."
+PLUGIN_VERSION = "1.4.0"
+PLUGIN_RELEASE_NOTES = "Ny v1.4.0: Offline leksikalsk ordbogscache indlejret i vaskede EPUB-bøger (Bogvaskeri v2.0) og fuld integration med Ordpresse Bogdoktor."
 
 META_LUA = """local _ = require("gettext")
 return {
     name = "ordpresse",
     fullname = _("Den Danske Ordpresse (Online Opslag & Butik)"),
     description = _("Slå danske og historiske 1700-1900-tals ord op via din private Ordpresse-server og administrer plugins/ressourcer."),
-    version = "1.3.1",
+    version = "1.4.0",
 }
 """
 
@@ -39,7 +39,7 @@ if not ok_cfg or type(config) ~= "table" then
 end
 
 local Bridge = {
-    version = "1.3.1",
+    version = "1.4.0",
     config = config,
 }
 
@@ -256,10 +256,11 @@ local http = require("socket.http")
 local url = require("socket.url")
 local _ = require("gettext")
 
-local PLUGIN_VERSION = "1.3.1"
+local PLUGIN_VERSION = "1.4.0"
 local ok_util, util = pcall(require, "util")
 local ok_ffiutil, ffiUtil = pcall(require, "ffi/util")
 local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
+local ok_archiver, Archiver = pcall(require, "ffi/archiver")
 local ok_device, Device = pcall(require, "device")
 local ok_ds, DataStorage = pcall(require, "datastorage")
 
@@ -680,14 +681,53 @@ function Ordpresse:httpGet(req_url, timeout_override)
     return ok, res, status_code, body
 end
 
-function Ordpresse:performLookup(raw_word)
-    if type(config.endpoint_url) ~= "string" or config.endpoint_url == "" then
-        UIManager:show(InfoMessage:new{ text = _("Ordpresse mangler server-adresse i config.lua.") })
-        return
+function Ordpresse:lookupInEmbeddedBookCache(doc_path, word_lower)
+    if not ok_archiver or not Archiver or not doc_path or not word_lower then return nil end
+    if self.cached_book_path ~= doc_path then
+        self.cached_book_path = doc_path
+        self.book_lexcache = {}
+        local ok, arc = pcall(function() return Archiver.Reader:new() end)
+        if ok and arc and arc.open and arc:open(doc_path) then
+            for entry in arc:iter() do
+                if entry.path == "META-INF/ordpresse_lexcache.json" then
+                    local raw = arc:extractToMemory(entry.index)
+                    local dec_ok, parsed = pcall(json.decode, raw)
+                    if dec_ok and type(parsed) == "table" then
+                        self.book_lexcache = parsed
+                    end
+                    break
+                end
+            end
+            arc:close()
+        end
     end
+    return self.book_lexcache and self.book_lexcache[word_lower] or nil
+end
+
+function Ordpresse:performLookup(raw_word)
     local word = cleanWord(raw_word)
     if word == "" then
         UIManager:show(InfoMessage:new{ text = _("Intet ord valgt.") })
+        return
+    end
+
+    -- Trin 0: Hurtigt offline-opslag i bogens indlejrede ordbogscache (0 ms, intet Wi-Fi nødvendigt)
+    if self.ui and self.ui.document and self.ui.document.file then
+        local cached = self:lookupInEmbeddedBookCache(self.ui.document.file, word:lower())
+        if cached then
+            local def_txt = cached.definition or cached.display_text or ""
+            local pos_str = cached.pos and (" (" .. cached.pos .. ")") or ""
+            local src_str = cached.source and ("\n\n[Kilde: " .. cached.source .. " — Offline Bogcache]") or ""
+            UIManager:show(TextViewer:new{
+                title = _("Den Danske Ordpresse (Offline Bogcache): ") .. (cached.headword or word),
+                text = (cached.headword or word) .. pos_str .. "\n\n" .. def_txt .. src_str,
+            })
+            return
+        end
+    end
+
+    if type(config.endpoint_url) ~= "string" or config.endpoint_url == "" then
+        UIManager:show(InfoMessage:new{ text = _("Ordpresse mangler server-adresse i config.lua.") })
         return
     end
 

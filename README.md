@@ -9,8 +9,9 @@
 [![Zero-Trust API](https://img.shields.io/badge/API-Zero--Trust%20Online-purple.svg)](#-zero-trust-koreader-online-opslag-api--plugin)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Plugin Store](https://img.shields.io/badge/OTA-Plugin%20Butik%20v1.2.6-ff69b4.svg)](#-koreader-plugin-butik--anna-fetch-orkestrering-v126)
+[![Bogdoktor](https://img.shields.io/badge/KOReader-Bogdoktor%20v2.0-cyan.svg)](#-ordpresse-bogvaskeri--bogdoktor-v20)
 [![OPDS 1.2](https://img.shields.io/badge/OPDS-1.2%20Acquisition%20Feed-blueviolet.svg)](#-opds-12-bogkatalog--crosspoint-reader-xteink-x4-pro-integration-v126)
-[![Tests](https://img.shields.io/badge/tests-111%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
+[![Tests](https://img.shields.io/badge/tests-131%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
 
 ---
 
@@ -142,6 +143,25 @@ DSLs COR og ODS fuldformsregistre indeholder over 3 millioner rækker. Ordpresse
   - **Direkte REST API:** Opsætning på få sekunder via CrossPoints indbyggede webserver (`POST http://<crosspoint-ip>/api/opds`).
   - **1-Kliks `opds.json`:** Download færdigkonfigureret `opds.json` fra webinterfacet og placér den direkte i `/.crosspoint/opds.json` på SD-kortet.
   - **Katalogvælger i Web UI:** Nem administration af registrerede e-læsere, brugerdefinerede tokens og direkte kopiering af offentlige katalog-URL'er.
+
+### 11. 🧼 Ordpresse Bogvaskeri & 🩺 Bogdoktor (v2.0)
+- **Komplet E-Ink Restaurering:** Forvandler rå, OCR-scannede eller dårligt konverterede EPUB-bøger til typografisk smukke, fejlfri e-bøger optimeret specifikt til Kindle, Kobo og Android e-ink.
+- **6-Trins Server-Pipeline (`src/ordpresse/services/epub_laundry.py`):**
+  1. *Sprog & Encoding:* Reparerer mojibake med `ftfy` og detekterer automatisk sprog (`da`, `en`, `nb`, `sv`, `de`) via Lingua, samt opdaterer OPF- og HTML-sprogattributter.
+  2. *Strukturel DOM & Sikker OCR-heling:* Sammensmelter afbrudte sætninger i `<p>`-afsnit, fjerner orddelte bindestreger og bevarer alle interne `id`-ankre via injicerede `<span id="...">` (så indholdsfortegnelse og fodnoter aldrig brydes), mens digte, vers og epigrafer skånes.
+  3. *Tilstandsbaseret Bogtrykker-Typografi:* Ensretter citationstegn (`»...«` eller `„...“` samt engelske `“...”`) deterministisk hen over inline-tags (`<em>`, `<span>`), konverterer tankestreger (`\u00a0– `) og indsætter hårde mellemrum efter forkortelser (`f.eks.\u00a0`, `bl.a.\u00a0`).
+  4. *Rekursiv AST CSS-Sanitering:* Fjerner låste forlagsskrifttyper, hårde skriftstørrelser, linjehøjder, baggrundsfarver og margener rekursivt inkl. `@media`- og `@supports`-blokke med `tinycss2`, og injicerer standardiserede E-Ink regler (`orphans: 2; widows: 2; hyphens: auto`).
+  5. *Format-Tro E-Ink Billedoptimering:* Billeder nedskaleres med Lanczos og optimeres til e-blæk med streng MIME-troskab: JPEG forbliver JPEG og PNG forbliver 8-bit gråtone-PNG for at bevare `content.opf`-integritet.
+  6. *TOC-Rekonstruktion & Lexical Pre-Warming:* Scanner efter kapitel-overskrifter og genopbygger manglende kapitler i `toc.ncx`. Desuden indlejres bogens sværeste/ældre gloser direkte i `META-INF/ordpresse_lexcache.json` i EPUB-arkivet.
+- **Offline Leksikalsk Bogcache (`ordpresse.koplugin` v1.4.0):**
+  - Når et ord markeres i en vasket bog, slår KOReader først op i `META-INF/ordpresse_lexcache.json` direkte i RAM (< 1 ms uden netværk).
+  - Kræver hverken tændt Wi-Fi eller serverforbindelse for bogens historiske kernegloser!
+- **KOReader Klient `bogdoktor.koplugin`:**
+  - *Zero-Upload Fast-Path:* Hvis bogen allerede ligger i serverens arkiv (`data/books/`), uploades 0 bytes; serveren restaurerer direkte fra disk.
+  - *RAM-Sikker 4 KB Streaming:* Upload af lokale bøger streames i blokke af 4 KB (`ltn12.source.file`), så selv 80 MB bøger kan vaskes uden OOM-crashes på Kindle.
+  - *Samme-Partition Backup:* Sikkerhedskopi gemmes automatisk i bogens egen `<bog>.sdr/original_pre_bogdoktor.epub` (undgår POSIX `EXDEV`-fejl) med direkte **"⏪ Gendan original før Bogdoktor"** i menuen.
+  - *Læsepositions-Bevarelse:* Gemmer aktuel læseprocent, verificerer ZIP-magic-bytes og opdaterer KOReaders `partial_md5_checksum`.
+- **Tilgængelig i KOReader Butikken:** Kan installeres med 1 klik fra Ordpresse Butik under *[🩺] Ordpresse Bogdoktor (EPUB Vaskeri)*.
 
 ---
 

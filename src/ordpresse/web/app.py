@@ -84,7 +84,7 @@ async def enforce_two_zone_boundary_and_auth(request: Request, call_next):
     """
     path = request.url.path
     is_opds_or_lookup = (
-        path.rstrip("/") in ("/api/v1/koreader/lookup", "/opds", "/api/v1/opds")
+        path.rstrip("/") in ("/api/v1/koreader/lookup", "/api/v1/koreader/laundry", "/opds", "/api/v1/opds")
         or path.startswith("/opds/download/")
     )
 
