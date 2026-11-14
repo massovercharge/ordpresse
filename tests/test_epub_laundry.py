@@ -360,6 +360,15 @@ def test_koreader_laundry_zero_upload_fast_path(client, tmp_path):
         assert res.status_code == 200
         assert res.headers["content-type"] == "application/epub+zip"
         assert len(res.content) > 500
+
+        # Verificér at server-kopien i data/books/ er opdateret til præcis samme binære fil
+        # så CrossPoint og KOReader har 100% identisk indhold til CrossPoint Sync (KOSync)
+        assert test_path.read_bytes() == res.content
+
+        # Verificér at CrossPoint via OPDS henter den nøjagtig samme vaskede fil
+        opds_res = client.get(f"/opds/download/{res.headers['X-Ordpresse-MD5']}", headers=headers)
+        assert opds_res.status_code == 200
+        assert opds_res.content == res.content
     finally:
         test_path.unlink(missing_ok=True)
 

@@ -349,6 +349,36 @@ async def run_epub_laundry_endpoint(
 
     result = await laundry_service.process_epub(raw_bytes, opts)
 
+    # Gem/opdater den vaskede master-kopi i data/books/ så KOReader og CrossPoint (OPDS)
+    # altid deler den nøjagtig samme binære fil til læsesynkronisering (CrossPoint Sync)
+    if x_book_filename or x_book_md5:
+        target_fn = Path(x_book_filename).name if x_book_filename else None
+        if not target_fn and x_book_md5:
+            rec = db.get_downloaded_book(x_book_md5.strip().lower())
+            if rec:
+                target_fn = rec.get("filename")
+        if target_fn:
+            target_file = books_dir / target_fn
+            try:
+                target_file.write_bytes(result.epub_bytes)
+                db.save_downloaded_book(
+                    md5=result.book_md5,
+                    title=target_file.stem.replace("_", " "),
+                    author="Ukendt",
+                    filename=target_fn,
+                    size_bytes=len(result.epub_bytes),
+                )
+                if x_book_md5 and x_book_md5.strip().lower() != result.book_md5:
+                    db.save_downloaded_book(
+                        md5=x_book_md5.strip().lower(),
+                        title=target_file.stem.replace("_", " "),
+                        author="Ukendt",
+                        filename=target_fn,
+                        size_bytes=len(result.epub_bytes),
+                    )
+            except Exception as e:
+                logger.warning(f"Kunne ikke synkronisere vasket bog til server-arkiv: {e}")
+
     return Response(
         content=result.epub_bytes,
         media_type="application/epub+zip",
