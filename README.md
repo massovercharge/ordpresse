@@ -8,8 +8,9 @@
 [![E-Reader](https://img.shields.io/badge/e--reader-KOReader%20Ready-emerald.svg)](#-installation-i-koreader)
 [![Zero-Trust API](https://img.shields.io/badge/API-Zero--Trust%20Online-purple.svg)](#-zero-trust-koreader-online-opslag-api--plugin)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Plugin Store](https://img.shields.io/badge/OTA-Plugin%20Butik%20v1.2.3-ff69b4.svg)](#-koreader-plugin-butik--anna-fetch-orkestrering-v123)
-[![Tests](https://img.shields.io/badge/tests-103%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
+[![Plugin Store](https://img.shields.io/badge/OTA-Plugin%20Butik%20v1.2.6-ff69b4.svg)](#-koreader-plugin-butik--anna-fetch-orkestrering-v126)
+[![OPDS 1.2](https://img.shields.io/badge/OPDS-1.2%20Acquisition%20Feed-blueviolet.svg)](#-opds-12-bogkatalog--crosspoint-reader-xteink-x4-pro-integration-v126)
+[![Tests](https://img.shields.io/badge/tests-111%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
 
 ---
 
@@ -44,29 +45,36 @@ flowchart TD
         BUNDLE["ordpresse.zip<br/>(.ifo, .idx, .dict.dz, .syn)"]
     end
 
-    subgraph Online [📡 2. Zero-Trust KOReader Live API]
-        DEVICE["📱 E-læser (KOReader)<br/>(⚡ Ordpresse Online)"]
-        TUNNEL["🔒 Cloudflare Tunnel / WAF<br/>(Skip-regel for lookup)"]
-        LOOKUP_API["⚡ GET /api/v1/koreader/lookup<br/>(X-API-Key Auth, Token-Bucket & Cache)"]
-        ADMIN_UI["🔐 LAN Web UI (:18088)<br/>(Login, Dashboard, Spejle & Bogsøgning)"]
+    subgraph Online [📡 2. Zero-Trust Live API & Tunneller]
+        KINDLE["📱 Kindle / KOReader<br/>(⚡ Ordpresse Online)"]
+        CROSSPOINT["📱 CrossPoint Reader<br/>(Xteink X4 Pro)"]
+        TUNNEL["🔒 Cloudflare Tunnel / WAF<br/>(ordpresse.seame.click)"]
+        LOOKUP_API["⚡ GET /api/v1/koreader/lookup<br/>(X-API-Key Auth & Token-Bucket)"]
+        ADMIN_UI["🔐 LAN Web UI (:18088)<br/>(Dashboard, Nøgler & Bogarkiv)"]
     end
 
-    subgraph Store [🛍️ 3. KOReader Plugin Butik & Bogsøgning]
-        ANNAS_FETCH["📚 Anna Fetch (Ordpresse Edition v1.2.1)<br/>(annas-fetch.koplugin)"]
+    subgraph StoreAndOPDS [📚 3. Bogarkiv, OPDS 1.2 & Anna Fetch]
         PROBER["🛡️ Mirror Authority & Prober<br/>(Libgen + Anna's Archive)"]
         SERVER_SEARCH["⚡ Server Search & Ticket Resolver<br/>(Lynhurtig BeautifulSoup + HTTP/2)"]
+        DOWNLOAD_PROXY["📥 Server Streaming Download Proxy<br/>(action=annas_download)"]
+        BOOKS_ARCHIVE[("💾 Centralt Bogarkiv<br/>data/books/ & SQLite")]
+        OPDS_FEED["📡 OPDS 1.2 Acquisition Feed<br/>(/opds & /opds/download/{md5})"]
     end
 
     SCAN --> ORTHO --> HYGIENE --> SCRAPE --> COMPILER --> BUNDLE
     Kilder --> SCRAPE
     Kilder --> LOOKUP_API
-    BUNDLE -.->|USB-overførsel| DEVICE
-    DEVICE <==>|HTTPS X-API-Key| TUNNEL <==> LOOKUP_API
-    ADMIN_UI -.->|1-klik provisionering| DEVICE
+    BUNDLE -.->|USB-overførsel| KINDLE
+    KINDLE <==>|HTTPS X-API-Key| TUNNEL <==> LOOKUP_API
+    ADMIN_UI -.->|1-klik provisionering| KINDLE
+    ADMIN_UI -.->|1-klik opds.json & REST API| CROSSPOINT
     LOOKUP_API <--> PROBER
     LOOKUP_API <--> SERVER_SEARCH
-    DEVICE <==>|🛍️ Butik & Search| LOOKUP_API
-    ANNAS_FETCH <--> DEVICE
+    LOOKUP_API <--> DOWNLOAD_PROXY
+    DOWNLOAD_PROXY --> BOOKS_ARCHIVE
+    BOOKS_ARCHIVE --> OPDS_FEED
+    CROSSPOINT <==>|OPDS 1.2 Auth| TUNNEL <==> OPDS_FEED
+    KINDLE <==>|CrossPoint Sync / KOSync| CROSSPOINT
 ```
 
 ---
@@ -105,17 +113,35 @@ DSLs COR og ODS fuldformsregistre indeholder over 3 millioner rækker. Ordpresse
 
 ### 7. 📡 Zero-Trust KOReader Online Opslag & Enhedsadgang (v0.2+)
 - **Dobbelt anvendelse:** Ud over offline StarDict-kompilering fungerer Ordpresse som din egen private online ordbogsserver for KOReader.
-- **To-Zone Forsvar i dybden:** Ekstern Cloudflare-adgang er strengt begrænset til ét enkelt endpoint (`GET /api/v1/koreader/lookup`). Web UI, byggekø og administrations-endpoints er fuldstændig usynlige udefra (returnerer HTTP 404).
+- **To-Zone Forsvar i dybden:** Ekstern Cloudflare-adgang er strengt afgrænset til godkendte API-ruter (`GET /api/v1/koreader/lookup` og OPDS 1.2 `/opds`). Web UI, byggekø og administrations-endpoints er fuldstændig usynlige udefra (returnerer rå HTTP 404).
 - **Hashed API-nøgler & Provisionering:** Hver e-bogslæser får sin egen kryptografiske API-nøgle med præfiks (*ord_...*), gemt sikkert som SHA-256 hash. Download et nøglefærdigt `ordpresse.koplugin` med 1 klik direkte fra webbrugerfladen.
 - **Realtidsopslag i KOReader:** Knappen `⚡ Ordpresse Online` er integreret direkte i ordbogsvinduet, i markeringsmenuen og i KOReaders værktøjsmenu.
 
-### 8. 🛍️ KOReader Plugin Butik & Anna Fetch Dual-Source Bogsøgning (v1.2.1+)
+### 8. 🛍️ KOReader Plugin Butik & Anna Fetch Dual-Source Bogsøgning (v1.2.6+)
 - **Kurateret OTA Plugin Butik:** Installer og opdater KOReader-plugins direkte fra læserens skærm uden computer eller USB-kabel.
 - **Anna Fetch (Ordpresse Edition):** Dual-source orkestrering mellem Libgen (primær, rå HTML) og Anna's Archive (sekundær fallback).
 - **Lyn-hurtig Server-Search (`action=annas_search`):** Serveren udfører søgningen via BeautifulSoup og HTTP/2, prioriterer læsevenlige bogformater (`epub`, `mobi`, `azw3`, `pdf`) over tegneseriehæfter, og returnerer rene resultater på < 200 ms.
 - **Mirror Authority (`action=annas_mirrors`):** Automatisk periodisk prober, der tester latenstid, sorterer efter hastighed, opdager DDoS-Guard og automatisk frasorterer kaprede/parkerede domæner (`.li`, `.org`).
 - **Kindle TLS-Hærdning:** Løser Kindles manglende Linux-rodcertifikater med tvungen `-k` SSL-omgåelse og søskende-opdagelse af enhedens API-nøgle.
 - **Direkte Download-Billet (`action=annas_download_ticket`):** Udtrækker dynamiske Libgen `get.php` nøgler direkte for enheden.
+
+### 9. 📚 Centralt Bogarkiv & Server Streaming Download Proxy (`action=annas_download`)
+- **Automatisk Server-Arkivering:** Når en bog downloades fra Kindle/KOReader via Anna Fetch, streamer Ordpresse-serveren bogen direkte fra spejlet og gemmer den permanent i det centrale bogarkiv (`data/books/`).
+- **Hukommelsessikker Streaming:** Bøger streames direkte i 64 KB bidder (`StreamingResponse`), hvilket giver øjeblikkelig downloadstart på Kindlen samtidig med at serverens RAM-forbrug forbliver under 250 MB.
+- **Deduplikering & Metadata:** Registrerer automatisk bøger i `data/cache.sqlite3` (`downloaded_books`) med MD5-hash, standardiseret filnavn (`Titel_Forfatter.epub`), filstørrelse og kilde. Hvis en bog allerede findes i arkivet, serveres den øjeblikkeligt fra lokal disk uden eksternt netværkskald.
+- **Kanonisk Filnavne-Hærdning:** Sanitiserer titler og forfattere til sikre tegn, fuldt kompatibelt med FAT32, ext4, Kindle OS og CrossPoint OS.
+
+### 10. 📡 OPDS 1.2 Acquisition Feed & CrossPoint Reader Integration (v1.2.6+)
+- **Universelt OPDS 1.2 Bogkatalog:** Gør hele dit centrale bogarkiv tilgængeligt over standardiseret Atom/OPDS 1.2 (`/opds` og `/api/v1/opds`) for CrossPoint Reader (Xteink X4 Pro), Calibre Wireless, Moon+ Reader og andre OPDS-kompatible e-læsere.
+- **Multi-Device Læsesynkronisering (CrossPoint Sync / KOSync):** Da både KOReader (Kindle) og CrossPoint Reader henter den nøjagtig samme binære EPUB-fil med identisk indholdshash og kanonisk filnavn, virker CrossPoint Sync (KOSync-kompatibel) gnidningsfrit uden uoverensstemmelser i læseposition og bogmærker.
+- **Fleksibel Zero-Trust Autentificering:** Understøtter tre parallelle godkendelsesmetoder tilpasset e-ink enheder:
+  1. URL-parameter: `https://ordpresse.seame.click/opds?api_key=ord_...` (automatisk propageret til alle downloadlinks).
+  2. HTTP Basic Auth: brugernavn = `ord_...`, tomt password (eller adgangskode).
+  3. HTTP Header: `X-API-Key: ord_...`.
+- **1-Kliks Provisionering & Flere Opsætningsveje:**
+  - **Direkte REST API:** Opsætning på få sekunder via CrossPoints indbyggede webserver (`POST http://<crosspoint-ip>/api/opds`).
+  - **1-Kliks `opds.json`:** Download færdigkonfigureret `opds.json` fra webinterfacet og placér den direkte i `/.crosspoint/opds.json` på SD-kortet.
+  - **Katalogvælger i Web UI:** Nem administration af registrerede e-læsere, brugerdefinerede tokens og direkte kopiering af offentlige katalog-URL'er.
 
 ---
 
@@ -385,12 +411,12 @@ Når du opretter en enhed, genererer serveren automatisk en skræddersyet, zero-
 For at sikre, at KOReaders online opslag ikke blokeres af Cloudflares automatiske bot-beskyttelse eller managed rules, skal der oprettes en **WAF Custom Rule** i Cloudflare Dashboard:
 
 1. Gå til dit domæne i **Cloudflare Dashboard** &rarr; **Security** &rarr; **WAF** &rarr; **Custom rules**.
-2. Klik på **Create rule** og giv den navnet `Allow KOReader Lookup`.
+2. Klik på **Create rule** og giv den navnet `Allow KOReader Lookup and OPDS`.
 3. Indstil betingelsen:
    - Field: `URI Path`
-   - Operator: `equals`
-   - Value: `/api/v1/koreader/lookup`
-   *(Expression preview: `(http.request.uri.path eq "/api/v1/koreader/lookup")`)*
+   - Operator: `is in` (eller sammensæt med OR)
+   - Values: `/api/v1/koreader/lookup`, `/opds`, `/api/v1/opds` samt `URI Path starts with /opds/download/`
+   *(Expression preview: `(http.request.uri.path in {"/api/v1/koreader/lookup" "/opds" "/api/v1/opds"} or starts_with(http.request.uri.path, "/opds/download/"))`)*
 4. Vælg handlingen (**Choose action**): **Skip**.
 5. Sæt flueben i:
    - ☑ *All remaining custom rules*
@@ -399,9 +425,9 @@ For at sikre, at KOReaders online opslag ikke blokeres af Cloudflares automatisk
    - ☑ *All Super Bot Fight Mode Rules*
 6. Gem og aktivér reglen (**Deploy**).
 
-Nu kan din e-bogslæser foretage lynhurtige online opslag hvor som helst, så længe den har Wi-Fi-forbindelse.
+Nu kan din e-bogslæser og CrossPoint foretage lynhurtige online opslag og hente e-bøger hvor som helst, så længe de har internetforbindelse.
 
-### 5. 🛍️ KOReader Plugin Butik & Anna Fetch Orkestrering (v1.2.3+) <a id="-koreader-plugin-butik--anna-fetch-orkestrering-v123"></a>
+### 5. 🛍️ KOReader Plugin Butik & Anna Fetch Orkestrering (v1.2.6+) <a id="-koreader-plugin-butik--anna-fetch-orkestrering-v126"></a>
 
 I takt med at KOReader community-plugins udvides, opstår der ofte kritiske driftsproblemer på e-bogslæsere:
 - **Upstream OTA-fejl:** GitHub API rate-limits, blokerede stinavne (`plugins/annas-fetch.koplugin` vs `plugins/annas-fetch`) og inkompatible zipball-strukturer bryder hyppigt automatiske opdateringer.
@@ -460,6 +486,105 @@ sequenceDiagram
    - **`-k` (`--insecure`) og `-sS`:** `curl`-kald fra Kindle eksekveres med SSL-verifikationsomgåelse, så certifikatfejl på Amazon Linux undgås.
    - **Zero-config Søskendeopdagelse:** Læser automatisk API-nøgle og serverendpoint fra `plugins/ordpresse.koplugin/config.lua`.
    - **Offline-robust:** Hvis e-læseren er uden for hjemmenetværket, falder den automatisk tilbage til den lokale spejlcache og direkte klient-scraping.
+
+---
+
+### 6. 📡 OPDS 1.2 Bogkatalog & CrossPoint Reader (Xteink X4 Pro) Integration <a id="-opds-12-bogkatalog--crosspoint-reader-xteink-x4-pro-integration-v126"></a>
+
+Fra version **1.2.6+** understøtter Den Danske Ordpresse et fuldt integreret **OPDS 1.2 Acquisition Feed**, der gør dit private bogarkiv tilgængeligt for kompakte mikro-e-ink læsere som **CrossPoint Reader (Xteink X4 Pro)**, Calibre Wireless, KOReader og Moon+ Reader.
+
+#### Hvorfor OPDS og CrossPoint?
+1. **Multi-Device Læsesynkronisering (CrossPoint Sync / KOSync):**
+   - CrossPoint OS benytter en KOSync-kompatibel synkroniseringsprotokol (`koMatchMethod: 0` = Filnavn, samt delvist byte-hash).
+   - Når du finder og henter en bog via din Kindle, gemmer Ordpresse den i det centrale arkiv. Når du efterfølgende åbner Ordpresse OPDS-kataloget på din CrossPoint Reader og downloader bogen, modtager den en **binært byte-identisk EPUB-fil** med præcis samme kanoniske filnavn (`Titel_Forfatter.epub`).
+   - Resultat: Du kan skifte frit mellem din store Kindle derhjemme og din lommevenlige CrossPoint på farten – læseposition, side og bogmærker synkroniseres 100% automatisk!
+2. **Zero-Trust URL & Sikkerhed:**
+   - Kataloget er fuldstændig privat og kræver en gyldig enheds-API-nøgle (`ord_...`).
+   - Understøtter tre parallelle autentificeringsmetoder:
+     - **URL-parameter:** `https://ordpresse.seame.click/opds?api_key=ord_...` (propagerer automatisk nøglen til alle bog-downloadlinks i feedet).
+     - **HTTP Basic Auth:** Brugernavn = `ord_...`, Kode = valgfri/tom.
+     - **HTTP Header:** `X-API-Key: ord_...`.
+
+#### Tre Nemme Opsætningsmetoder for CrossPoint
+
+##### Metode 1: Direkte REST API via Wi-Fi / Hotspot (Anbefalet & Hurtigst)
+Når din CrossPoint Reader er tændt og forbundet til Wi-Fi (eller telefonens delte internet), kører den en intern REST API server på sin IP (f.eks. `172.20.10.3` eller `crosspoint.local`):
+
+```bash
+# 1. Tilføj Ordpresse OPDS kataloget direkte til CrossPoint Reader
+curl -X POST http://<CROSSPOINT_IP>/api/opds \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Ordpresse",
+    "url": "https://ordpresse.seame.click/opds?api_key=<DIN_API_NØGLE>",
+    "username": "<DIN_API_NØGLE>"
+  }'
+
+# 2. Indstil optimal downloadmappe og filnavneformat for KOSync
+curl -X POST http://<CROSSPOINT_IP>/api/settings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "opdsDownloadFolder": "Pushed Books",
+    "opdsFilenameFormat": 1
+  }'
+```
+
+##### Metode 2: 1-Kliks `opds.json` til SD-kort
+1. Åbn Ordpresse webinterfacet (`http://192.168.50.5:18088`).
+2. Rul ned til sektionen **"Centralt Bogarkiv & CrossPoint OPDS"**.
+3. Vælg din enhed (eller opret en ny under Enhedsadgang) og klik på **"⬇ Hent opds.json"**.
+4. Sæt SD-kortet i din computer og gem filen som `/.crosspoint/opds.json`.
+5. Sæt kortet tilbage i CrossPoint – kataloget er klar med det samme!
+
+##### Metode 3: Manuel indtastning i CrossPoint Web UI
+1. Åbn `http://crosspoint.local/settings` (eller IP-adressen) i en browser på din telefon eller computer på samme netværk.
+2. Gå til sektionen **OPDS Servers** &rarr; **Add Server**.
+3. Udfyld felterne:
+   - **Name:** `Ordpresse`
+   - **URL:** `https://ordpresse.seame.click/opds?api_key=<DIN_API_NØGLE>`
+   - **Username:** `<DIN_API_NØGLE>`
+4. Tryk på **Save**.
+
+##### Kritiske CrossPoint OS Indstillinger
+For at sikre, at CrossPoint gemmer bøgerne så de synkroniseres perfekt med KOSync:
+- **`opdsDownloadFolder`**: Sættes til `"Pushed Books"` (eller din foretrukne bogmappe på SD-kortet).
+- **`opdsFilenameFormat`**: Sættes til `1` (`Title - Author`), så filnavnene matcher KOReader.
+
+---
+
+### 7. 📚 Centralt Bogarkiv & Server Streaming Proxy
+
+Når du søger og downloader bøger i KOReader via Anna Fetch-pluginet, håndterer Ordpresse-serveren hele processen transparent:
+
+1. **Streaming Download Proxy (`action=annas_download`):**
+   - E-læseren kalder Ordpresse med bogens MD5-hash.
+   - Serveren forbinder til det hurtigste verificerede spejl og streamer bogen direkte til e-læseren i 64 KB datablokke.
+   - Samtidig gemmes bogen på serverens disk i mappen `data/books/` under et kanonisk filnavn (`Titel_Forfatter.epub`).
+2. **Instant Cache / Deduplikering:**
+   - Hvis en bog allerede er hentet én gang, serveres den lynhurtigt fra det lokale arkiv uden eksterne forespørgsler.
+   - Metadata registreres i SQLite (`downloaded_books`) med titel, forfatter, filstørrelse og kilde.
+3. **Web UI Bogarkiv:**
+   - I webbrugerfladen under *Centralt Bogarkiv* kan du se alle downloadede bøger, hente dem direkte til din computer, eller slette bøger med et enkelt klik.
+
+---
+
+### 8. 🌐 REST API Endpoints Reference
+
+| Endpoint | Metode | Autentificering | Beskrivelse |
+|---|---|---|---|
+| `/health` | `GET` | Ingen | Serverens helbredstilstand, version og database-status. |
+| `/api/v1/koreader/lookup` | `GET` | `X-API-Key` / query | KOReader live opslag for ord og historiske betydninger. |
+| `/api/v1/koreader/lookup?action=annas_search` | `GET` | `X-API-Key` / query | Lynhurtig server-aflastet bogsøgning mod Libgen. |
+| `/api/v1/koreader/lookup?action=annas_mirrors` | `GET` | `X-API-Key` / query | Aktive spejle rangordnet efter latenstid og oppetid. |
+| `/api/v1/koreader/lookup?action=annas_download_ticket` | `GET` | `X-API-Key` / query | Opløser dynamiske Libgen `get.php` engangsbilletter. |
+| `/api/v1/koreader/lookup?action=annas_download` | `GET` | `X-API-Key` / query | Server streaming download proxy & automatisk bogarkivering. |
+| `/api/v1/koreader/lookup?action=store_catalog` | `GET` | `X-API-Key` / query | Henter OTA kataloget over kuraterede KOReader-plugins. |
+| `/api/v1/koreader/lookup?action=store_download&id=...` | `GET` | `X-API-Key` / query | Downloader færdigpakket plugin-zipball (OTA opdatering). |
+| `/opds` el. `/api/v1/opds` | `GET` | `?api_key=` / Basic / Header | OPDS 1.2 XML/Atom bogkatalog for CrossPoint & Calibre. |
+| `/opds/download/{md5}` | `GET` | `?api_key=` / Basic / Header | Direkte binær streaming download af EPUB for OPDS læsere. |
+| `/api/books` | `GET` | Session cookie / `X-API-Key` | Liste over alle arkiverede bøger i JSON-format. |
+| `/api/books/{md5}` | `GET` | Session cookie / `X-API-Key` | Direkte download af en specifik arkiveret bogfil. |
+| `/api/books/{md5}` | `DELETE` | Administrator session | Sletter en bog permanent fra databasen og serverens disk. |
 
 ---
 
@@ -525,7 +650,7 @@ Hvis du benytter Cloudflare Tunnels (`cloudflared`):
 
 ## 🧪 Testsuite & Kvalitetssikring
 
-Projektet har en omfattende automatiseret testsuite med **101 tests**, der sikrer leksikalsk, kryptografisk og binær integritet:
+Projektet har en omfattende automatiseret testsuite med **111 tests**, der sikrer leksikalsk, kryptografisk og binær integritet:
 
 ```bash
 # Kør hele testsuiten
@@ -533,8 +658,9 @@ pytest -v
 ```
 
 ### Hvad dækker testene?
-- **`tests/test_annas_integration.py`:** Verificerer spejlovervågning, frasortering af parkerede domæner, in-memory zip-pakning af `annas-fetch.koplugin`, `action=store_download`, `action=annas_mirrors`, server-assisteret bogsøgning (`action=annas_search`) og download-billet opløsning (`action=annas_download_ticket`).
-- **`tests/test_koreader_online.py`:** Verificerer Zero-Trust to-zone grænsen (HTTP 404 for eksterne ikke-lookup stier), LAN login-flow, signerede session-cookies, hashed API-nøgle provisionering og livscyklus, KOReader plugin-generering (`addToDictButtons`, `addToHighlightDialog`, `onDictButtonsReady`), rate-limiting, negativ caching, in-app plugin-opdateringer og skift af administratoradgangskode.
+- **`tests/test_opds_and_books.py`:** Verificerer OPDS 1.2 XML/Atom parsing og acquisition links, MD5 streaming-download, centralt bogarkiv persistence (`data/books/`), deduplikering af downloads, samt adgangskontrol på tværs af query-parametre (`?api_key=`), HTTP Basic Auth (`ord_...`), Bearer tokens og LAN session-cookies.
+- **`tests/test_annas_integration.py`:** Verificerer spejlovervågning, frasortering af parkerede domæner, in-memory zip-pakning af `annas-fetch.koplugin`, `action=store_download`, `action=annas_mirrors`, server-assisteret bogsøgning (`action=annas_search`), download-billet opløsning (`action=annas_download_ticket`) og streaming download proxy (`action=annas_download`).
+- **`tests/test_koreader_online.py`:** Verificerer Zero-Trust to-zone grænsen (HTTP 404 for eksterne ikke-lookup/ikke-opds stier), LAN login-flow, signerede session-cookies, hashed API-nøgle provisionering og livscyklus, KOReader plugin-generering (`addToDictButtons`, `addToHighlightDialog`, `onDictButtonsReady`), rate-limiting, negativ caching, in-app plugin-opdateringer og skift af administratoradgangskode.
 - **`tests/test_stardict_writer.py`:** Verificerer GLib `g_ascii_strcasecmp` sorteringsloven, binærlæsning og StarDict v2.4.2 overholdelse.
 - **`tests/test_index_hygiene.py`:** Verificerer sanering af romertal, parentesudvidelse, varemærkestripning og eliminering af ASCII versal-dubletter i `.syn`.
 - **`tests/test_lexical_integrity.py`:** Verificerer 3-lags prioriteringssystem, bøjningsvalidering og beskyttelse mod forkortede COR-SEM definitioner.
@@ -546,6 +672,8 @@ pytest -v
 - **`tests/test_cor_grammatical_resolution.py`:** Verificerer lokal grammatisk opløsning mod COR-databasen og `aa`-spejling.
 - **`tests/test_aa_and_genitives.py`:** Verificerer beskæring af redundante genitiver, forkortelser og kunstige ODS-synonymer.
 - **`tests/test_text_formatting.py`:** Verificerer sætningsafgrænsning, definitionssammendrag og fuldsætningsbevarelse.
+- **`tests/test_quality_and_triage.py`:** Verificerer automatisk triage-sanering, defekt rensning og databaserobusthed.
+- **`tests/test_api.py`:** Verificerer HTTP statuskoder for web UI endpoints, datasæt-status og SSE hændelsesstrømme.
 
 ---
 
