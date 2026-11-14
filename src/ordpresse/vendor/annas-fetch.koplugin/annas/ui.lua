@@ -482,7 +482,14 @@ function Ui.showSearchDialog(parent_annas, def_input, Ota)
     local lang_text = T("Set languages")
     if #selected_languages > 0 then
         if #selected_languages == 1 then
-            lang_text = string.format(T("Language: %s"), selected_languages[1])
+            local lang_display = selected_languages[1]
+            for _, info in ipairs(Config.SUPPORTED_LANGUAGES) do
+                if info.value == selected_languages[1] then
+                    lang_display = info.name
+                    break
+                end
+            end
+            lang_text = string.format(T("Language: %s"), lang_display)
         else
             lang_text = string.format(T("Languages (%d)"), #selected_languages)
         end

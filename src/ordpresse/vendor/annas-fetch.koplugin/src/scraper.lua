@@ -181,6 +181,12 @@ function Scraper.parseLibgenHtml(html, base_url)
                 if y_clean ~= "" then year = y_clean end
             end
 
+            local lang = nil
+            if cells[5] and cells[5] ~= "" then
+                local l_clean = cells[5]:gsub("<[^>]+>", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
+                if l_clean ~= "" then lang = l_clean end
+            end
+
             local size = nil
             if cells[7] and cells[7] ~= "" then
                 local s_clean = cells[7]:gsub("<[^>]+>", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
@@ -204,6 +210,7 @@ function Scraper.parseLibgenHtml(html, base_url)
                     title = title,
                     author = author,
                     year = year,
+                    language = lang,
                     size = size,
                     format = ext,
                     extension = ext,
@@ -265,6 +272,41 @@ function Scraper.search(query, options)
         end
     end
 
+    local languages = (type(options) == "table" and options.languages)
+    if not languages or #languages == 0 then
+        local ok, Config = pcall(require, "annas.config")
+        if ok and Config and Config.getSearchLanguages then
+            languages = Config.getSearchLanguages()
+        end
+    end
+
+    local function match_lang(book_lang, target_langs)
+        if not target_langs or #target_langs == 0 then return true end
+        if not book_lang or book_lang == "" then return true end
+        local bl = book_lang:lower()
+        for _, tl in ipairs(target_langs) do
+            local t = tl:lower()
+            if t == "danish" or t == "da" then
+                if bl:find("dan", 1, true) or bl == "da" then return true end
+            elseif t == "swedish" or t == "sv" then
+                if bl:find("swe", 1, true) or bl == "sv" then return true end
+            elseif t == "norwegian" or t == "no" then
+                if bl:find("nor", 1, true) or bl == "no" then return true end
+            elseif t == "english" or t == "en" then
+                if bl:find("eng", 1, true) or bl == "en" then return true end
+            elseif t == "german" or t == "de" then
+                if bl:find("ger", 1, true) or bl:find("deu", 1, true) or bl == "de" then return true end
+            elseif t == "french" or t == "fr" then
+                if bl:find("fre", 1, true) or bl:find("fra", 1, true) or bl == "fr" then return true end
+            elseif t == "spanish" or t == "sp" or t == "es" then
+                if bl:find("spa", 1, true) or bl == "es" or bl == "sp" then return true end
+            elseif bl:find(t, 1, true) then
+                return true
+            end
+        end
+        return false
+    end
+
     -- Step 1: Zero-config server-assisted search via Ordpresse if reachable
     local cfg = Scraper.getOrdpresseConfig()
     if cfg and cfg.endpoint_url then
@@ -272,6 +314,11 @@ function Scraper.search(query, options)
         local api_url = cfg.endpoint_url .. sep .. "action=annas_search&q=" .. url_encode(query)
         if category and category ~= "" then
             api_url = api_url .. "&category=" .. url_encode(category)
+        end
+        if languages and #languages > 0 then
+            for _, lang in ipairs(languages) do
+                api_url = api_url .. "&lang=" .. url_encode(lang)
+            end
         end
         if cfg.api_key and cfg.api_key ~= "" then
             api_url = api_url .. "&api_key=" .. url_encode(cfg.api_key)
@@ -327,8 +374,21 @@ function Scraper.search(query, options)
                 local html = Scraper.execCurl(s_url, 15)
                 local hits = Scraper.parseLibgenHtml(html, base_url)
                 if #hits > 0 then
-                    logger.info("AnnasFetch: Found " .. #hits .. " hits via Libgen mirror " .. base_url .. " (" .. tp .. ")")
-                    return hits
+                    if languages and #languages > 0 then
+                        local filtered = {}
+                        for _, h in ipairs(hits) do
+                            if match_lang(h.language, languages) then
+                                table.insert(filtered, h)
+                            end
+                        end
+                        if #filtered > 0 then
+                            logger.info("AnnasFetch: Found " .. #filtered .. " language-matched hits via Libgen mirror " .. base_url .. " (" .. tp .. ")")
+                            return filtered
+                        end
+                    else
+                        logger.info("AnnasFetch: Found " .. #hits .. " hits via Libgen mirror " .. base_url .. " (" .. tp .. ")")
+                        return hits
+                    end
                 end
             end
         end
@@ -350,8 +410,29 @@ function Scraper.search(query, options)
         annas_cat_param = "&category=book_any"
     end
 
+    local annas_lang_param = ""
+    if languages and #languages > 0 then
+        local lang_to_annas = {
+            danish = "da", da = "da",
+            swedish = "sv", sv = "sv",
+            norwegian = "no", no = "no",
+            english = "en", en = "en",
+            german = "de", de = "de",
+            french = "fr", fr = "fr",
+            spanish = "es", sp = "es", es = "es",
+            italian = "it", it = "it",
+            dutch = "nl", nl = "nl",
+            polish = "pl", pl = "pl",
+            russian = "ru", ru = "ru",
+        }
+        for _, l in ipairs(languages) do
+            local code = lang_to_annas[l:lower()] or l:lower()
+            annas_lang_param = annas_lang_param .. "&lang=" .. url_encode(code)
+        end
+    end
+
     for _, base_url in ipairs(mirrors.annas or DEFAULT_MIRRORS.annas) do
-        local search_url = string.format("%s/search?q=%s%s", base_url, encoded_q, annas_cat_param)
+        local search_url = string.format("%s/search?q=%s%s%s", base_url, encoded_q, annas_cat_param, annas_lang_param)
         local html = Scraper.execCurl(search_url, 20)
         local hits = Scraper.parseAnnasHtml(html, base_url)
         if #hits > 0 then

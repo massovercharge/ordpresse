@@ -1,6 +1,7 @@
 """Router for Plugin Store catalog, Mirror Prober, and direct plugin downloads."""
 
 import logging
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Response
 
 from ordpresse.web.plugin_store import build_annas_fetch_zip, get_catalog_json, get_plugin_by_id
@@ -24,9 +25,10 @@ async def get_store_mirrors_admin(refresh: bool = False):
 
 
 @router.get("/api/v1/store/search")
-async def search_store_books_admin(q: str = "", category: str = "all_books"):
+async def search_store_books_admin(q: str = "", category: str = "all_books", lang: Optional[str] = None):
     """Test server-assisted book search against active mirrors (LAN-Only, session protected)."""
-    return await mirror_prober.search_books(q, category=category)
+    languages = [lang] if lang and lang != "all" else None
+    return await mirror_prober.search_books(q, category=category, languages=languages)
 
 
 @router.get("/api/v1/store/download/annas-fetch")

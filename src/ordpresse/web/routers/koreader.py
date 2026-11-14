@@ -61,7 +61,12 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
     elif action == "annas_search":
         q = request.query_params.get("q") or request.query_params.get("query") or ""
         cat = request.query_params.get("category") or request.query_params.get("topics") or "all_books"
-        payload = await mirror_prober.search_books(q, category=cat)
+        langs = request.query_params.getlist("lang") or request.query_params.getlist("language")
+        if not langs:
+            single_lang = request.query_params.get("lang") or request.query_params.get("language")
+            if single_lang:
+                langs = [single_lang]
+        payload = await mirror_prober.search_books(q, category=cat, languages=langs)
         return JSONResponse(content=payload)
     elif action == "annas_download_ticket":
         md5 = request.query_params.get("md5", "").strip()

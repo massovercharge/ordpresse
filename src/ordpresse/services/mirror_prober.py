@@ -165,13 +165,20 @@ class MirrorProberService:
             }
             return self._cache
 
-    async def search_books(self, query: str, category: str = "all_books") -> dict[str, Any]:
+    async def search_books(
+        self,
+        query: str,
+        category: str = "all_books",
+        languages: list[str] | None = None,
+    ) -> dict[str, Any]:
         cleaned_query = (query or "").strip()
         cat = (category or "all_books").strip().lower()
         if not cleaned_query:
             return {"status": "ok", "query": "", "category": cat, "count": 0, "results": []}
 
-        cache_key = f"{cleaned_query.lower()}::{cat}"
+        clean_langs = [l.strip().lower() for l in languages if l and l.strip()] if languages else []
+        lang_key = ",".join(sorted(clean_langs))
+        cache_key = f"{cleaned_query.lower()}::{cat}::{lang_key}"
         now = time.time()
         cached = self._search_cache.get(cache_key)
         if cached and (now - cached[0]) < self.ttl_seconds:
@@ -179,6 +186,7 @@ class MirrorProberService:
                 "status": "ok",
                 "query": cleaned_query,
                 "category": cat,
+                "languages": clean_langs,
                 "count": len(cached[1]),
                 "results": cached[1],
             }
@@ -265,6 +273,43 @@ class MirrorProberService:
                 if results:
                     break
 
+        if clean_langs:
+            filtered = []
+            for r in results:
+                bl = (r.get("language") or "").strip().lower()
+                if not bl:
+                    filtered.append(r)
+                    continue
+                matched = False
+                for tl in clean_langs:
+                    if tl in ("danish", "da") and ("dan" in bl or bl == "da"):
+                        matched = True
+                        break
+                    elif tl in ("swedish", "sv") and ("swe" in bl or bl == "sv"):
+                        matched = True
+                        break
+                    elif tl in ("norwegian", "no") and ("nor" in bl or bl == "no"):
+                        matched = True
+                        break
+                    elif tl in ("english", "en") and ("eng" in bl or bl == "en"):
+                        matched = True
+                        break
+                    elif tl in ("german", "de") and ("ger" in bl or "deu" in bl or bl == "de"):
+                        matched = True
+                        break
+                    elif tl in ("french", "fr") and ("fre" in bl or "fra" in bl or bl == "fr"):
+                        matched = True
+                        break
+                    elif tl in ("spanish", "sp", "es") and ("spa" in bl or bl in ("es", "sp")):
+                        matched = True
+                        break
+                    elif tl in bl:
+                        matched = True
+                        break
+                if matched:
+                    filtered.append(r)
+            results = filtered
+
         format_priority = {"epub": 1, "azw3": 2, "mobi": 3, "pdf": 4, "cbz": 5, "cbr": 6}
         results.sort(key=lambda r: format_priority.get(r.get("format", "").lower(), 10))
 
@@ -273,6 +318,7 @@ class MirrorProberService:
             "status": "ok",
             "query": cleaned_query,
             "category": cat,
+            "languages": clean_langs,
             "count": len(results),
             "results": results,
         }

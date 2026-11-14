@@ -76,6 +76,8 @@ window.runBookSearch = async function (query) {
 
     const categorySelect = document.getElementById('book-search-category');
     const category = categorySelect ? categorySelect.value : 'all_books';
+    const langSelect = document.getElementById('book-search-language');
+    const lang = langSelect ? langSelect.value : 'all';
 
     if (bookSearchResultsBox) bookSearchResultsBox.classList.remove('hidden');
     if (bookSearchCount) bookSearchCount.textContent = `Søger efter "${query}"...`;
@@ -85,7 +87,11 @@ window.runBookSearch = async function (query) {
 
     const t0 = performance.now();
     try {
-        const res = await fetch(`/api/v1/store/search?q=${encodeURIComponent(query.trim())}&category=${encodeURIComponent(category)}`);
+        let searchUrl = `/api/v1/store/search?q=${encodeURIComponent(query.trim())}&category=${encodeURIComponent(category)}`;
+        if (lang && lang !== 'all') {
+            searchUrl += `&lang=${encodeURIComponent(lang)}`;
+        }
+        const res = await fetch(searchUrl);
         if (!res.ok) throw new Error('Søgning fejlede på serveren');
         const data = await res.json();
         const latency = Math.round(performance.now() - t0);

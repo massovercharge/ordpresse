@@ -97,7 +97,7 @@ def test_api_store_download_annas_fetch():
     assert res.status_code == 200
     assert res.headers["content-type"] == "application/zip"
     assert res.headers["x-plugin-id"] == "annas-fetch"
-    assert res.headers["x-plugin-version"] == "1.2.6-ordpresse"
+    assert res.headers["x-plugin-version"] == "1.2.7-ordpresse"
     assert 'filename="annas-fetch.koplugin.zip"' in res.headers["content-disposition"]
 
     with zipfile.ZipFile(io.BytesIO(res.content), "r") as zf:
@@ -108,7 +108,7 @@ def test_api_store_download_annas_fetch():
         assert "annas-fetch.koplugin/src/scraper.lua" in names
 
         meta = zf.read("annas-fetch.koplugin/_meta.lua").decode("utf-8")
-        assert "1.2.6-ordpresse" in meta
+        assert "1.2.7-ordpresse" in meta
         ota = zf.read("annas-fetch.koplugin/annas/ota.lua").decode("utf-8")
         assert "plugins/annas%-fetch(%.koplugin)?/?$" in ota
         scraper = zf.read("annas-fetch.koplugin/src/scraper.lua").decode("utf-8")
@@ -246,22 +246,71 @@ def test_api_annas_search_with_category(monkeypatch):
     headers = {"X-API-Key": raw_key}
 
     recorded_cat = []
+    recorded_langs = []
 
-    async def mock_search_books(self, query, category="all_books"):
+    async def mock_search_books(self, query, category="all_books", languages=None, **kwargs):
         recorded_cat.append(category)
+        if languages:
+            recorded_langs.append(languages)
         return {
             "status": "ok",
             "query": query,
             "category": category,
+            "languages": languages or [],
             "count": 1,
             "results": [{"title": "Batman", "format": "cbz"}],
         }
 
     monkeypatch.setattr(MirrorProberService, "search_books", mock_search_books)
 
-    res = client.get("/api/v1/koreader/lookup?action=annas_search&q=batman&category=comic", headers=headers)
+    res = client.get("/api/v1/koreader/lookup?action=annas_search&q=batman&category=comic&lang=danish", headers=headers)
     assert res.status_code == 200
     assert recorded_cat == ["comic"]
+    assert recorded_langs == [["danish"]]
     assert res.json()["category"] == "comic"
+
+
+def test_mirror_prober_filters_results_by_danish_language(monkeypatch):
+    prober = MirrorProberService(ttl_seconds=3600, timeout=1.0)
+
+    sample_html = """
+    <table id="tablelibgen">
+      <tr><th>Title</th><th>Author</th><th>Publisher</th><th>Year</th><th>Lang</th><th>Pages</th><th>Size</th><th>Ext</th><th>Mirrors</th></tr>
+      <tr>
+        <td><b><a href="edition.php?id=1">Lykke-Per<i></i></a></td>
+        <td>Henrik Pontoppidan</td>
+        <td>Gyldendal</td>
+        <td>1905</td>
+        <td>Danish</td>
+        <td>600</td>
+        <td>2 MB</td>
+        <td>epub</td>
+        <td><a href="ads.php?md5=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">get</a></td>
+      </tr>
+      <tr>
+        <td><b><a href="edition.php?id=2">La tierra prometida<i></i></a></td>
+        <td>Henrik Pontoppidan</td>
+        <td>Editorial</td>
+        <td>1920</td>
+        <td>Spanish</td>
+        <td>300</td>
+        <td>1 MB</td>
+        <td>epub</td>
+        <td><a href="ads.php?md5=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb">get</a></td>
+      </tr>
+    </table>
+    """
+
+    async def mock_get(self, url: str, **kwargs):
+        return httpx.Response(200, text=sample_html)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+
+    result = asyncio.run(prober.search_books("Pontoppidan", category="fiction", languages=["danish"]))
+    assert result["status"] == "ok"
+    assert result["count"] == 1
+    assert result["results"][0]["title"] == "Lykke-Per"
+    assert result["results"][0]["language"] == "Danish"
+
 
 

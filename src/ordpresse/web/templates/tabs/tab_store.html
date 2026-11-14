@@ -15,7 +15,7 @@
                         <span>KOReader Plugin Butik & Bogsøgning</span>
                         <span
                             class="text-[11px] bg-purple-500/15 text-purple-300 border border-purple-500/30 px-2.5 py-0.5 rounded-full font-mono font-semibold">Anna
-                            Fetch v1.2.6</span>
+                            Fetch v1.2.7</span>
                         <span
                             class="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono uppercase">Dual-Source
                             Orkestrering</span>
@@ -117,7 +117,7 @@
 
             <!-- Search Input Form -->
             <div class="space-y-2">
-                <div class="flex gap-2">
+                <div class="flex flex-wrap sm:flex-nowrap gap-2">
                     <select id="book-search-category"
                         class="px-3 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors">
                         <option value="all_books" selected>📚 Alle bøger</option>
@@ -127,11 +127,22 @@
                         <option value="magazine">📰 Magasiner</option>
                         <option value="article">📄 Videnskabelige artikler</option>
                     </select>
+                    <select id="book-search-language"
+                        class="px-3 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors">
+                        <option value="all" selected>🌐 Alle sprog</option>
+                        <option value="danish">🇩🇰 Dansk</option>
+                        <option value="english">🇬🇧 Engelsk</option>
+                        <option value="norwegian">🇳🇴 Norsk</option>
+                        <option value="swedish">🇸🇪 Svensk</option>
+                        <option value="german">🇩🇪 Tysk</option>
+                        <option value="french">🇫🇷 Fransk</option>
+                        <option value="spanish">🇪🇸 Spansk</option>
+                    </select>
                     <input type="text" id="book-search-input"
                         placeholder="Indtast bogtitel eller forfatter (fx Frankenstein, Dracula, Moberg)..."
-                        class="flex-1 px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors">
+                        class="flex-1 min-w-[200px] px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors">
                     <button type="button" id="book-search-submit-btn"
-                        class="px-5 py-2.5 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-500/20 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95">
+                        class="px-5 py-2.5 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-500/20 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 whitespace-nowrap">
                         <span>🔍</span> <span>Søg</span>
                     </button>
                 </div>
