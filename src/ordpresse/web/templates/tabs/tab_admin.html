@@ -1,0 +1,107 @@
+<!-- Tab 5: Administration, Systemstatus & Licenser -->
+<div id="tab-admin" class="tab-panel hidden space-y-8" role="tabpanel" aria-labelledby="btn-tab-admin">
+
+    <!-- System Status & Security Card -->
+    <div class="bg-slate-900/80 rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-xl space-y-6">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div class="flex items-center gap-3">
+                <div
+                    class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-xl font-bold">
+                    ⚡
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                        <span>Systemstatus &amp; Sikkerhed</span>
+                    </h3>
+                    <p class="text-xs text-slate-400">
+                        Oversigt over serverens ressourcer, databaser og adgangsstyring.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-stats-container" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-1">
+                <div class="text-xs text-slate-400 font-medium">Serverversion</div>
+                <div class="text-base font-bold font-mono text-amber-400">v{{ version }}</div>
+                <div class="text-[11px] text-slate-500">Python FastAPI + StarDict v2.4.2</div>
+            </div>
+
+            <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-1">
+                <div class="text-xs text-slate-400 font-medium">Datasæt Database (datasets.sqlite3)</div>
+                <div id="stat-datasets-size" class="text-base font-bold font-mono text-emerald-400">Indlæser...</div>
+                <div class="text-[11px] text-slate-500">COR, ODS fuldformer &amp; NAOB</div>
+            </div>
+
+            <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-1">
+                <div class="text-xs text-slate-400 font-medium">Cache &amp; Log Database (cache.sqlite3)</div>
+                <div id="stat-cache-size" class="text-base font-bold font-mono text-blue-400">Indlæser...</div>
+                <div class="text-[11px] text-slate-500">Live opslag &amp; registrerede bøger</div>
+            </div>
+        </div>
+
+        <!-- Security Actions -->
+        <div class="bg-slate-950/40 p-4 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+                <h4 class="text-xs font-semibold text-white uppercase tracking-wider">Adgangskode &amp; Sessionsstyring</h4>
+                <p class="text-xs text-slate-400 mt-0.5">Skift din administrator-adgangskode for det lokale netværk (LAN).</p>
+            </div>
+            <button type="button" onclick="togglePasswordModal(true)"
+                class="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer">
+                <span>🔑</span> <span>Skift adgangskode nu</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Mandatory Legal Attribution Block -->
+    <div class="bg-slate-900/60 rounded-2xl border border-slate-800 p-6 sm:p-8 text-xs text-slate-400 space-y-4">
+        <h4 class="font-bold text-slate-200 text-sm flex items-center gap-2">
+            <span>📜</span> <span>Lovpligtig kreditering og kildelicenser</span>
+        </h4>
+        <div class="space-y-3">
+            <div>
+                <p class="font-semibold text-slate-300">1. Det Danske Sprog- og Litteraturselskab (DSL):</p>
+                <p class="mt-0.5">
+                    Data fra <strong>Ordbog over det danske Sprog (ODS)</strong> samt <strong>ODS
+                        fuldformsleksikon</strong> (udarbejdet af Thomas Troelsgård, DSL) benyttes i
+                    overensstemmelse med <a href="https://korpus.dsl.dk/resources/licences/dsl-open.html"
+                        target="_blank" class="text-amber-400 hover:underline">DSL's åbne sprogressourcer</a>. Besøg
+                    <a href="https://dsl.dk" target="_blank" class="text-amber-400 hover:underline">dsl.dk</a> og <a
+                        href="https://ordnet.dk/ods" target="_blank"
+                        class="text-amber-400 hover:underline">ordnet.dk/ods</a>.
+                </p>
+                <p class="mt-1 text-slate-500 italic">
+                    <em>Henstilling:</em> DSL krediteres i overensstemmelse med licensen. DSL støtter eller
+                    godkender ikke dette tredjepartsværktøj eller dets anvendelse.
+                </p>
+            </div>
+            <div>
+                <p class="font-semibold text-slate-300">2. Det Centrale Ordregister (COR &amp; COR-SEM):</p>
+                <p class="mt-0.5">
+                    Udviklet og udgivet af <strong>Det Danske Sprog- og Litteraturselskab (DSL)</strong> og
+                    <strong>Center for Sprogteknologi (CST, Københavns Universitet)</strong>. Distribueret via <a
+                        href="https://ordregister.dk" target="_blank"
+                        class="text-amber-400 hover:underline">ordregister.dk</a> under <a
+                        href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank"
+                        class="text-amber-400 hover:underline"><strong>Creative Commons CC0 1.0 Universal (Public
+                            Domain Dedication)</strong></a>.
+                </p>
+            </div>
+            <div>
+                <p class="font-semibold text-slate-300">3. Det Norske Akademi for Språk og Litteratur (NAOB) &amp;
+                    Public Domain-kilder:</p>
+                <p class="mt-0.5">
+                    Supplerende referencer for fælles dansk-norske og nordiske 1800-talstermer fra <a
+                        href="https://naob.no" target="_blank" class="text-amber-400 hover:underline">naob.no</a>,
+                    Chr. Molbechs <em>Dansk Ordbog</em> (1859) og <em>Salmonsens Konversationsleksikon</em> (2.
+                    udg., Project Runeberg).
+                </p>
+            </div>
+        </div>
+        <p class="text-slate-500 italic pt-1 border-t border-slate-800/80">
+            Ansvarsfraskrivelse: Den Danske Ordpresse er et uafhængigt projekt og er hverken sponsoreret, støttet
+            eller godkendt af Det Danske Sprog- og Litteraturselskab (DSL) eller Københavns Universitet.
+        </p>
+    </div>
+
+</div>

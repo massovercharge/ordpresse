@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="da" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Den Danske Ordpresse — StarDict-ordbogsbygger til KOReader{% endblock %}</title>
+    <meta name="description"
+        content="Byg historiske og moderne danske StarDict-ordbøger fra EPUB-bøger til KOReader med DSL COR, ODS og NAOB kilder.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/custom.css">
+    {% block head_extra %}{% endblock %}
+</head>
+
+<body
+    class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-amber-500 selection:text-slate-950">
+
+    {% include "partials/_header.html" %}
+    {% include "partials/_tab_nav.html" %}
+
+    <main class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full space-y-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% include "partials/_footer.html" %}
+    {% include "partials/_password_modal.html" %}
+
+    <script>
+        window.ordpressePluginVersion = {{ plugin_version | tojson if plugin_version else '"1.2.6"' }};
+    </script>
+    <script src="/static/js/utils.js" defer></script>
+    <script src="/static/js/tabs.js" defer></script>
+    <script src="/static/js/preview.js" defer></script>
+    <script src="/static/js/build.js" defer></script>
+    <script src="/static/js/devices.js" defer></script>
+    <script src="/static/js/store.js" defer></script>
+    <script src="/static/js/admin.js" defer></script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+
+</html>

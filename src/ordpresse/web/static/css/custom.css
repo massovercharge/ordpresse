@@ -1,0 +1,38 @@
+body {
+    font-family: 'Inter', sans-serif;
+}
+
+.font-serif-title {
+    font-family: 'Cinzel', serif;
+}
+
+.font-mono-code {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+}
+
+/* Tab transition */
+.tab-panel {
+    transition: opacity 0.15s ease-in-out;
+}
+.tab-panel.hidden {
+    display: none !important;
+}

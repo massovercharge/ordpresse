@@ -1,0 +1,75 @@
+<!-- Tab Navigation Bar -->
+<div class="border-b border-slate-800 bg-slate-900/40 backdrop-blur sticky top-16 z-40">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Desktop Tabs -->
+        <nav class="hidden sm:flex space-x-2 py-2.5 overflow-x-auto no-scrollbar" aria-label="Tabs" role="tablist">
+            <button type="button"
+                role="tab"
+                class="tab-btn active px-4 py-2 text-xs font-semibold rounded-xl border border-amber-400/80 bg-slate-800/90 text-amber-400 transition-all flex items-center gap-2 cursor-pointer shadow-sm select-none"
+                data-target="tab-dictionary"
+                id="btn-tab-dictionary"
+                aria-selected="true"
+                aria-controls="tab-dictionary">
+                <span>📖</span>
+                <span>Ordbog</span>
+            </button>
+
+            <button type="button"
+                role="tab"
+                class="tab-btn px-4 py-2 text-xs font-semibold rounded-xl border border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-all flex items-center gap-2 cursor-pointer select-none"
+                data-target="tab-build"
+                id="btn-tab-build"
+                aria-selected="false"
+                aria-controls="tab-build">
+                <span>⚙️</span>
+                <span>Byg ordbog</span>
+            </button>
+
+            <button type="button"
+                role="tab"
+                class="tab-btn px-4 py-2 text-xs font-semibold rounded-xl border border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-all flex items-center gap-2 cursor-pointer select-none"
+                data-target="tab-devices"
+                id="btn-tab-devices"
+                aria-selected="false"
+                aria-controls="tab-devices">
+                <span>🔌</span>
+                <span>Enheder & Nøgler</span>
+            </button>
+
+            <button type="button"
+                role="tab"
+                class="tab-btn px-4 py-2 text-xs font-semibold rounded-xl border border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-all flex items-center gap-2 cursor-pointer select-none"
+                data-target="tab-store"
+                id="btn-tab-store"
+                aria-selected="false"
+                aria-controls="tab-store">
+                <span>🛍️</span>
+                <span>Butik & Bogarkiv</span>
+            </button>
+
+            <button type="button"
+                role="tab"
+                class="tab-btn px-4 py-2 text-xs font-semibold rounded-xl border border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-all flex items-center gap-2 cursor-pointer select-none"
+                data-target="tab-admin"
+                id="btn-tab-admin"
+                aria-selected="false"
+                aria-controls="tab-admin">
+                <span>⚡</span>
+                <span>Admin</span>
+            </button>
+        </nav>
+
+        <!-- Mobile Tabs Dropdown -->
+        <div class="sm:hidden py-2.5">
+            <label for="mobile-tab-select" class="sr-only">Vælg sektion</label>
+            <select id="mobile-tab-select"
+                class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-200 focus:outline-none focus:border-amber-400">
+                <option value="tab-dictionary">📖 Ordbog</option>
+                <option value="tab-build">⚙️ Byg ordbog</option>
+                <option value="tab-devices">🔌 Enheder & Nøgler</option>
+                <option value="tab-store">🛍️ Butik & Bogarkiv</option>
+                <option value="tab-admin">⚡ Admin</option>
+            </select>
+        </div>
+    </div>
+</div>

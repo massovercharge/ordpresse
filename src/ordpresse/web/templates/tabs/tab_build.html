@@ -1,0 +1,416 @@
+<!-- Tab 2: Byg ordbog & Fremskridt -->
+<div id="tab-build" class="tab-panel hidden space-y-8" role="tabpanel" aria-labelledby="btn-tab-build">
+
+    <!-- Build Form Card -->
+    <div class="bg-slate-900/80 rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-xl">
+        <div class="border-b border-slate-800 pb-4 mb-6">
+            <h3 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                <span class="text-amber-400">⚙️</span>
+                <span>Byg ny StarDict-ordbog</span>
+            </h3>
+            <p class="text-xs text-slate-400 mt-1">
+                Vælg ordbogens omfang, upload dine EPUB-bøger, eller byg en komplet historisk ordbog over hele databasen.
+            </p>
+        </div>
+
+        <form id="build-form" class="space-y-6">
+
+            <!-- Build Mode Selection -->
+            <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-3">
+                <label class="block text-sm font-semibold text-slate-200">
+                    Vælg ordbogens omfang
+                </label>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label
+                        class="flex items-start gap-3 p-3 rounded-lg border border-slate-800 bg-slate-900/50 hover:bg-slate-900 cursor-pointer transition-colors">
+                        <input type="radio" name="full_dictionary" value="false" checked
+                            class="mt-1 text-amber-500 focus:ring-amber-500">
+                        <div>
+                            <span class="text-xs font-bold text-slate-200 block">Fokuseret / EPUB-uddrag</span>
+                            <span class="text-xs text-slate-400">Scanner dine uploadede EPUB-bøger og tilføjer de
+                                historiske benchmark-ord. Hurtig bygning og lille filstørrelse.</span>
+                        </div>
+                    </label>
+                    <label
+                        class="flex items-start gap-3 p-3 rounded-lg border border-slate-800 bg-slate-900/50 hover:bg-slate-900 cursor-pointer transition-colors">
+                        <input type="radio" name="full_dictionary" value="true"
+                            class="mt-1 text-amber-500 focus:ring-amber-500">
+                        <div>
+                            <span class="text-xs font-bold text-amber-300 block">Komplet ordbog (generel
+                                brug)</span>
+                            <span class="text-xs text-slate-400">Bygger en samlet ordbog over alle indekserede ord
+                                fra COR og ODS. Kræver ingen EPUB og kan bruges til hele dit
+                                KOReader-bibliotek.</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Full Dictionary Info Box (Shown when Komplet ordbog is selected) -->
+            <div id="full-dict-info-box"
+                class="hidden bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-xs space-y-2">
+                <div class="flex items-center gap-2 font-bold text-amber-300">
+                    <span>📖</span> <span>Komplet ordbog for hele dit KOReader bibliotek</span>
+                </div>
+                <p class="text-slate-300 leading-relaxed">
+                    Denne tilstand bygger eller henter en samlet ordbog med alle <strong>36.963 opslagsord</strong>
+                    og <strong>121.856 bøjningsformer</strong> fra COR og ODS. Du behøver ikke uploade EPUB-bøger.
+                </p>
+                <div class="pt-1 flex flex-wrap items-center gap-3">
+                    <a href="/api/download/latest"
+                        class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition-all shadow">
+                        <span>⬇</span> <span>Hent færdigbygget ordbog direkte (anbefalet)</span>
+                    </a>
+                    <span class="text-slate-400 text-[11px]">eller tilpas titel nedenfor og tryk på "Byg
+                        StarDict-ordbog" for at genbygge lokalt.</span>
+                </div>
+            </div>
+
+            <!-- EPUB Upload Dropzone (Step 1) -->
+            <div id="step-epub-upload" class="space-y-2">
+                <label class="block text-sm font-semibold text-slate-200">
+                    1. Vælg EPUB-bøger (valgfrit)
+                </label>
+                <div id="dropzone"
+                    class="border-2 border-dashed border-slate-700 hover:border-amber-500/60 transition-all rounded-xl p-6 text-center cursor-pointer bg-slate-950/40 hover:bg-slate-900/50 group">
+                    <input type="file" id="epub-input" name="epub_files" multiple accept=".epub" class="hidden">
+                    <div class="space-y-2">
+                        <div
+                            class="w-12 h-12 mx-auto rounded-full bg-slate-800 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                            📚
+                        </div>
+                        <div class="text-sm font-medium text-slate-300">
+                            Klik for at vælge eller træk <code class="text-amber-400 font-mono">.epub</code> filer
+                            hertil
+                        </div>
+                        <p class="text-xs text-slate-500" id="file-count-label">Ingen filer valgt endnu</p>
+                    </div>
+                </div>
+                <div id="selected-files-list" class="mt-2 space-y-1"></div>
+            </div>
+
+            <!-- Custom Words / Benchmark input (Step 2) -->
+            <div id="step-custom-words" class="space-y-2">
+                <div class="flex items-center justify-between">
+                    <label for="custom_words" class="block text-sm font-semibold text-slate-200">
+                    2. Specifikke ord el. historiske prøveord (valgfrit)
+                    </label>
+                    <button type="button" id="load-moberg-btn"
+                        class="text-xs text-amber-400 hover:text-amber-300 underline cursor-pointer">
+                        Indsæt Moberg-benchmark (5 ord)
+                    </button>
+                </div>
+                <textarea id="custom_words" name="custom_words" rows="3" spellcheck="false" autocomplete="off"
+                    autocorrect="off" autocapitalize="off"
+                    class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                    placeholder="Indtast ord adskilt af komma eller linjeskift, f.eks.: lægdslemmer, jordebog, bissekræmmer, værkbrudne, banco"></textarea>
+                <p class="text-xs text-slate-500">Automatisk håndtering af pre-1948 <code
+                        class="text-slate-400">aa &lt;-&gt; å</code> og bøjningsendelser.</p>
+            </div>
+
+            <!-- Configuration field: Title -->
+            <div>
+                <label for="bookname"
+                    class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                    Ordbogens titel i KOReader
+                </label>
+                <input type="text" id="bookname" name="bookname" value="{{ default_bookname }}"
+                    class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+            </div>
+
+            <!-- Scrape Mode Choice (Bookmarklet vs Server Queue) with contextual Lyn-Henter & live-lookup checkbox -->
+            <div class="bg-slate-950/60 p-5 rounded-xl border border-slate-800 space-y-4">
+                <div
+                    class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-200">
+                            Metode for ukendte historiske ord
+                        </label>
+                        <p class="text-xs text-slate-400">Vælg hvordan nye ord uden for lokal cache skal håndteres
+                        </p>
+                    </div>
+                    <label
+                        class="flex items-center gap-2 cursor-pointer bg-slate-900/80 px-3 py-1.5 rounded-lg border border-slate-800 hover:border-slate-700">
+                        <input type="checkbox" id="allow_network" name="allow_network" checked
+                            class="w-4 h-4 rounded bg-slate-950 border-slate-700 text-amber-500 focus:ring-amber-500">
+                        <span class="text-xs text-slate-300 font-medium">
+                            Tillad live-opslag (ODS & NAOB)
+                        </span>
+                    </label>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <label
+                        class="flex items-start gap-2.5 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 cursor-pointer transition-colors">
+                        <input type="radio" name="scrape_mode" value="bookmarklet" checked
+                            class="mt-0.5 text-amber-500 focus:ring-amber-500">
+                        <div>
+                            <span class="font-bold text-amber-300 block">⚡ Vent på Bookmarklet (Anbefalet)</span>
+                            <span class="text-slate-400 text-[11px] leading-relaxed">Serveren pauser og slår IKKE
+                                ord op automatisk. Du vælger selv om du vil køre Lyn-Henteren via egen browser eller
+                                starte server-køen.</span>
+                        </div>
+                    </label>
+                    <label
+                        class="flex items-start gap-2.5 p-3 rounded-lg border border-slate-800 bg-slate-900/50 hover:bg-slate-900 cursor-pointer transition-colors">
+                        <input type="radio" name="scrape_mode" value="server"
+                            class="mt-0.5 text-amber-500 focus:ring-amber-500">
+                        <div>
+                            <span class="font-bold text-slate-200 block">🐢 Automatisk server-kø</span>
+                            <span class="text-slate-400 text-[11px] leading-relaxed">Serveren starter straks i
+                                baggrunden med 200 forespørgsler/time. Tager længere tid ved mange ord.</span>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Contextual Bookmarklet Helper Box -->
+                <div id="bookmarklet-helper-box"
+                    class="bg-gradient-to-r from-amber-500/10 via-slate-900 to-slate-900 rounded-xl border border-amber-500/30 p-4 space-y-3">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="space-y-0.5">
+                            <div class="flex items-center gap-2">
+                                <span class="text-amber-400 text-base">⚡</span>
+                                <span class="text-xs font-bold text-amber-300">Ordpresse Lyn-Henter
+                                    (Bogmærke)</span>
+                                <span
+                                    class="px-1.5 py-0.5 rounded text-[9px] bg-amber-400/20 text-amber-300 font-semibold uppercase">Klient-accelerator</span>
+                            </div>
+                            <p class="text-[11px] text-slate-300 leading-relaxed">
+                                Træk knappen til højre op i din browsers bogmærkelinje én gang. Henter manglende ord
+                                direkte via din egen IP (350 ms/ord) uden om serverens timekvote!
+                            </p>
+                        </div>
+                        <div class="shrink-0">
+                            <a id="bookmarklet-btn" href="#"
+                                class="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-2 shadow-md shadow-amber-500/20 cursor-grab active:cursor-grabbing border border-amber-300 transition-transform hover:scale-105 select-none"
+                                title="Træk dette link op i din bogmærkelinje"
+                                onclick="event.preventDefault(); alert('Træk denne knap direkte op i din browsers bogmærkelinje (eller højreklik og vælg Gem som bogmærke).');">
+                                <span>⚡ Ordpresse Lyn-Henter</span>
+                            </a>
+                        </div>
+                    </div>
+                    <div
+                        class="pt-2 border-t border-slate-800 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
+                        <span><strong class="text-amber-400">1.</strong> Træk knappen op i bogmærkelinjen.</span>
+                        <span><strong class="text-amber-400">2.</strong> Start byggejobbet nedenfor.</span>
+                        <span><strong class="text-amber-400">3.</strong> Klik på linket til <em>ordnet.dk</em> og
+                            tryk på bogmærket.</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Button -->
+            <div class="pt-2">
+                <button type="submit" id="submit-btn"
+                    class="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl shadow-lg shadow-amber-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95">
+                    <span>⚙️ Byg StarDict-ordbog</span>
+                </button>
+            </div>
+
+        </form>
+    </div>
+
+    <!-- Progress and Build Status Card (Hidden initially) -->
+    <div id="progress-card"
+        class="hidden bg-slate-900/90 rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-2xl space-y-5">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div id="status-spinner"
+                    class="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+                <h3 id="progress-status-title" class="text-base font-semibold text-slate-200">Bygger ordbog...</h3>
+            </div>
+            <div class="flex items-center gap-3">
+                <button id="cancel-build-btn" type="button"
+                    class="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+                    title="Afbryd igangværende byggeproces">
+                    <span>⏹</span> Afbryd
+                </button>
+                <span id="progress-percent" class="font-mono text-sm font-bold text-amber-400">0%</span>
+            </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="w-full bg-slate-950 h-3 rounded-full overflow-hidden border border-slate-800">
+            <div id="progress-bar-fill"
+                class="bg-gradient-to-r from-amber-500 to-emerald-500 h-full w-0 transition-all duration-300"></div>
+        </div>
+
+        <div id="progress-message" class="text-xs text-slate-400 font-mono">
+            Forbereder proces...
+        </div>
+
+        <!-- Peer Helper Panel during build -->
+        <div id="peer-helper-panel"
+            class="hidden bg-slate-950/90 rounded-2xl p-5 border-2 border-amber-500/40 space-y-4 shadow-xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h4 class="font-bold text-amber-400 text-sm flex items-center gap-2">
+                    <span>⚡</span> <span>Vælg metode og mængde for historiske opslag</span>
+                </h4>
+                <span id="missing-words-badge"
+                    class="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-mono font-bold">Klar
+                    til opslag</span>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed">
+                Serveren venter på din instruks. Du kan hente alle eller kun et udvalg af de hyppigste ord med dit
+                bogmærke, starte server-køen, eller afslutte med det samme:
+            </p>
+
+            <!-- Word batch count selection chips -->
+            <div class="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                <div class="flex items-center justify-between text-xs">
+                    <span class="font-semibold text-slate-300">Hvor mange ord vil du hente med Lyn-Henter?</span>
+                    <span id="batch-selection-label" class="font-bold text-amber-400">Alle ord</span>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button"
+                        class="batch-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer"
+                        data-batch="100" title="Tager ca. 40 sekunder">Top 100 <span
+                            class="text-slate-500 text-[10px]">(~40s)</span></button>
+                    <button type="button"
+                        class="batch-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer"
+                        data-batch="250" title="Tager ca. 2,5 minutter">Top 250 <span
+                            class="text-slate-500 text-[10px]">(~2½m)</span></button>
+                    <button type="button"
+                        class="batch-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer"
+                        data-batch="500" title="Tager ca. 7 minutter">Top 500 <span
+                            class="text-slate-500 text-[10px]">(~7m)</span></button>
+                    <button type="button"
+                        class="batch-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer"
+                        data-batch="1000" title="Tager ca. 20-25 minutter (skånsom)">Top 1.000 <span
+                            class="text-slate-500 text-[10px]">(~20m)</span></button>
+                    <button type="button" id="batch-all-btn"
+                        class="batch-chip active px-3 py-1 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/50 transition-all cursor-pointer"
+                        data-batch="all">Alle</button>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2.5 pt-1">
+                <a id="open-ordnet-link" target="_blank" href="#"
+                    class="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20">
+                    <span id="open-ordnet-btn-label">⚡ 1. Åbn ordnet.dk (Lyn-Henter) ↗</span>
+                </a>
+                <button id="start-server-scrape-btn" type="button"
+                    class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer">
+                    <span>🐢 Start server-kø (200 ord/t)</span>
+                </button>
+                <button id="skip-queue-btn" type="button"
+                    class="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer">
+                    <span>⏩ Afslut byg med lokale ord nu</span>
+                </button>
+            </div>
+            <div class="flex items-center gap-2 text-[11px] text-slate-400">
+                <span>Aktivt Bygge-ID:</span>
+                <code id="active-build-id-code"
+                    class="text-amber-300 font-mono font-bold select-all bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">afventer...</code>
+                <span class="text-slate-600">|</span>
+                <span class="text-slate-400">Linket ovenfor åbner automatisk ordnet.dk med dette ID indbygget.</span>
+            </div>
+            <p class="text-[11px] text-slate-400 italic">
+                Tip: Du kan også stoppe når som helst undervejs ved at trykke på den røde <strong>[⏹ Stop & afslut]</strong> knap direkte i bogmærke-boksen på ordnet.dk.
+            </p>
+        </div>
+
+        <!-- 4-Stage Visual Funnel Bar -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs" id="telemetry-funnel-bar">
+            <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 space-y-1" id="stat-card-books">
+                <div class="text-slate-400 font-medium flex items-center gap-1.5">
+                    <span>📚</span> <span>Bøger & ord</span>
+                </div>
+                <div class="text-slate-200 font-bold font-mono text-sm" id="stat-val-books">Afventer...</div>
+                <div class="text-[10px] text-slate-500" id="stat-sub-books">Unikke ordformer</div>
+            </div>
+            <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 space-y-1" id="stat-card-local">
+                <div class="text-slate-400 font-medium flex items-center gap-1.5">
+                    <span>⚡</span> <span>I lokal base</span>
+                </div>
+                <div class="text-emerald-400 font-bold font-mono text-sm" id="stat-val-local">Afventer...</div>
+                <div class="text-[10px] text-slate-500" id="stat-sub-local">COR & ODS cache</div>
+            </div>
+            <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 space-y-1" id="stat-card-archaic">
+                <div class="text-slate-400 font-medium flex items-center gap-1.5">
+                    <span>🕰️</span> <span>Nye historiske</span>
+                </div>
+                <div class="text-amber-400 font-bold font-mono text-sm" id="stat-val-archaic">Afventer...</div>
+                <div class="text-[10px] text-slate-500" id="stat-sub-archaic">Til ODS berigelse</div>
+            </div>
+            <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 space-y-1" id="stat-card-package">
+                <div class="text-slate-400 font-medium flex items-center gap-1.5">
+                    <span>📦</span> <span>Færdig pakke</span>
+                </div>
+                <div class="text-blue-400 font-bold font-mono text-sm" id="stat-val-package">Afventer...</div>
+                <div class="text-[10px] text-slate-500" id="stat-sub-package">.idx & .syn</div>
+            </div>
+        </div>
+
+        <!-- Live Streaming Log Box -->
+        <div class="bg-slate-950 rounded-xl p-4 border border-slate-800/80 font-mono text-xs text-slate-300 max-h-48 overflow-y-auto space-y-1"
+            id="log-box">
+            <div class="text-slate-500">[System] Venter på begivenhedsstrøm fra backend...</div>
+        </div>
+
+        <!-- Cancelled Banner -->
+        <div id="cancelled-banner" class="hidden pt-4 border-t border-slate-800 space-y-4">
+            <div
+                class="bg-rose-950/40 border border-rose-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center text-xl font-bold">
+                        ⏹
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-rose-300 text-sm">Byggeprocessen blev afbrudt</h4>
+                        <p class="text-xs text-slate-400">Ingen fil blev genereret. Du kan tilpasse dine valg og
+                            starte et nyt byg.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Completion Banner -->
+        <div id="completion-banner" class="hidden pt-4 border-t border-slate-800 space-y-4">
+            <div
+                class="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xl font-bold">
+                        ✓
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-emerald-300 text-sm">Ordbogen er klar til KOReader!</h4>
+                        <p class="text-xs text-slate-400" id="completion-stats">0 hovedord indekseret</p>
+                    </div>
+                </div>
+                <a id="download-btn" href="#"
+                    class="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-2">
+                    <span>⬇ Hent ordpresse.zip</span>
+                </a>
+            </div>
+
+            <!-- KOReader Installation Guide -->
+            <div class="bg-slate-950/60 rounded-xl p-4 border border-slate-800 text-xs space-y-2 text-slate-400">
+                <p class="font-semibold text-slate-300">📱 Sådan installeres ordbogen i KOReader:</p>
+                <ol class="list-decimal list-inside space-y-1">
+                    <li>Pak <code class="text-amber-400 font-mono">ordpresse.zip</code> ud på din computer el.
+                        e-læser.</li>
+                    <li>Kopier mappen <code class="text-amber-400 font-mono">ordpresse/</code> ind i <code
+                            class="text-slate-200 font-mono">koreader/data/dict/</code> på din Kindle, Kobo el.
+                        Android e-reader.</li>
+                    <li><strong>Genstart KOReader:</strong> Luk og genstart KOReader (eller genstart enheden), så de
+                        nye ordbogsfiler indekseres.</li>
+                    <li>Åbn KOReader &gt; <em>Ordbogsindstillinger</em> &gt; Vælg <strong class="text-slate-200">Den
+                            Danske Ordpresse</strong> som primær ordbog.</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bookmarklet Script Setup -->
+    <script>
+        (function() {
+            const bBtn = document.getElementById('bookmarklet-btn');
+            if (bBtn) {
+                bBtn.href = "javascript:(async function() { const m = location.hash.match(/ordpresse_id=([^&]+)/); const o = location.hash.match(/ordpresse_origin=([^&]+)/); const l = location.hash.match(/limit=(\\d+)/); const bid = m ? m[1] : prompt(\"Indtast Ordpresse Build-ID:\"); const host = o ? decodeURIComponent(o[1]) : (window.location.origin || \"https://ordpresse.seame.click\"); if (!bid) return; if (!location.hostname.includes(\"ordnet.dk\")) { location.href = \"https://ordnet.dk/ods/ordbog?query=ordbog#ordpresse_id=\" + bid + \"&ordpresse_origin=\" + encodeURIComponent(location.origin) + (l ? \"&limit=\" + l[1] : \"\"); return; } const box = document.createElement(\"div\"); box.style = \"position:fixed;bottom:20px;right:20px;z-index:999999;background:#111827;color:#fef3c7;padding:16px 20px;border:2px solid #f59e0b;border-radius:12px;font-family:sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.5);min-width:300px;max-width:400px;\"; document.body.appendChild(box); let stopped = false; const stopBtn = document.createElement(\"button\"); stopBtn.innerText = \"\u23f9 Stop & afslut ordbog nu\"; stopBtn.style = \"margin-top:10px;padding:6px 12px;background:#b91c1c;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;font-size:12px;display:block;width:100%;\"; stopBtn.onclick = async () => { stopped = true; box.innerHTML = \"<b>\u23f9 Stopper...</b> Sender afslutning til serveren...\"; try { await fetch(host + \"/api/build/\" + bid + \"/skip-queue\", { method: \"POST\" }); } catch(e) {} box.innerHTML = \"<b>\u2705 Stoppet!</b> Ordbogen f\u00e6rdigg\u00f8res nu med de hentede ord.<br>Du kan lukke denne fane.\"; }; const url = host + \"/api/build/\" + bid + \"/missing-words\" + (l ? \"?limit=\" + l[1] : \"\"); const res = await fetch(url); const data = await res.json(); const items = data.items || (data.words || []).map(w => ({word: w, target: \"ods\", priority: 1})); if (items.length === 0) { box.innerHTML = \"<b>\u2705 Ingen ord mangler!</b> Alle ord er allerede fundet.\"; return; } const contentDiv = document.createElement(\"div\"); box.appendChild(contentDiv); box.appendChild(stopBtn); let baseDelay = 350; let jitterRange = 150; if (items.length > 500) { baseDelay = 1100; jitterRange = 700; } else if (items.length > 250) { baseDelay = 650; jitterRange = 450; } else if (items.length > 100) { baseDelay = 450; jitterRange = 250; } for (let i = 0; i < items.length; i++) { if (stopped) break; const it = items[i]; const w = typeof it === \"string\" ? it : it.word; const target = (it && it.target === \"ddo\") ? \"ddo\" : \"ods\"; const prioLabel = (it && it.priority === 2) ? \" [Prio 2: DDO]\" : \" [Prio 1: ODS]\"; contentDiv.innerHTML = \"<b>\u26a1 Ordpresse Lyn-Henter</b><br>Henter <b>\" + (i+1) + \" / \" + items.length + \"</b>\" + prioLabel + \": <code style='color:#f59e0b;font-size:14px;'>\" + w + \"</code>\"; try { const endpoint = target === \"ddo\" ? \"https://ordnet.dk/ddo/ordbog?query=\" : \"https://ordnet.dk/ods/ordbog?query=\"; const r = await fetch(endpoint + encodeURIComponent(w)); if (r.status === 429) { contentDiv.innerHTML = \"<b>\u26a0\ufe0f ordnet.dk bad om en pause (HTTP 429).</b><br>Venter 20 sekunder f\u00f8r automatisk genoptagelse...\"; baseDelay += 400; jitterRange += 300; await new Promise(res => setTimeout(res, 20000)); i--; continue; } if (r.ok) { const html = await r.text(); await fetch(host + \"/api/cache/submit\", { method: \"POST\", headers: {\"Content-Type\": \"application/json\"}, body: JSON.stringify({word: w, html: html, build_id: bid}) }); } else { console.warn(\"Uventet HTTP status for \" + w + \": \" + r.status); } } catch (e) { console.error(\"Fejl under hentning af \" + w + \":\", e); } const progressiveExtra = (i > 500) ? Math.min(500, Math.floor((i - 500) / 100) * 50) : 0; const actualDelay = baseDelay + progressiveExtra + Math.floor(Math.random() * jitterRange); await new Promise(r => setTimeout(r, actualDelay)); } if (!stopped) { try { await fetch(host + \"/api/build/\" + bid + \"/skip-queue\", { method: \"POST\" }); } catch(e) {} box.innerHTML = \"<b>\u2705 F\u00e6rdig!</b> Alle \" + items.length + \" ord er sendt til Ordpresse.<br>Serveren kompilerer nu din ordbog f\u00e6rdig.\"; } })();";
+            }
+        })();
+    </script>
+</div>
