@@ -128,3 +128,4 @@ def change_admin_password_endpoint(payload: ChangePasswordPayload):
 
     db.set_admin_password(payload.new_password)
     return {"status": "ok", "message": "Adgangskoden er opdateret!"}
+

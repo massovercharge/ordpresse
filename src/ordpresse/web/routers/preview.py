@@ -156,3 +156,4 @@ def preview_lookup(request: Request, q: str, format: Optional[str] = None):
         "source": "none",
         "resolution": f"Ingen match fundet for »{q}«",
     }
+

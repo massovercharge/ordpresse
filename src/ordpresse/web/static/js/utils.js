@@ -44,3 +44,4 @@ function formatDate(dateInput) {
         return dateInput;
     }
 }
+

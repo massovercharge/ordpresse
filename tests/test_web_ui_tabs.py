@@ -53,3 +53,4 @@ def test_api_stats_endpoint(auth_client):
     data = resp.json()
     assert "datasets_sqlite_exists" in data
     assert "cache_sqlite_exists" in data
+

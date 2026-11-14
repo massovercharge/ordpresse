@@ -176,3 +176,4 @@ function initDevices() {
 }
 
 document.addEventListener('DOMContentLoaded', initDevices);
+

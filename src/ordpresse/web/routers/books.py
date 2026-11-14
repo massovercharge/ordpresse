@@ -41,3 +41,4 @@ def api_delete_book(md5: str, request: Request):
         db.delete_downloaded_book(cleaned_md5)
         return {"status": "ok", "message": f"Bogen '{book['title']}' blev slettet fra arkivet."}
     return {"status": "ok", "message": "Bogen fandtes ikke i arkivet."}
+

@@ -61,3 +61,4 @@ def delete_api_key_endpoint(key_id: int):
     db = Database()
     deleted = db.delete_api_key(key_id)
     return {"status": "deleted" if deleted else "not_found", "id": key_id}
+

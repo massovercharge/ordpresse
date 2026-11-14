@@ -335,3 +335,4 @@ function initStore() {
 }
 
 document.addEventListener('DOMContentLoaded', initStore);
+
