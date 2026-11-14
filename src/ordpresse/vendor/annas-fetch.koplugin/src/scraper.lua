@@ -41,7 +41,25 @@ function Scraper.sanitize_name(name)
     return sanitized:gsub("^_+", ""):gsub("_+$", "")
 end
 
+function Scraper.getBridge()
+    local bridge = package.loaded["ordpresse.bridge"]
+    if not bridge then
+        local ok, b = pcall(dofile, "plugins/ordpresse.koplugin/bridge.lua")
+        if ok and type(b) == "table" then
+            bridge = b
+        end
+    end
+    return bridge
+end
+
 function Scraper.getOrdpresseConfig()
+    local bridge = Scraper.getBridge()
+    if bridge and bridge.getConfig then
+        local bcfg = bridge:getConfig()
+        if bcfg and bcfg.endpoint_url and bcfg.endpoint_url ~= "" then
+            return bcfg
+        end
+    end
     local ok, cfg = pcall(dofile, "plugins/ordpresse.koplugin/config.lua")
     if ok and type(cfg) == "table" and cfg.endpoint_url and cfg.endpoint_url ~= "" then
         return cfg

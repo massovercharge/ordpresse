@@ -12,7 +12,7 @@ from ordpresse.db import Database
 from ordpresse.services.opds_service import canonical_filename, get_books_dir
 from ordpresse.web.auth import verify_api_key
 from ordpresse.web.lookup_service import perform_koreader_lookup
-from ordpresse.web.plugin_store import build_annas_fetch_zip, get_catalog_json, get_plugin_by_id
+from ordpresse.web.plugin_store import build_annas_fetch_zip, get_catalog_json, get_plugin_by_id, get_plugin_zip
 from ordpresse.web.state import mirror_prober
 
 logger = logging.getLogger(__name__)
@@ -47,11 +47,12 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
         }
     elif action == "download_update":
         import hashlib
-        from ordpresse.web.plugin_builder import MAIN_LUA, META_LUA, PLUGIN_VERSION
+        from ordpresse.web.plugin_builder import BRIDGE_LUA, MAIN_LUA, META_LUA, PLUGIN_VERSION
         return {
             "version": PLUGIN_VERSION,
             "main_lua": MAIN_LUA,
             "meta_lua": META_LUA,
+            "bridge_lua": BRIDGE_LUA,
             "sha256": hashlib.sha256(MAIN_LUA.encode("utf-8")).hexdigest(),
         }
     elif action == "annas_mirrors":
@@ -191,15 +192,11 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
         if not plugin:
             raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' ikke fundet i kataloget.")
 
-        if plugin_id == "annas-fetch":
-            try:
-                zip_bytes = build_annas_fetch_zip()
-            except FileNotFoundError as exc:
-                logger.error(f"Plugin store: Fejl ved pakning af {plugin_id}: {exc}")
-                raise HTTPException(status_code=500, detail=str(exc)) from exc
-
+        # 1. Tjek om pakken distribueres lokalt fra vendor/ (fx annas-fetch, hyph-da, font-chareink)
+        local_zip = get_plugin_zip(plugin_id)
+        if local_zip:
             return Response(
-                content=zip_bytes,
+                content=local_zip,
                 media_type="application/zip",
                 headers={
                     "Content-Disposition": f'attachment; filename="{plugin.koplugin_name}.zip"',
@@ -208,6 +205,9 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
                     "X-Koplugin-Name": plugin.koplugin_name,
                 },
             )
+
+        if not plugin.zipball_url:
+            raise HTTPException(status_code=404, detail=f"Pakken '{plugin_id}' mangler download-kilde.")
 
         # Proxy-download fra GitHub zipball og stream til KOReader-enheden
         import httpx

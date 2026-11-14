@@ -14,7 +14,7 @@ def auto_auth_for_legacy_tests(request, monkeypatch):
     New V10.2 security tests in test_koreader_online are excluded so they test
     unauthenticated requests and login flows authentically.
     """
-    if "test_koreader_online" in request.node.nodeid or "test_opds_and_books" in request.node.nodeid:
+    if "test_koreader_online" in request.node.nodeid or "test_opds_and_books" in request.node.nodeid or "test_plugin_store_v2" in request.node.nodeid:
         return
 
     orig_init = TestClient.__init__
@@ -24,4 +24,20 @@ def auto_auth_for_legacy_tests(request, monkeypatch):
         self.cookies.set("ordpresse_session", create_session_token())
 
     monkeypatch.setattr(TestClient, "__init__", patched_init)
+
+
+@pytest.fixture
+def client():
+    """Unauthenticated client for testing endpoints."""
+    from ordpresse.web.app import app
+    return TestClient(app)
+
+
+@pytest.fixture
+def auth_client():
+    """Authenticated client with valid LAN admin session cookie."""
+    from ordpresse.web.app import app
+    c = TestClient(app)
+    c.cookies.set("ordpresse_session", create_session_token())
+    return c
 

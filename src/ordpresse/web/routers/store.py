@@ -4,7 +4,7 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Response
 
-from ordpresse.web.plugin_store import build_annas_fetch_zip, get_catalog_json, get_plugin_by_id
+from ordpresse.web.plugin_store import build_annas_fetch_zip, get_catalog_json, get_plugin_by_id, get_plugin_zip
 from ordpresse.web.state import mirror_prober
 
 logger = logging.getLogger(__name__)
@@ -59,8 +59,22 @@ async def download_store_plugin(plugin_id: str):
     if not plugin:
         raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' ikke fundet i kataloget.")
 
-    if plugin_id == "annas-fetch":
-        return download_annas_fetch_admin()
+    # 1. Tjek om pakken distribueres lokalt fra vendor/
+    local_zip = get_plugin_zip(plugin_id)
+    if local_zip:
+        return Response(
+            content=local_zip,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{plugin.koplugin_name}.zip"',
+                "X-Plugin-Id": plugin.id,
+                "X-Plugin-Version": plugin.version,
+                "X-Koplugin-Name": plugin.koplugin_name,
+            },
+        )
+
+    if not plugin.zipball_url:
+        raise HTTPException(status_code=404, detail=f"Pakken '{plugin_id}' mangler download-kilde.")
 
     import httpx
     try:

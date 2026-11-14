@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 import zipfile
 
+
 def _get_vendor_annas_dir() -> Path:
     candidates = [
         Path(__file__).resolve().parent.parent / "vendor" / "annas-fetch.koplugin",
@@ -17,46 +18,32 @@ def _get_vendor_annas_dir() -> Path:
             return c
     return candidates[0]
 
+
 VENDOR_ANNAS_DIR = _get_vendor_annas_dir()
-
-
-def build_annas_fetch_zip() -> bytes:
-    """Generate in-memory zipball for annas-fetch.koplugin from vendor files."""
-    vendor_dir = VENDOR_ANNAS_DIR if VENDOR_ANNAS_DIR.exists() else _get_vendor_annas_dir()
-    if not vendor_dir.exists():
-        raise FileNotFoundError(f"Missing vendor directory: {vendor_dir}")
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for file_path in sorted(vendor_dir.rglob("*")):
-            if file_path.is_file():
-                rel_path = file_path.relative_to(vendor_dir)
-                arcname = str(Path("annas-fetch.koplugin") / rel_path)
-                zf.write(file_path, arcname=arcname)
-    buf.seek(0)
-    return buf.read()
 
 
 @dataclass
 class StorePlugin:
-    """Metadata for a curated third-party KOReader plugin."""
-    id: str                      # Unikt ID, fx "annas-fetch"
-    name: str                    # Brugervenligt navn, fx "Anna's Archive"
+    """Metadata for a curated third-party KOReader plugin or typography/system resource."""
+    id: str                      # Unikt ID, fx "annas-fetch", "hyph-da", "font-chareink"
+    name: str                    # Brugervenligt navn, fx "📚 Anna's Archive (Ordpresse)"
     description: str             # Kort beskrivelse (1-2 sætninger, dansk)
-    version: str                 # Nyeste version, fx "1.2.0-ordpresse"
-    author: str                  # Forfatter / GitHub bruger
-    github_repo: str             # "owner/repo" format, fx "right9code/annas-fetch.koplugin"
-    koplugin_name: str           # Mappenavn i koreader/plugins/, fx "annas-fetch.koplugin"
-    zipball_url: str             # Direkte URL eller tom hvis lokal distribution
-    category: str = "utility"    # Kategori: "books", "utility", "ui", "sync"
+    version: str                 # Nyeste version, fx "1.2.7-ordpresse"
+    author: str                  # Forfatter / Kilde
+    github_repo: str             # "owner/repo" format eller kildelink
+    koplugin_name: str           # Mappenavn i målmappe, fx "annas-fetch.koplugin" eller "ChareInk"
+    zipball_url: str = ""        # Direkte URL eller tom hvis lokal distribution
+    category: str = "utility"    # Kategori: "books", "utility", "ui", "sync", "resources"
     min_koreader: str = "2024.07"  # Minimum KOReader version
     size_estimate_kb: int = 150  # Estimeret størrelse i KB
     license: str = "GPL-3.0"     # Licenstype
     install_note: Optional[str] = None  # Valgfri installationsnotat
+    target_type: str = "plugin"  # "plugin", "font", "hyph"
+    target_dir: Optional[str] = None  # "plugins", "fonts", "data/hyph"
 
 
 # -------------------------------------------------------------------
-# Kurateret Plugin Katalog
+# Kurateret Plugin & Ressource Katalog
 # -------------------------------------------------------------------
 PLUGIN_CATALOG: List[StorePlugin] = [
     StorePlugin(
@@ -73,8 +60,124 @@ PLUGIN_CATALOG: List[StorePlugin] = [
         size_estimate_kb=150,
         license="GPL-3.0",
         install_note="Forbedret med automatisk spejlstyring og Libgen dual-source.",
+        target_type="plugin",
+        target_dir="plugins",
+    ),
+    StorePlugin(
+        id="hyph-da",
+        name="🇩🇰 Dansk Orddeling (Hyphenation Pattern)",
+        description="Officielt dansk orddelingsmønster (hyph-da) for korrekt og flydende stavelsesdeling i KOReader.",
+        version="2024.1",
+        author="Frank Jensen / TeX DK",
+        github_repo="koreader/koreader",
+        koplugin_name="hyph-da",
+        zipball_url="",
+        category="resources",
+        min_koreader="2023.01",
+        size_estimate_kb=45,
+        license="LPPL / GPL-2.0",
+        install_note="Installeres direkte i koreader/data/hyph/ for smuk dansk typografi.",
+        target_type="hyph",
+        target_dir="data/hyph",
+    ),
+    StorePlugin(
+        id="font-chareink",
+        name="🔤 ChareInk 6SP (Vægtet E-Ink Serif)",
+        description="Modificeret Charis SIL med forøget stregtykkelse og optimerede punktur-afstande specielt til e-blæk.",
+        version="6.0",
+        author="SIL / MobileRead Community",
+        github_repo="mobileread/chareink",
+        koplugin_name="ChareInk",
+        zipball_url="",
+        category="resources",
+        min_koreader="2023.01",
+        size_estimate_kb=290,
+        license="OFL-1.1",
+        install_note="Perfekt til Kindle og ældre skærme med lav kontrast. Giver dybere, sortere tekst.",
+        target_type="font",
+        target_dir="fonts",
+    ),
+    StorePlugin(
+        id="font-atkinson",
+        name="🔤 Atkinson Hyperlegible (Skrifttype)",
+        description="Udviklet af Braille Institute for maksimal tegnadskillelse og høj læsbarhed på e-ink skærme.",
+        version="1.0.2",
+        author="Braille Institute",
+        github_repo="googlefonts/atkinson-hyperlegible",
+        koplugin_name="Atkinson-Hyperlegible",
+        zipball_url="https://github.com/googlefonts/atkinson-hyperlegible/releases/download/v1.0.2/Atkinson-Hyperlegible-Font-Print-and-Web-2020-0514.zip",
+        category="resources",
+        min_koreader="2023.01",
+        size_estimate_kb=240,
+        license="OFL-1.1",
+        install_note="Installeres i koreader/fonts/ og er klar i skrifttype-vælgeren efter genstart.",
+        target_type="font",
+        target_dir="fonts",
+    ),
+    StorePlugin(
+        id="font-literata",
+        name="🔤 Literata Book (Skrifttype)",
+        description="Googles skræddersyede e-bogsskrifttype fra TypeTogether, optimeret til fordybende langformslæsning.",
+        version="3.0.0",
+        author="TypeTogether / Google",
+        github_repo="googlefonts/literata",
+        koplugin_name="Literata",
+        zipball_url="https://github.com/googlefonts/literata/releases/download/v3.000/literata-3.000.zip",
+        category="resources",
+        min_koreader="2023.01",
+        size_estimate_kb=380,
+        license="OFL-1.1",
+        install_note="Eminent læselighed på e-blæk med balanceret x-højde og afstemt stregkontrast.",
+        target_type="font",
+        target_dir="fonts",
     ),
 ]
+
+
+def build_resource_zip(resource_id: str) -> Optional[bytes]:
+    """Generate in-memory zipball for a locally vendored resource or plugin."""
+    plugin = get_plugin_by_id(resource_id)
+    arc_name = plugin.koplugin_name if plugin else resource_id
+
+    vendor_root = VENDOR_ANNAS_DIR.parent
+    candidates = [
+        vendor_root / resource_id,
+        vendor_root / f"{resource_id}.koplugin",
+        vendor_root / "resources" / resource_id,
+        Path(__file__).resolve().parent.parent / "vendor" / "resources" / resource_id,
+        Path(__file__).resolve().parent.parent / "vendor" / resource_id,
+    ]
+    target_dir = None
+    for c in candidates:
+        if c.is_dir():
+            target_dir = c
+            break
+
+    if not target_dir or not target_dir.exists():
+        return None
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for file_path in sorted(target_dir.rglob("*")):
+            if file_path.is_file():
+                rel_path = file_path.relative_to(target_dir)
+                arcname = str(Path(arc_name) / rel_path)
+                zf.write(file_path, arcname=arcname)
+    buf.seek(0)
+    return buf.read()
+
+
+def build_annas_fetch_zip() -> bytes:
+    """Generate in-memory zipball for annas-fetch.koplugin from vendor files."""
+    data = build_resource_zip("annas-fetch")
+    if data is None:
+        raise FileNotFoundError(f"Missing vendor directory for annas-fetch: {VENDOR_ANNAS_DIR}")
+    return data
+
+
+def get_plugin_zip(plugin_id: str) -> Optional[bytes]:
+    """Find and build in-memory zip bytes for a local plugin or resource."""
+    return build_resource_zip(plugin_id)
 
 
 def get_catalog_json() -> list[dict]:
@@ -93,6 +196,12 @@ def get_catalog_json() -> list[dict]:
             "size_estimate_kb": p.size_estimate_kb,
             "license": p.license,
             "install_note": p.install_note,
+            "target_type": p.target_type,
+            "target_dir": p.target_dir or (
+                "fonts" if p.target_type == "font"
+                else "data/hyph" if p.target_type == "hyph"
+                else "plugins"
+            ),
         }
         for p in PLUGIN_CATALOG
     ]
