@@ -26,7 +26,7 @@ VENDOR_ANNAS_DIR = _get_vendor_annas_dir()
 class StorePlugin:
     """Metadata for a curated third-party KOReader plugin or typography/system resource."""
     id: str                      # Unikt ID, fx "annas-fetch", "hyph-da", "font-chareink"
-    name: str                    # Brugervenligt navn, fx "📚 Anna's Archive (Ordpresse)"
+    name: str                    # Brugervenligt navn, fx "[Bog] Anna's Archive (Ordpresse)"
     description: str             # Kort beskrivelse (1-2 sætninger, dansk)
     version: str                 # Nyeste version, fx "1.2.7-ordpresse"
     author: str                  # Forfatter / Kilde
@@ -48,7 +48,7 @@ class StorePlugin:
 PLUGIN_CATALOG: List[StorePlugin] = [
     StorePlugin(
         id="annas-fetch",
-        name="📚 Anna's Archive (Ordpresse)",
+        name="[Bog] Anna's Archive (Ordpresse)",
         description="Dual-source bogsøgning (Libgen + Anna's Archive) med Ordpresse server-search og mirror-orkestrering.",
         version="1.2.7-ordpresse",
         author="right9code / Ordpresse",
@@ -65,7 +65,7 @@ PLUGIN_CATALOG: List[StorePlugin] = [
     ),
     StorePlugin(
         id="hyph-da",
-        name="🇩🇰 Dansk Orddeling (Hyphenation Pattern)",
+        name="[DK] Dansk Orddeling (Hyphenation Pattern)",
         description="Officielt dansk orddelingsmønster (hyph-da) for korrekt og flydende stavelsesdeling i KOReader.",
         version="2024.1",
         author="Frank Jensen / TeX DK",
@@ -82,7 +82,7 @@ PLUGIN_CATALOG: List[StorePlugin] = [
     ),
     StorePlugin(
         id="font-chareink",
-        name="🔤 ChareInk 6SP (Vægtet E-Ink Serif)",
+        name="[Aa] ChareInk 6SP (Vægtet E-Ink Serif)",
         description="Modificeret Charis SIL med forøget stregtykkelse og optimerede punktur-afstande specielt til e-blæk.",
         version="6.0",
         author="SIL / MobileRead Community",
@@ -99,7 +99,7 @@ PLUGIN_CATALOG: List[StorePlugin] = [
     ),
     StorePlugin(
         id="font-atkinson",
-        name="🔤 Atkinson Hyperlegible (Skrifttype)",
+        name="[Aa] Atkinson Hyperlegible (Skrifttype)",
         description="Udviklet af Braille Institute for maksimal tegnadskillelse og høj læsbarhed på e-ink skærme.",
         version="1.0.2",
         author="Braille Institute",
@@ -116,7 +116,7 @@ PLUGIN_CATALOG: List[StorePlugin] = [
     ),
     StorePlugin(
         id="font-literata",
-        name="🔤 Literata Book (Skrifttype)",
+        name="[Aa] Literata Book (Skrifttype)",
         description="Googles skræddersyede e-bogsskrifttype fra TypeTogether, optimeret til fordybende langformslæsning.",
         version="3.0.0",
         author="TypeTogether / Google",

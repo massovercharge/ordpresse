@@ -4,15 +4,15 @@ import io
 import re
 import zipfile
 
-PLUGIN_VERSION = "1.3.0"
-PLUGIN_RELEASE_NOTES = "Ny v1.3.0: Samlet Ordpresse Bridge (ordpresse.bridge), resources butik-kategori (skrifttyper og dansk orddeling), versions-tjek med opdateringsindikator og Opdater alle, samt sikker rollback ved fejl og crash."
+PLUGIN_VERSION = "1.3.1"
+PLUGIN_RELEASE_NOTES = "Ny v1.3.1: Skarpe universelle e-blæk-symboler og typografiske tags i butik og menuer (erstatter farve-emojis for fejlfri gengivelse på Kindle)."
 
 META_LUA = """local _ = require("gettext")
 return {
     name = "ordpresse",
     fullname = _("Den Danske Ordpresse (Online Opslag & Butik)"),
     description = _("Slå danske og historiske 1700-1900-tals ord op via din private Ordpresse-server og administrer plugins/ressourcer."),
-    version = "1.3.0",
+    version = "1.3.1",
 }
 """
 
@@ -39,7 +39,7 @@ if not ok_cfg or type(config) ~= "table" then
 end
 
 local Bridge = {
-    version = "1.3.0",
+    version = "1.3.1",
     config = config,
 }
 
@@ -256,7 +256,7 @@ local http = require("socket.http")
 local url = require("socket.url")
 local _ = require("gettext")
 
-local PLUGIN_VERSION = "1.3.0"
+local PLUGIN_VERSION = "1.3.1"
 local ok_util, util = pcall(require, "util")
 local ok_ffiutil, ffiUtil = pcall(require, "ffi/util")
 local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
@@ -530,14 +530,14 @@ function Ordpresse:addToMainMenu(menu_items)
         end,
     }
     menu_items.ordpresse_update = {
-        text = _("🔄 Ordpresse: Søg efter opdateringer"),
+        text = _("[↻] Ordpresse: Søg efter opdateringer"),
         sorting_hint = "more_tools",
         callback = function()
             self:checkForUpdates(true)
         end,
     }
     menu_items.ordpresse_store = {
-        text = _("🛍️ Ordpresse Butik (Plugins & Ressourcer)"),
+        text = _("[Butik] Ordpresse Butik (Plugins & Ressourcer)"),
         sorting_hint = "more_tools",
         callback = function()
             self:openPluginStore()
@@ -753,7 +753,7 @@ function Ordpresse:checkForUpdates(interactive)
     end
 
     local loading = InfoMessage:new{
-        text = _("🔄 Søger efter opdateringer til Ordpresse..."),
+        text = _("[↻] Søger efter opdateringer til Ordpresse..."),
     }
     UIManager:show(loading)
 
@@ -816,7 +816,7 @@ function Ordpresse:downloadAndApplyUpdate(target_version)
     end
 
     local loading = InfoMessage:new{
-        text = _("🔄 Henter og installerer opdatering..."),
+        text = _("[↻] Henter og installerer opdatering..."),
     }
     UIManager:show(loading)
 
@@ -891,7 +891,7 @@ function Ordpresse:downloadAndApplyUpdate(target_version)
 
         local shown_version = tostring(data.version or target_version or "")
         UIManager:show(ConfirmBox:new{
-            text = _("✅ Ordpresse er opdateret til v") .. shown_version .. _("!") .. "\\n\\n"
+            text = _("[✓] Ordpresse er opdateret til v") .. shown_version .. _("!") .. "\\n\\n"
                 .. _("KOReader skal genstartes for at aktivere den nye version.") .. "\\n"
                 .. _("Vil du genstarte KOReader nu?"),
             ok_text = _("Genstart nu"),
@@ -904,7 +904,7 @@ function Ordpresse:downloadAndApplyUpdate(target_version)
 end
 
 -- ===================================================================
--- 🛍️ Butik: Pakke-inspektion, Versions-tjek og Mappe-routing
+-- [Butik] Pakke-inspektion, Versions-tjek og Mappe-routing
 -- ===================================================================
 
 local function findPackageDest(item)
@@ -1002,7 +1002,7 @@ local function inspectInstalledPackage(item)
 end
 
 -- ===================================================================
--- 🛍️ Butik: Katalog, Detaljevisning og Opdater Alle
+-- [Butik] Katalog, Detaljevisning og Opdater Alle
 -- ===================================================================
 
 function Ordpresse:openPluginStore()
@@ -1017,7 +1017,7 @@ function Ordpresse:openPluginStore()
     end
 
     local loading = InfoMessage:new{
-        text = _("🛍️ Henter butik-katalog..."),
+        text = _("[Butik] Henter butik-katalog..."),
     }
     UIManager:show(loading)
 
@@ -1072,14 +1072,14 @@ function Ordpresse:showPluginCatalog(catalog)
             table.insert(lines, "")
         end
         for _, p in ipairs(catalog) do
-            local mark = p._status == "update_available" and "🔄 [Opdater]"
-                or (p._status == "installed" and "✅ [Installeret]" or "📦 [Ny]")
+            local mark = p._status == "update_available" and "[↻] [Opdater]"
+                or (p._status == "installed" and "[✓] [Installeret]" or "[+] [Ny]")
             table.insert(lines, mark .. " " .. p.name .. " (v" .. p.version .. ")")
             table.insert(lines, "  " .. p.description)
             table.insert(lines, "")
         end
         UIManager:show(TextViewer:new{
-            title = _("🛍️ Ordpresse Butik"),
+            title = _("Ordpresse Butik"),
             text = table.concat(lines, "\\n"),
         })
         return
@@ -1091,7 +1091,7 @@ function Ordpresse:showPluginCatalog(catalog)
     if #outdated > 0 then
         table.insert(buttons, {
             {
-                text = _("🔄 Opdater alle (") .. tostring(#outdated) .. _(" opdateringer)"),
+                text = _("[↻] Opdater alle (") .. tostring(#outdated) .. _(" opdateringer)"),
                 font_bold = true,
                 callback = function()
                     closeWidgetSafe(self._store_dialog)
@@ -1103,14 +1103,14 @@ function Ordpresse:showPluginCatalog(catalog)
     end
 
     for _, p in ipairs(catalog) do
-        local prefix = "📦 "
+        local prefix = "[+] "
         local suffix = "  (v" .. p.version .. ")"
         if p._status == "update_available" then
-            prefix = "🔄 "
+            prefix = "[↻] "
             local from_ver = p._installed_version and ("v" .. p._installed_version .. " → ") or ""
             suffix = "  (" .. from_ver .. "v" .. p.version .. ")"
         elseif p._status == "installed" then
-            prefix = "✅ "
+            prefix = "[✓] "
             suffix = "  (v" .. (p._installed_version or p.version) .. ")"
         end
 
@@ -1135,7 +1135,7 @@ function Ordpresse:showPluginCatalog(catalog)
     })
 
     self._store_dialog = ButtonDialog:new{
-        title = _("🛍️ Ordpresse Butik (Plugins & Ressourcer)"),
+        title = _("Ordpresse Butik (Plugins & Ressourcer)"),
         buttons = buttons,
     }
     UIManager:show(self._store_dialog)
@@ -1175,29 +1175,29 @@ function Ordpresse:showPluginDetail(plugin)
 
     if plugin._status == "update_available" then
         table.insert(detail_lines, "")
-        table.insert(detail_lines, "Status: 🔄 Opdatering tilgængelig! (Installeret: v" .. tostring(plugin._installed_version) .. ")")
+        table.insert(detail_lines, "Status: [↻] Opdatering tilgængelig! (Installeret: v" .. tostring(plugin._installed_version) .. ")")
     elseif plugin._status == "installed" then
         table.insert(detail_lines, "")
-        table.insert(detail_lines, "Status: ✅ Installeret (v" .. tostring(plugin._installed_version or plugin.version) .. ")")
+        table.insert(detail_lines, "Status: [✓] Installeret (v" .. tostring(plugin._installed_version or plugin.version) .. ")")
     else
         table.insert(detail_lines, "")
-        table.insert(detail_lines, "Status: 📦 Ikke installeret")
+        table.insert(detail_lines, "Status: [+] Ikke installeret")
     end
 
     if plugin._has_backup then
-        table.insert(detail_lines, "Sikkerhedskopi: ⏪ Forrige version gemt og klar til rollback.")
+        table.insert(detail_lines, "Sikkerhedskopi: [<<] Forrige version gemt og klar til rollback.")
     end
 
     if plugin.install_note and plugin.install_note ~= "" then
         table.insert(detail_lines, "")
-        table.insert(detail_lines, "ℹ️ " .. plugin.install_note)
+        table.insert(detail_lines, "[i] " .. plugin.install_note)
     end
 
-    local action_text = _("📦 Installer")
+    local action_text = _("[+] Installer")
     if plugin._status == "update_available" then
-        action_text = _("🔄 Opdater til v") .. tostring(plugin.version)
+        action_text = _("[↻] Opdater til v") .. tostring(plugin.version)
     elseif plugin._status == "installed" then
-        action_text = _("📦 Geninstaller v") .. tostring(plugin.version)
+        action_text = _("[✓] Geninstaller v") .. tostring(plugin.version)
     end
 
     local other_buttons = nil
@@ -1205,7 +1205,7 @@ function Ordpresse:showPluginDetail(plugin)
         other_buttons = {
             {
                 {
-                    text = _("⏪ Gendan forrige (Rollback)"),
+                    text = _("[<<] Gendan forrige (Rollback)"),
                     callback = function()
                         self:confirmRollback(plugin)
                     end,
@@ -1236,7 +1236,7 @@ function Ordpresse:showPluginDetail(plugin)
 end
 
 -- ===================================================================
--- 🛍️ Butik: Sikker Installation, Staging, Validering & Rollback
+-- [Butik] Sikker Installation, Staging, Validering & Rollback
 -- ===================================================================
 
 function Ordpresse:installPlugin(plugin, on_finish_callback)
@@ -1268,7 +1268,7 @@ function Ordpresse:installPlugin(plugin, on_finish_callback)
     end
 
     local loading = InfoMessage:new{
-        text = _("📦 Henter ") .. tostring(plugin.name or plugin.id) .. _("..."),
+        text = _("[+] Henter ") .. tostring(plugin.name or plugin.id) .. _("..."),
     }
     UIManager:show(loading)
 
@@ -1614,7 +1614,7 @@ function Ordpresse:installPlugin(plugin, on_finish_callback)
             or (_("Genstart KOReader for at opdatere skrifttyper og læseressourcer."))
 
         UIManager:show(ConfirmBox:new{
-            text = _("✅ ") .. tostring(plugin.name or plugin.id) .. _(" er installeret/opdateret!") .. "\\n\\n"
+            text = _("[✓] ") .. tostring(plugin.name or plugin.id) .. _(" er installeret/opdateret!") .. "\\n\\n"
                 .. restart_msg .. "\\n"
                 .. _("Vil du genstarte KOReader nu?"),
             ok_text = _("Genstart nu"),
@@ -1651,7 +1651,7 @@ function Ordpresse:confirmRollback(plugin)
 
             if rb_ok then
                 UIManager:show(ConfirmBox:new{
-                    text = _("✅ Forrige version af ") .. plugin.name .. _(" er gendannet!") .. "\\n\\n"
+                    text = _("[✓] Forrige version af ") .. plugin.name .. _(" er gendannet!") .. "\\n\\n"
                         .. _("KOReader skal genstartes for at aktivere ændringen.") .. "\\n"
                         .. _("Vil du genstarte KOReader nu?"),
                     ok_text = _("Genstart nu"),
@@ -1679,14 +1679,14 @@ function Ordpresse:updateAllPlugins(outdated_list)
         if current_idx > total then
             local summary_lines = {}
             if #updated_names > 0 then
-                table.insert(summary_lines, _("✅ Følgende pakker blev opdateret:"))
+                table.insert(summary_lines, _("[✓] Følgende pakker blev opdateret:"))
                 for _, name in ipairs(updated_names) do
                     table.insert(summary_lines, "  • " .. name)
                 end
             end
             if #failed_names > 0 then
                 table.insert(summary_lines, "")
-                table.insert(summary_lines, _("⚠️ Følgende opdateringer fejlede:"))
+                table.insert(summary_lines, _("[!] Følgende opdateringer fejlede:"))
                 for _, name in ipairs(failed_names) do
                     table.insert(summary_lines, "  • " .. name)
                 end
