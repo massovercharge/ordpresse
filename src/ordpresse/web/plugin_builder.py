@@ -4,15 +4,15 @@ import io
 import re
 import zipfile
 
-PLUGIN_VERSION = "1.4.0"
-PLUGIN_RELEASE_NOTES = "Ny v1.4.0: Offline leksikalsk ordbogscache indlejret i vaskede EPUB-bøger (Bogvaskeri v2.0) og fuld integration med Ordpresse Bogdoktor."
+PLUGIN_VERSION = "1.5.0"
+PLUGIN_RELEASE_NOTES = "Ny v1.5.0: 1-klik installation af Ordpresse OPDS-bogkatalog i KOReader og fuld understøttelse af web-uploadede vaskede bøger."
 
 META_LUA = """local _ = require("gettext")
 return {
     name = "ordpresse",
     fullname = _("Den Danske Ordpresse (Online Opslag & Butik)"),
     description = _("Slå danske og historiske 1700-1900-tals ord op via din private Ordpresse-server og administrer plugins/ressourcer."),
-    version = "1.4.0",
+    version = "1.5.0",
 }
 """
 
@@ -39,7 +39,7 @@ if not ok_cfg or type(config) ~= "table" then
 end
 
 local Bridge = {
-    version = "1.4.0",
+    version = "1.5.0",
     config = config,
 }
 
@@ -256,7 +256,7 @@ local http = require("socket.http")
 local url = require("socket.url")
 local _ = require("gettext")
 
-local PLUGIN_VERSION = "1.4.0"
+local PLUGIN_VERSION = "1.5.0"
 local ok_util, util = pcall(require, "util")
 local ok_ffiutil, ffiUtil = pcall(require, "ffi/util")
 local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
@@ -530,6 +530,14 @@ function Ordpresse:addToMainMenu(menu_items)
             self:showManualLookupDialog()
         end,
     }
+    menu_items.ordpresse_opds = {
+        text = _("[📡] Ordpresse: Forbind OPDS Bogkatalog"),
+        sorting_hint = "more_tools",
+        callback = function()
+            local ok, msg = self:setupOpdsCatalog()
+            UIManager:show(InfoMessage:new{ text = msg })
+        end,
+    }
     menu_items.ordpresse_update = {
         text = _("[↻] Ordpresse: Søg efter opdateringer"),
         sorting_hint = "more_tools",
@@ -544,6 +552,63 @@ function Ordpresse:addToMainMenu(menu_items)
             self:openPluginStore()
         end,
     }
+end
+
+function Ordpresse:setupOpdsCatalog()
+    local bridge = package.loaded["ordpresse.bridge"]
+    local cfg = config
+    if bridge and bridge.getConfig then
+        cfg = bridge:getConfig() or config
+    end
+
+    local endpoint = (cfg and cfg.endpoint_url) or ""
+    local api_key = (cfg and cfg.api_key) or ""
+
+    if endpoint == "" then
+        return false, _("Ordpresse server-adresse mangler i config.lua.")
+    end
+
+    local base_url = endpoint:match("^(https?://[^/]+)")
+    if not base_url then
+        base_url = endpoint:gsub("/api/.*", ""):gsub("/lookup.*", "")
+    end
+    base_url = base_url:gsub("/+$", "")
+
+    local opds_url = base_url .. "/opds"
+    if api_key ~= "" then
+        opds_url = opds_url .. "?api_key=" .. url.escape(api_key)
+    end
+
+    if not G_reader_settings then
+        return false, _("KOReader indstillinger (G_reader_settings) er ikke tilgængelige.")
+    end
+
+    local servers = G_reader_settings:readSetting("opds_servers") or {}
+    local existing_idx = nil
+    for idx, s in ipairs(servers) do
+        if (s.title and s.title:find("Ordpresse")) or (s.url and s.url:find("/opds")) then
+            existing_idx = idx
+            break
+        end
+    end
+
+    local opds_entry = {
+        title = "Den Danske Ordpresse",
+        url = opds_url,
+    }
+
+    if existing_idx then
+        servers[existing_idx] = opds_entry
+    else
+        table.insert(servers, opds_entry)
+    end
+
+    G_reader_settings:saveSetting("opds_servers", servers)
+    if G_reader_settings.flush then
+        pcall(function() G_reader_settings:flush() end)
+    end
+
+    return true, _("Ordpresse OPDS-katalog er nu forbundet!\\n\\nFind det i KOReaders topmenu under:\\n'Søg / Netværk' → 'OPDS-kataloger' → 'Den Danske Ordpresse'.")
 end
 
 function Ordpresse:showManualLookupDialog()
@@ -984,6 +1049,26 @@ local function inspectInstalledPackage(item)
     local installed_version = nil
     local has_backup = false
 
+    if item.id == "opds-catalog" or item.target_type == "opds_setting" then
+        if G_reader_settings then
+            local servers = G_reader_settings:readSetting("opds_servers") or {}
+            for _, s in ipairs(servers) do
+                if (s.title and s.title:find("Ordpresse")) or (s.url and s.url:find("/opds")) then
+                    is_installed = true
+                    installed_version = item.version
+                    break
+                end
+            end
+        end
+        return {
+            is_installed = is_installed,
+            installed_version = installed_version,
+            has_backup = false,
+            status = is_installed and "installed" or "not_installed",
+            paths = paths,
+        }
+    end
+
     if ok_lfs and lfs and lfs.attributes then
         if lfs.attributes(paths.backup_dir, "mode") ~= nil then
             has_backup = true
@@ -1283,6 +1368,13 @@ function Ordpresse:installPlugin(plugin, on_finish_callback)
     if type(plugin) ~= "table" or type(plugin.id) ~= "string" then
         if on_finish_callback then on_finish_callback(false) end
         UIManager:show(InfoMessage:new{ text = _("Ugyldige pakke-data.") })
+        return
+    end
+
+    if plugin.id == "opds-catalog" or plugin.target_type == "opds_setting" then
+        local ok, msg = self:setupOpdsCatalog()
+        if on_finish_callback then on_finish_callback(ok) end
+        UIManager:show(InfoMessage:new{ text = msg })
         return
     end
 

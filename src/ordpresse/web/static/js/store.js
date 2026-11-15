@@ -335,9 +335,124 @@ function initStore() {
         });
     }
 
+    initEpubUpload();
+
     // Initial load
     loadStoreMirrors();
     loadBooksArchive();
+}
+
+function initEpubUpload() {
+    const dropZone = document.getElementById('epub-drop-zone');
+    const fileInput = document.getElementById('epub-file-input');
+    const washCheckbox = document.getElementById('epub-wash-checkbox');
+    const statusBox = document.getElementById('epub-upload-status');
+
+    if (!dropZone || !fileInput) return;
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-cyan-400', 'bg-cyan-500/10');
+    });
+
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-cyan-400', 'bg-cyan-500/10');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-cyan-400', 'bg-cyan-500/10');
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            handleEpubUpload(e.dataTransfer.files[0]);
+        }
+    });
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files && fileInput.files.length > 0) {
+            handleEpubUpload(fileInput.files[0]);
+            fileInput.value = '';
+        }
+    });
+
+    async function handleEpubUpload(file) {
+        if (!file.name.toLowerCase().endsWith('.epub')) {
+            alert('Vælg venligst en gyldig .epub fil.');
+            return;
+        }
+
+        const wash = washCheckbox ? washCheckbox.checked : true;
+        statusBox.classList.remove('hidden');
+        statusBox.innerHTML = `
+            <div class="flex items-center gap-3 text-cyan-300">
+                <span class="animate-spin text-lg">↻</span>
+                <div>
+                    <div class="font-bold">Uploader "${escapeHtml(file.name)}"...</div>
+                    <div class="text-[11px] text-slate-400">
+                        ${wash ? 'Kører Bogvaskeri v2.0: DOM OCR-heling, typografi, CSS/billed-rens og offline leksikoncache...' : 'Gemmer i arkivet...'}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('wash', wash ? 'true' : 'false');
+
+        try {
+            const res = await fetch('/api/books/upload', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.detail || `HTTP ${res.status}`);
+            }
+
+            const data = await res.json();
+            const b = data.book || {};
+            const l = b.laundry || {};
+
+            let statsHtml = '';
+            if (b.washed && l) {
+                statsHtml = `
+                    <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-slate-300 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800">
+                        <div>Helede afsnit: <strong class="text-cyan-400 font-mono">${l.paragraphs_healed || 0}</strong></div>
+                        <div>Indlejrede ord: <strong class="text-amber-400 font-mono">${l.prewarmed_words || 0}</strong></div>
+                        <div>Sprog: <strong class="text-emerald-400 font-mono">${(l.detected_language || 'da').toUpperCase()}</strong></div>
+                        <div>Tid: <strong class="text-slate-400 font-mono">${l.processing_ms || 0} ms</strong></div>
+                    </div>
+                `;
+            }
+
+            statusBox.innerHTML = `
+                <div class="space-y-1.5 text-emerald-400">
+                    <div class="flex items-center gap-2 font-bold text-sm">
+                        <span>✓</span> <span>Bogen "${escapeHtml(b.title || file.name)}" er klar!</span>
+                    </div>
+                    <p class="text-[11px] text-slate-300">
+                        Gemt som <code class="text-amber-300 font-mono">${escapeHtml(b.filename || '')}</code> i arkivet. Den kan nu hentes med det samme på din Kindle eller CrossPoint via OPDS!
+                    </p>
+                    ${statsHtml}
+                </div>
+            `;
+
+            // Reload books table
+            loadBooksArchive();
+        } catch (err) {
+            statusBox.innerHTML = `
+                <div class="text-red-400 space-y-1">
+                    <div class="font-bold flex items-center gap-1.5">
+                        <span>⚠️</span> <span>Fejl under upload / bogvask</span>
+                    </div>
+                    <p class="text-[11px]">${escapeHtml(err.message)}</p>
+                </div>
+            `;
+        }
+    }
 }
 
 document.addEventListener('DOMContentLoaded', initStore);

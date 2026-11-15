@@ -11,7 +11,7 @@
 [![Plugin Store](https://img.shields.io/badge/OTA-Plugin%20Butik%20v1.2.6-ff69b4.svg)](#-koreader-plugin-butik--anna-fetch-orkestrering-v126)
 [![Bogdoktor](https://img.shields.io/badge/KOReader-Bogdoktor%20v2.0-cyan.svg)](#-ordpresse-bogvaskeri--bogdoktor-v20)
 [![OPDS 1.2](https://img.shields.io/badge/OPDS-1.2%20Acquisition%20Feed-blueviolet.svg)](#-opds-12-bogkatalog--crosspoint-reader-xteink-x4-pro-integration-v126)
-[![Tests](https://img.shields.io/badge/tests-131%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
+[![Tests](https://img.shields.io/badge/tests-134%20passed-brightgreen.svg)](#-testsuite--kvalitetssikring)
 
 ---
 
@@ -565,6 +565,18 @@ curl -X POST http://<CROSSPOINT_IP>/api/settings \
    - **Username:** `<DIN_API_NØGLE>`
 4. Tryk på **Save**.
 
+##### 1-Kliks OPDS Setup i KOReader (Kindle, Kobo, Boox)
+Hvis du bruger KOReader på din Kindle eller Kobo behøver du ikke taste noget som helst:
+1. Åbn KOReader &rarr; Hovedmenu &rarr; Værktøjer &rarr; `[📡] Ordpresse: Forbind OPDS Bogkatalog` (eller installer `[📡] Ordpresse OPDS Bogkatalog` fra Plugin Butikken).
+2. Pluginet opretter automatisk kataloget i KOReaders `opds_servers` med din forhåndskonfigurerede API-nøgle.
+3. Gå til KOReaders topmenu &rarr; *Søg / Netværk* &rarr; *OPDS-kataloger* &rarr; **Den Danske Ordpresse** for at gennemse og downloade vaskede bøger direkte.
+
+##### Web UI EPUB Upload & Bogvaskeri
+Du kan uploade lokale EPUB-bøger direkte fra computeren:
+1. Gå til webinterfacet &rarr; fanen **Centralt Bogarkiv**.
+2. Træk og slip en `.epub`-fil over i upload-feltet.
+3. Serveren kører automatisk bogen igennem **Bogvaskeri v2.0** (OCR-heling, typografi, billedoptimering og offline leksikalsk ordbogscache) og placerer den i dit OPDS-katalog, klar til download på Kindle og CrossPoint.
+
 ##### Kritiske CrossPoint OS Indstillinger
 For at sikre, at CrossPoint gemmer bøgerne så de synkroniseres perfekt med KOSync:
 - **`opdsDownloadFolder`**: Sættes til `"Pushed Books"` (eller din foretrukne bogmappe på SD-kortet).
@@ -600,9 +612,11 @@ Når du søger og downloader bøger i KOReader via Anna Fetch-pluginet, håndter
 | `/api/v1/koreader/lookup?action=annas_download` | `GET` | `X-API-Key` / query | Server streaming download proxy & automatisk bogarkivering. |
 | `/api/v1/koreader/lookup?action=store_catalog` | `GET` | `X-API-Key` / query | Henter OTA kataloget over kuraterede KOReader-plugins. |
 | `/api/v1/koreader/lookup?action=store_download&id=...` | `GET` | `X-API-Key` / query | Downloader færdigpakket plugin-zipball (OTA opdatering). |
-| `/opds` el. `/api/v1/opds` | `GET` | `?api_key=` / Basic / Header | OPDS 1.2 XML/Atom bogkatalog for CrossPoint & Calibre. |
-| `/opds/download/{md5}` | `GET` | `?api_key=` / Basic / Header | Direkte binær streaming download af EPUB for OPDS læsere. |
+| `/api/v1/koreader/laundry` | `POST` | `X-API-Key` / Header | Bogdoktor streaming EPUB-vaskeri med OCR-heling og offline leksikoncache. |
+| `/opds` el. `/api/v1/opds` | `GET` | `?api_key=` / `?key=` / Basic | OPDS 1.2 XML/Atom bogkatalog for CrossPoint & KOReader. |
+| `/opds/download/{md5}` | `GET` | `?api_key=` / `?key=` / Basic | Direkte binær streaming download af EPUB for OPDS læsere. |
 | `/api/books` | `GET` | Session cookie / `X-API-Key` | Liste over alle arkiverede bøger i JSON-format. |
+| `/api/books/upload` | `POST` | Session cookie / `X-API-Key` | Upload af lokal EPUB-fil med automatisk Bogvaskeri v2.0 optimering og arkivering. |
 | `/api/books/{md5}` | `GET` | Session cookie / `X-API-Key` | Direkte download af en specifik arkiveret bogfil. |
 | `/api/books/{md5}` | `DELETE` | Administrator session | Sletter en bog permanent fra databasen og serverens disk. |
 

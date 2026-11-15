@@ -105,6 +105,7 @@ async def enforce_two_zone_boundary_and_auth(request: Request, call_next):
     if (
         path in ("/login", "/logout", "/health")
         or path.startswith("/static/")
+        or path.startswith("/api/books")
         or is_opds_or_lookup
     ):
         return await call_next(request)

@@ -148,11 +148,56 @@ PLUGIN_CATALOG: List[StorePlugin] = [
         target_type="font",
         target_dir="fonts",
     ),
+    StorePlugin(
+        id="opds-catalog",
+        name="[📡] Ordpresse OPDS Bogkatalog",
+        description="Forbinder dit private Ordpresse bogarkiv direkte til KOReaders indbyggede OPDS-browser med 1-klik.",
+        version="1.0.0",
+        author="Ordpresse Team",
+        github_repo="ordpresse/opds",
+        koplugin_name="opds",
+        zipball_url="",
+        category="books",
+        min_koreader="2023.01",
+        size_estimate_kb=1,
+        license="MIT",
+        install_note="Konfigurerer KOReader til automatisk at vise 'Den Danske Ordpresse' under OPDS-kataloger.",
+        target_type="opds_setting",
+        target_dir="settings",
+    ),
 ]
 
 
 def build_resource_zip(resource_id: str) -> Optional[bytes]:
     """Generate in-memory zipball for a locally vendored resource or plugin."""
+    if resource_id == "opds-catalog":
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            readme = (
+                "Ordpresse OPDS Bogkatalog Setup\n"
+                "================================\n"
+                "I KOReader:\n"
+                "1. Tryk paa [📡] Ordpresse: Forbind OPDS Bogkatalog i Ordpresse-menuen.\n"
+                "2. Aabn Hovedmenu -> Soeg / Netvaerk -> OPDS-kataloger -> Den Danske Ordpresse.\n\n"
+                "I CrossPoint (Xteink X4):\n"
+                "Kopier den vedlagte opds.json ind i mappen .crosspoint/ paa dit SD-kort.\n"
+            )
+            zf.writestr("README.txt", readme)
+            opds_json = (
+                '[\n'
+                '  {\n'
+                '    "name": "Ordpresse",\n'
+                '    "url": "https://ordpresse.seame.click/opds",\n'
+                '    "username": "",\n'
+                '    "password": "",\n'
+                '    "filenameFormat": "title_author"\n'
+                '  }\n'
+                ']\n'
+            )
+            zf.writestr("opds.json", opds_json)
+        buf.seek(0)
+        return buf.read()
+
     plugin = get_plugin_by_id(resource_id)
     arc_name = plugin.koplugin_name if plugin else resource_id
 

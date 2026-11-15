@@ -204,3 +204,80 @@ def test_opds_book_download_and_api(tmp_path, monkeypatch):
     finally:
         if test_file.exists():
             test_file.unlink(missing_ok=True)
+
+
+def test_opds_supports_key_query_param_alias():
+    """Verify ?key= is accepted alongside ?api_key= for OPDS feed access."""
+    db = Database()
+    raw_key, _ = db.create_api_key("Key Alias Tester")
+    client = TestClient(app)
+
+    res = client.get(f"/opds?key={raw_key}")
+    assert res.status_code == 200
+    assert "application/atom+xml" in res.headers["content-type"]
+
+
+def test_api_upload_book_with_laundry():
+    """Verify POST /api/books/upload receives EPUB, runs Bogvaskeri, and saves canonical book."""
+    import sys
+    tests_dir = str(Path(__file__).parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from test_epub_laundry import create_minimal_test_epub
+
+    client = TestClient(app)
+    db = Database()
+    session_token = create_session_token()
+
+    sample_html = """<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Kapitel 1</title></head>
+<body>
+  <p>Dette er et afsnit som var knækket</p>
+  <p>ved en linjeskift-fejl under scanningen.</p>
+</body>
+</html>"""
+    epub_bytes = create_minimal_test_epub(sample_html)
+
+    # 1. Upload without auth -> 401
+    res_unauth = client.post("/api/books/upload", files={"file": ("test_bog.epub", epub_bytes, "application/epub+zip")})
+    assert res_unauth.status_code == 401
+
+    # 2. Upload with session
+    res = client.post(
+        "/api/books/upload",
+        files={"file": ("test_bog.epub", epub_bytes, "application/epub+zip")},
+        data={"wash": "true"},
+        cookies={"ordpresse_session": session_token},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert "book" in data
+    book = data["book"]
+    assert book["washed"] is True
+    assert book["title"] == "Test Bog"
+    assert book["author"] == "Ukendt forfatter"
+    assert book["filename"].endswith(".epub")
+
+    md5 = book["md5"]
+    books_dir = get_books_dir()
+    saved_file = books_dir / book["filename"]
+    assert saved_file.exists()
+
+    try:
+        # Verify book is registered in db
+        db_book = db.get_downloaded_book(md5)
+        assert db_book is not None
+        assert db_book["title"] == "Test Bog"
+
+        # Verify OPDS download endpoint delivers the saved file
+        raw_key, _ = db.create_api_key("Upload Tester Key")
+        res_dl = client.get(f"/opds/download/{md5}?api_key={raw_key}")
+        assert res_dl.status_code == 200
+        assert len(res_dl.content) == book["size_bytes"]
+    finally:
+        saved_file.unlink(missing_ok=True)
+        db.delete_downloaded_book(md5)
+

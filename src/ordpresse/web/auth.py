@@ -103,9 +103,13 @@ def extract_request_api_key(request: Request) -> Optional[str]:
         if val:
             return val
 
-    # 2. Query Parameter
+    # 2. Query Parameter (?api_key= or ?key=)
     if "api_key" in request.query_params:
         val = request.query_params["api_key"].strip()
+        if val:
+            return val
+    if "key" in request.query_params:
+        val = request.query_params["key"].strip()
         if val:
             return val
 
