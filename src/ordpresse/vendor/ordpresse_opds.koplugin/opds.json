@@ -1,0 +1,9 @@
+[
+  {
+    "name": "Ordpresse",
+    "url": "https://ordpresse.seame.click/opds",
+    "username": "",
+    "password": "",
+    "filenameFormat": "title_author"
+  }
+]

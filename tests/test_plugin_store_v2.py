@@ -125,14 +125,45 @@ def test_store_admin_download_resource(auth_client):
     assert res.headers["x-plugin-id"] == "hyph-da"
 
 
+def test_opds_catalog_plugin_zip_packaging(client):
+    """Verify opds-catalog returns a valid KOReader plugin zip with main.lua and _meta.lua."""
+    db = Database()
+    raw_key, _ = db.create_api_key("OPDS Catalog Tester")
+    headers = {"X-API-Key": raw_key}
+
+    res = client.get("/api/v1/koreader/lookup?action=store_download&id=opds-catalog", headers=headers)
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/zip"
+
+    with zipfile.ZipFile(io.BytesIO(res.content), "r") as zf:
+        names = zf.namelist()
+        assert "ordpresse_opds.koplugin/_meta.lua" in names
+        assert "ordpresse_opds.koplugin/main.lua" in names
+        main_code = zf.read("ordpresse_opds.koplugin/main.lua").decode("utf-8")
+        assert "OrdpresseOpds" in main_code
+        assert "syncOpds" in main_code
+
+
 def test_lua_code_syntax():
     """Ensure Lua templates have no syntax errors if luac is available, and no raw newlines in string literals."""
     import shutil
     import subprocess
     import tempfile
+    from pathlib import Path
     from ordpresse.web.plugin_builder import MAIN_LUA, BRIDGE_LUA, META_LUA
 
-    for name, code in [("MAIN_LUA", MAIN_LUA), ("BRIDGE_LUA", BRIDGE_LUA), ("META_LUA", META_LUA)]:
+    opds_main = Path("src/ordpresse/vendor/ordpresse_opds.koplugin/main.lua").read_text()
+    opds_meta = Path("src/ordpresse/vendor/ordpresse_opds.koplugin/_meta.lua").read_text()
+
+    targets = [
+        ("MAIN_LUA", MAIN_LUA),
+        ("BRIDGE_LUA", BRIDGE_LUA),
+        ("META_LUA", META_LUA),
+        ("opds_main", opds_main),
+        ("opds_meta", opds_meta),
+    ]
+
+    for name, code in targets:
         if shutil.which("luac"):
             with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False) as f:
                 f.write(code)

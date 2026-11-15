@@ -154,60 +154,34 @@ PLUGIN_CATALOG: List[StorePlugin] = [
         description="Forbinder dit private Ordpresse bogarkiv direkte til KOReaders indbyggede OPDS-browser med 1-klik.",
         version="1.0.0",
         author="Ordpresse Team",
-        github_repo="ordpresse/opds",
-        koplugin_name="opds",
+        github_repo="ordpresse/ordpresse_opds.koplugin",
+        koplugin_name="ordpresse_opds.koplugin",
         zipball_url="",
         category="books",
         min_koreader="2023.01",
-        size_estimate_kb=1,
+        size_estimate_kb=15,
         license="MIT",
-        install_note="Konfigurerer KOReader til automatisk at vise 'Den Danske Ordpresse' under OPDS-kataloger.",
-        target_type="opds_setting",
-        target_dir="settings",
+        install_note="Registrerer automatisk 'Den Danske Ordpresse' i KOReaders OPDS-kataloger.",
+        target_type="plugin",
+        target_dir="plugins",
     ),
 ]
 
 
 def build_resource_zip(resource_id: str) -> Optional[bytes]:
     """Generate in-memory zipball for a locally vendored resource or plugin."""
-    if resource_id == "opds-catalog":
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-            readme = (
-                "Ordpresse OPDS Bogkatalog Setup\n"
-                "================================\n"
-                "I KOReader:\n"
-                "1. Tryk paa [📡] Ordpresse: Forbind OPDS Bogkatalog i Ordpresse-menuen.\n"
-                "2. Aabn Hovedmenu -> Soeg / Netvaerk -> OPDS-kataloger -> Den Danske Ordpresse.\n\n"
-                "I CrossPoint (Xteink X4):\n"
-                "Kopier den vedlagte opds.json ind i mappen .crosspoint/ paa dit SD-kort.\n"
-            )
-            zf.writestr("README.txt", readme)
-            opds_json = (
-                '[\n'
-                '  {\n'
-                '    "name": "Ordpresse",\n'
-                '    "url": "https://ordpresse.seame.click/opds",\n'
-                '    "username": "",\n'
-                '    "password": "",\n'
-                '    "filenameFormat": "title_author"\n'
-                '  }\n'
-                ']\n'
-            )
-            zf.writestr("opds.json", opds_json)
-        buf.seek(0)
-        return buf.read()
-
     plugin = get_plugin_by_id(resource_id)
     arc_name = plugin.koplugin_name if plugin else resource_id
+    lookup_id = "ordpresse_opds.koplugin" if resource_id == "opds-catalog" else resource_id
 
     vendor_root = VENDOR_ANNAS_DIR.parent
     candidates = [
-        vendor_root / resource_id,
-        vendor_root / f"{resource_id}.koplugin",
-        vendor_root / "resources" / resource_id,
-        Path(__file__).resolve().parent.parent / "vendor" / "resources" / resource_id,
-        Path(__file__).resolve().parent.parent / "vendor" / resource_id,
+        vendor_root / lookup_id,
+        vendor_root / f"{lookup_id}.koplugin",
+        vendor_root / "resources" / lookup_id,
+        Path(__file__).resolve().parent.parent / "vendor" / "resources" / lookup_id,
+        Path(__file__).resolve().parent.parent / "vendor" / lookup_id,
+        Path(__file__).resolve().parent.parent / "vendor" / f"{lookup_id}.koplugin",
     ]
     target_dir = None
     for c in candidates:
