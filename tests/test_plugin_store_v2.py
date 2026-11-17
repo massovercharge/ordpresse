@@ -117,6 +117,41 @@ def test_font_chareink_local_zip_generation_and_download(client):
         assert len(ttf_files) >= 1
 
 
+@pytest.mark.parametrize(
+    "plugin_id,expected_prefix",
+    [
+        ("font-atkinson", "Atkinson-Hyperlegible/"),
+        ("font-literata", "Literata/"),
+    ],
+)
+def test_vendored_fonts_download_with_all_four_styles(client, plugin_id, expected_prefix):
+    """Verify vendored fonts (Atkinson Hyperlegible & Literata) download locally with 4 static TTF styles."""
+    db = Database()
+    raw_key, _ = db.create_api_key(f"Font Tester {plugin_id}")
+    headers = {"X-API-Key": raw_key}
+
+    res = client.get(f"/api/v1/koreader/lookup?action=store_download&id={plugin_id}", headers=headers)
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/zip"
+    assert res.headers["x-plugin-id"] == plugin_id
+
+    with zipfile.ZipFile(io.BytesIO(res.content), "r") as zf:
+        names = zf.namelist()
+        assert all(n.startswith(expected_prefix) for n in names)
+        ttf_files = [n for n in names if n.lower().endswith(".ttf")]
+        assert len(ttf_files) == 4
+        assert any(n.endswith("OFL.txt") for n in names)
+
+
+def test_all_catalog_items_have_local_zip():
+    """Ensure every item in PLUGIN_CATALOG builds a valid local zip with no dead external URLs."""
+    for item in PLUGIN_CATALOG:
+        data = get_plugin_zip(item.id)
+        assert data is not None and len(data) > 100, f"Catalog item '{item.id}' missing local zip"
+        with zipfile.ZipFile(io.BytesIO(data), "r") as zf:
+            assert len(zf.namelist()) >= 1
+
+
 def test_store_admin_download_resource(auth_client):
     """Verify LAN admin endpoint can download vendored resources."""
     res = auth_client.get("/api/v1/store/download/hyph-da")
