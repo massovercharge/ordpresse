@@ -66,23 +66,23 @@ end
 
 function Bogdoktor:addToMainMenu(menu_items)
     menu_items.ordpresse_bogdoktor = {
-        text = _("🩺 Ordpresse Bogdoktor"),
+        text = _("[Vask] Ordpresse Bogdoktor"),
         sorting_hint = "tools",
         sub_item_table = {
             {
-                text = _("✨ Dybdevask (Fuld OCR, TOC & EPUB 3)"),
+                text = _("[*] Dybdevask (Fuld OCR, TOC & EPUB 3)"),
                 callback = function()
                     self:confirmAndRun(true)
                 end,
             },
             {
-                text = _("⚡ Hurtig Vask (Kun Sprog, Typografi & CSS)"),
+                text = _("[>] Hurtig Vask (Kun Sprog, Typografi & CSS)"),
                 callback = function()
                     self:confirmAndRun(false)
                 end,
             },
             {
-                text = _("⏪ Gendan original før Bogdoktor"),
+                text = _("[<<] Gendan original før Bogdoktor"),
                 enabled_func = function()
                     return self.ui.document and self:hasBackup(self.ui.document.file)
                 end,
@@ -130,7 +130,7 @@ function Bogdoktor:executeRequest(url, headers, source_fn, tmp_out_path)
     if not out_file then return nil, nil end
 
     http.TIMEOUT = 60
-    local _, code, resp_headers = http.request{
+    local _res, code, resp_headers = http.request{
         url = url,
         method = "POST",
         headers = headers,
@@ -144,7 +144,7 @@ end
 
 function Bogdoktor:runRemoteLaundry(cfg, doc_path, full_deep_clean)
     local wait_msg = InfoMessage:new{
-        text = _("🧼 Bogdoktor restaurerer bogen på serveren...\nVent venligst (5-15 sek.)"),
+        text = _("[↻] Bogdoktor restaurerer bogen på serveren...\nVent venligst (5-15 sek.)"),
     }
     UIManager:show(wait_msg)
     UIManager:forceRePaint()
@@ -220,12 +220,12 @@ function Bogdoktor:runRemoteLaundry(cfg, doc_path, full_deep_clean)
 
         UIManager:show(InfoMessage:new{
             text = string.format(
-                _("✨ Bogdoktor Færdig (%s ms)\n\n"
+                _("[✓] Bogdoktor Færdig (%s ms)\n\n"
                 .. "• Sprog & orddeling: %s\n"
                 .. "• Størrelse: %s KB -> %s KB\n"
                 .. "• Knækkede OCR-afsnit helet: %s\n"
                 .. "• Offline gloser indlejret: %s ord\n\n"
-                .. "(Du kan altid fortryde under 🩺 Bogdoktor -> Gendan original)"),
+                .. "(Du kan altid fortryde under [Vask] Ordpresse Bogdoktor -> Gendan original)"),
                 ms, lang:upper(), before_kb, after_kb, healed, prewarmed
             ),
         })
@@ -258,7 +258,7 @@ function Bogdoktor:restoreOriginalBackup()
     end
 
     UIManager:show(InfoMessage:new{
-        text = _("⏪ Original EPUB-fil er gendannet."),
+        text = _("[<<] Original EPUB-fil er gendannet."),
     })
 end
 

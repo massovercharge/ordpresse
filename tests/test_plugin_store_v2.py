@@ -144,8 +144,10 @@ def test_vendored_fonts_download_with_all_four_styles(client, plugin_id, expecte
 
 
 def test_all_catalog_items_have_local_zip():
-    """Ensure every item in PLUGIN_CATALOG builds a valid local zip with no dead external URLs."""
+    """Ensure every locally vendored item in PLUGIN_CATALOG builds a valid local archive with no dead external URLs."""
     for item in PLUGIN_CATALOG:
+        if item.zipball_url:
+            continue
         data = get_plugin_zip(item.id)
         assert data is not None and len(data) > 100, f"Catalog item '{item.id}' missing local zip"
         with zipfile.ZipFile(io.BytesIO(data), "r") as zf:
@@ -210,5 +212,49 @@ def test_lua_code_syntax():
                 import os
                 if os.path.exists(f_name):
                     os.remove(f_name)
+
+
+def test_kindle_universal_eink_symbols():
+    """Ensure all KOReader/Kindle UI strings and store catalog entries use universal e-ink symbols (no emojis/tofu)."""
+    from pathlib import Path
+
+    # Disallowed BMP emoji-presentation / non-universal media symbols that render as tofu on Kindle
+    forbidden_bmp = set("⚡✨✅⚠⏸▶⏹⏩⏪")
+
+    def _assert_universal(source_label: str, text: str) -> None:
+        bad = []
+        for ch in text:
+            cp = ord(ch)
+            if cp > 0xFFFF or cp == 0xFE0F or ch in forbidden_bmp:
+                bad.append(f"{ch!r} (U+{cp:04X})")
+        assert not bad, f"Non-universal Kindle symbol(s) found in {source_label}: {', '.join(sorted(set(bad)))}"
+
+    for item in PLUGIN_CATALOG:
+        _assert_universal(f"catalog[{item.id}].name", item.name)
+        _assert_universal(f"catalog[{item.id}].description", item.description)
+        if item.install_note:
+            _assert_universal(f"catalog[{item.id}].install_note", item.install_note)
+
+    _assert_universal("MAIN_LUA", MAIN_LUA)
+    _assert_universal("BRIDGE_LUA", BRIDGE_LUA)
+    _assert_universal("META_LUA", META_LUA)
+
+    vendor_lua_files = [
+        Path("src/ordpresse/vendor/bogdoktor.koplugin/main.lua"),
+        Path("src/ordpresse/vendor/bogdoktor.koplugin/_meta.lua"),
+        Path("src/ordpresse/vendor/ordpresse_opds.koplugin/main.lua"),
+        Path("src/ordpresse/vendor/ordpresse_opds.koplugin/_meta.lua"),
+        Path("src/ordpresse/vendor/ordpresse-kosync.koplugin/main.lua"),
+        Path("src/ordpresse/vendor/ordpresse-kosync.koplugin/_meta.lua"),
+        Path("src/ordpresse/vendor/ordpresse-udklip.koplugin/main.lua"),
+        Path("src/ordpresse/vendor/ordpresse-udklip.koplugin/_meta.lua"),
+        Path("src/ordpresse/vendor/ordpresse-avisen.koplugin/main.lua"),
+        Path("src/ordpresse/vendor/ordpresse-avisen.koplugin/_meta.lua"),
+        Path("src/ordpresse/vendor/annas-fetch.koplugin/annas/ui.lua"),
+        *sorted(Path("src/ordpresse/vendor/patches").glob("*.lua")),
+    ]
+    for lua_path in vendor_lua_files:
+        _assert_universal(str(lua_path), lua_path.read_text(encoding="utf-8"))
+
 
 

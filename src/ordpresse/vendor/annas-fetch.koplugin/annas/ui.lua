@@ -683,7 +683,7 @@ function Ui.showBookDetails(parent_annas, book, clear_cache_callback)
         local fmt_str = (book.format and book.format ~= "N/A" and book.format ~= "") and book.format:upper() or "EPUB"
         local size_str = (book.size and book.size ~= "N/A" and book.size ~= "") and (" - " .. book.size) or ""
         table.insert(details_menu_items, {
-            text = string.format("📥 %s (%s%s)", T("Download Book"), fmt_str, size_str),
+            text = string.format("[+] %s (%s%s)", T("Download Book"), fmt_str, size_str),
             mandatory = "\u{25B7}",
             callback = function()
                 parent_annas:downloadBook(book)

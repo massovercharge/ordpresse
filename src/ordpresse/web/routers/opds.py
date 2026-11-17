@@ -6,7 +6,12 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from ordpresse.db import Database
-from ordpresse.services.opds_service import generate_opds_feed, get_books_dir
+from ordpresse.services.opds_service import (
+    generate_articles_opds_feed,
+    generate_opds_feed,
+    get_articles_dir,
+    get_books_dir,
+)
 from ordpresse.web.auth import extract_request_api_key, verify_api_key, verify_session_token
 from ordpresse.web.state import mirror_prober
 
@@ -113,4 +118,63 @@ async def opds_download_book_endpoint(md5: str, request: Request):
                 },
             )
         raise HTTPException(status_code=502, detail="Fejl ved hentning af bog fra spejl.")
+
+
+@router.get("/opds/articles")
+@router.get("/api/v1/opds/articles")
+async def get_opds_articles_endpoint(request: Request):
+    """OPDS 1.2 Acquisition Feed for Web-to-EPUB 'Læs Senere' articles."""
+    db = Database()
+    token = request.cookies.get("ordpresse_session")
+    is_valid_session = token and verify_session_token(token)
+    raw_key = extract_request_api_key(request)
+    if not is_valid_session:
+        verify_api_key(raw_key, db)
+
+    articles = db.list_articles(unread_only=False)
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "ordpresse.seame.click"
+    proto = request.headers.get("x-forwarded-proto") or ("https" if "seame.click" in host else "http")
+    base_url = f"{proto}://{host}"
+
+    feed_xml = generate_articles_opds_feed(articles, base_url=base_url, api_key=raw_key)
+    return Response(
+        content=feed_xml,
+        media_type="application/atom+xml;profile=opds-catalog;kind=acquisition;charset=utf-8",
+        headers={"Cache-Control": "private, no-cache"},
+    )
+
+
+@router.get("/opds/articles/download/{md5}")
+async def opds_download_article_endpoint(md5: str, request: Request):
+    """Direct authenticated EPUB download endpoint for saved Web-to-EPUB articles."""
+    cleaned_md5 = md5.strip().lower()
+    if not re.match(r"^[0-9a-fA-F]{32}$", cleaned_md5):
+        raise HTTPException(status_code=400, detail="Ugyldigt MD5-hash.")
+
+    db = Database()
+    token = request.cookies.get("ordpresse_session")
+    is_valid_session = token and verify_session_token(token)
+    raw_key = extract_request_api_key(request)
+    if not is_valid_session:
+        verify_api_key(raw_key, db)
+
+    article = db.get_article(cleaned_md5)
+    if not article:
+        raise HTTPException(status_code=404, detail="Artiklen blev ikke fundet.")
+
+    file_path = get_articles_dir() / article["filename"]
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Artikel-filen mangler på disken.")
+
+    return FileResponse(
+        file_path,
+        media_type="application/epub+zip",
+        filename=article["filename"],
+        headers={
+            "X-MD5": cleaned_md5,
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": f'attachment; filename="{article["filename"]}"',
+        },
+    )
+
 

@@ -336,10 +336,128 @@ function initStore() {
     }
 
     initEpubUpload();
+    initV16Panels();
 
     // Initial load
     loadStoreMirrors();
     loadBooksArchive();
+    loadSavedArticles();
+    loadUdklipData();
+}
+
+async function loadSavedArticles() {
+    const listEl = document.getElementById('saved-articles-list');
+    if (!listEl) return;
+    try {
+        const res = await fetch('/api/v1/articles');
+        if (!res.ok) return;
+        const data = await res.json();
+        const items = data.articles || [];
+        if (items.length === 0) {
+            listEl.innerHTML = '<div class="py-3 text-slate-500 italic">Ingen gemte artikler endnu.</div>';
+            return;
+        }
+        listEl.innerHTML = items.map(a => `
+            <div class="py-2.5 flex items-center justify-between gap-2">
+                <div class="min-w-0">
+                    <div class="font-semibold text-white truncate">${escapeHtml(a.title)}</div>
+                    <div class="text-[11px] text-slate-400">${escapeHtml(a.author)} · ${Math.max(1, Math.round((a.size_bytes || 0) / 1024))} KB</div>
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <a href="/opds/articles/download/${escapeHtml(a.md5)}" class="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded text-[11px]">EPUB</a>
+                    <button type="button" onclick="deleteSavedArticle('${escapeHtml(a.md5)}')" class="px-2 py-1 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-300 border border-slate-700 rounded text-[11px] cursor-pointer">×</button>
+                </div>
+            </div>
+        `).join('');
+    } catch (e) { }
+}
+
+window.deleteSavedArticle = async function (md5) {
+    try {
+        await fetch(`/api/v1/articles/${encodeURIComponent(md5)}`, { method: 'DELETE' });
+        loadSavedArticles();
+    } catch (e) { }
+};
+
+async function loadUdklipData() {
+    const listEl = document.getElementById('udklip-highlights-list');
+    const badgeEl = document.getElementById('udklip-count-badge');
+    if (!listEl) return;
+    try {
+        const res = await fetch('/api/v1/udklip');
+        if (!res.ok) return;
+        const data = await res.json();
+        const highlights = data.highlights || [];
+        const vocab = data.vocab_words || [];
+        if (badgeEl) badgeEl.textContent = `${highlights.length} citater · ${vocab.length} gloser`;
+
+        if (highlights.length === 0 && vocab.length === 0) {
+            listEl.innerHTML = '<div class="py-3 text-slate-500 italic">Ingen synkroniserede citater eller gloser endnu.</div>';
+            return;
+        }
+        const parts = [];
+        highlights.slice(0, 20).forEach(h => {
+            parts.push(`
+                <div class="py-2.5 space-y-1">
+                    <div class="text-slate-200">»${escapeHtml(h.quote_text)}«</div>
+                    ${h.note ? `<div class="text-[11px] text-amber-300">Note: ${escapeHtml(h.note)}</div>` : ''}
+                    <div class="text-[10px] text-slate-500">${escapeHtml(h.book_title || 'Ukendt bog')}${h.chapter ? ' · ' + escapeHtml(h.chapter) : ''}</div>
+                </div>
+            `);
+        });
+        vocab.slice(0, 20).forEach(v => {
+            parts.push(`
+                <div class="py-2 space-y-0.5">
+                    <div class="font-semibold text-cyan-300">${escapeHtml(v.word)} <span class="text-[10px] font-normal text-slate-500">(${escapeHtml(v.book_title || 'Glosebog')})</span></div>
+                    ${v.context ? `<div class="text-[11px] text-slate-400">${escapeHtml(v.context)}</div>` : ''}
+                </div>
+            `);
+        });
+        listEl.innerHTML = parts.join('');
+    } catch (e) { }
+}
+
+function initV16Panels() {
+    const saveBtn = document.getElementById('article-save-btn');
+    const refreshBtn = document.getElementById('refresh-v16-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            loadSavedArticles();
+            loadUdklipData();
+        });
+    }
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            const url = (document.getElementById('article-url-input')?.value || '').trim();
+            const title = (document.getElementById('article-title-input')?.value || '').trim();
+            const author = (document.getElementById('article-author-input')?.value || '').trim();
+            const rawContent = (document.getElementById('article-raw-input')?.value || '').trim();
+            const statusEl = document.getElementById('article-save-status');
+            if (!url && !rawContent) {
+                if (statusEl) statusEl.textContent = 'Indtast URL eller tekst.';
+                return;
+            }
+            saveBtn.disabled = true;
+            if (statusEl) statusEl.textContent = 'Konverterer og vasker EPUB...';
+            try {
+                const res = await fetch('/api/v1/articles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, title, author, raw_content: rawContent }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+                if (statusEl) statusEl.textContent = `Gemt: ${data.article?.title || 'EPUB klar'}`;
+                if (document.getElementById('article-url-input')) document.getElementById('article-url-input').value = '';
+                if (document.getElementById('article-raw-input')) document.getElementById('article-raw-input').value = '';
+                loadSavedArticles();
+            } catch (err) {
+                if (statusEl) statusEl.textContent = `Fejl: ${err.message}`;
+            } finally {
+                saveBtn.disabled = false;
+            }
+        });
+    }
 }
 
 function initEpubUpload() {

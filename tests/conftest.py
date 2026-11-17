@@ -14,7 +14,13 @@ def auto_auth_for_legacy_tests(request, monkeypatch):
     New V10.2 security tests in test_koreader_online are excluded so they test
     unauthenticated requests and login flows authentically.
     """
-    if "test_koreader_online" in request.node.nodeid or "test_opds_and_books" in request.node.nodeid or "test_plugin_store_v2" in request.node.nodeid:
+    if (
+        "test_koreader_online" in request.node.nodeid
+        or "test_opds_and_books" in request.node.nodeid
+        or "test_plugin_store_v2" in request.node.nodeid
+        or "test_store_v160" in request.node.nodeid
+        or "test_lua_vm_v160" in request.node.nodeid
+    ):
         return
 
     orig_init = TestClient.__init__

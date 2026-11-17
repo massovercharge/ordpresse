@@ -318,6 +318,60 @@ def init_cache_db(conn: sqlite3.Connection) -> None:
                 last_accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_books_downloaded_at ON downloaded_books(downloaded_at DESC);
+
+            CREATE TABLE IF NOT EXISTS reading_progress (
+                book_key TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                author TEXT NOT NULL DEFAULT '',
+                normalized_key TEXT NOT NULL DEFAULT '',
+                partial_md5 TEXT NOT NULL DEFAULT '',
+                percentage REAL NOT NULL DEFAULT 0.0,
+                xpointer TEXT NOT NULL DEFAULT '',
+                chapter_index INTEGER,
+                paragraph_index INTEGER,
+                device_name TEXT NOT NULL DEFAULT 'Ukendt enhed',
+                updated_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_reading_progress_md5 ON reading_progress(partial_md5);
+            CREATE INDEX IF NOT EXISTS idx_reading_progress_norm ON reading_progress(normalized_key);
+
+            CREATE TABLE IF NOT EXISTS reader_highlights (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_title TEXT NOT NULL DEFAULT '',
+                book_author TEXT NOT NULL DEFAULT '',
+                chapter TEXT NOT NULL DEFAULT '',
+                page TEXT NOT NULL DEFAULT '',
+                quote_text TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                device_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                dedup_hash TEXT NOT NULL UNIQUE
+            );
+            CREATE INDEX IF NOT EXISTS idx_reader_highlights_book ON reader_highlights(book_title);
+
+            CREATE TABLE IF NOT EXISTS reader_vocab (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word TEXT NOT NULL,
+                context TEXT NOT NULL DEFAULT '',
+                book_title TEXT NOT NULL DEFAULT '',
+                device_name TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL DEFAULT 0,
+                dedup_hash TEXT NOT NULL UNIQUE
+            );
+            CREATE INDEX IF NOT EXISTS idx_reader_vocab_word ON reader_vocab(word);
+
+            CREATE TABLE IF NOT EXISTS saved_articles (
+                md5 TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                author TEXT NOT NULL DEFAULT 'Web-artikel',
+                source_url TEXT NOT NULL DEFAULT '',
+                filename TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                language TEXT NOT NULL DEFAULT 'da',
+                is_read INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_saved_articles_created ON saved_articles(created_at DESC);
             """
         )
     clean_corrupted_cached_definitions(conn)
@@ -1159,5 +1213,310 @@ class Database:
             with self.cache_conn as conn:
                 cur = conn.execute("DELETE FROM downloaded_books WHERE md5 = ?", (md5.strip().lower(),))
                 return cur.rowcount > 0
+
+    # ---------------------------------------------------------
+    # v1.6.0: Reading Progress (KoSync & CrossPoint), Udklip & Saved Articles
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def normalize_book_key(title: str = "", author: str = "") -> str:
+        """Produce a normalized title+author key for cross-format progress matching."""
+        t = re.sub(r"[^a-z0-9æøå]+", " ", (title or "").lower()).strip()
+        a = re.sub(r"[^a-z0-9æøå]+", " ", (author or "").lower()).strip()
+        if t and a:
+            return f"{t}::{a}"
+        return t or a
+
+    def upsert_reading_progress(
+        self,
+        partial_md5: str = "",
+        title: str = "",
+        author: str = "",
+        percentage: float = 0.0,
+        xpointer: str = "",
+        chapter_index: Optional[int] = None,
+        paragraph_index: Optional[int] = None,
+        device_name: str = "Ukendt enhed",
+    ) -> dict:
+        """Store or update latest reading progress for a book across devices."""
+        clean_md5 = (partial_md5 or "").strip().lower()
+        clean_title = (title or "").strip()
+        clean_author = (author or "").strip()
+        norm_key = self.normalize_book_key(clean_title, clean_author)
+        book_key = clean_md5 or norm_key
+        if not book_key:
+            raise ValueError("Mangler enten partial_md5 eller titel til læsesynkronisering.")
+
+        now = int(time.time())
+        pct = max(0.0, min(100.0, float(percentage or 0.0)))
+
+        with self._write_lock:
+            with self.cache_conn as conn:
+                # If an existing row matches normalized_key under another key, update it too so cross-format stays unified
+                conn.execute(
+                    """
+                    INSERT INTO reading_progress (
+                        book_key, title, author, normalized_key, partial_md5,
+                        percentage, xpointer, chapter_index, paragraph_index, device_name, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(book_key) DO UPDATE SET
+                        title = CASE WHEN excluded.title != '' THEN excluded.title ELSE reading_progress.title END,
+                        author = CASE WHEN excluded.author != '' THEN excluded.author ELSE reading_progress.author END,
+                        normalized_key = CASE WHEN excluded.normalized_key != '' THEN excluded.normalized_key ELSE reading_progress.normalized_key END,
+                        partial_md5 = CASE WHEN excluded.partial_md5 != '' THEN excluded.partial_md5 ELSE reading_progress.partial_md5 END,
+                        percentage = excluded.percentage,
+                        xpointer = excluded.xpointer,
+                        chapter_index = COALESCE(excluded.chapter_index, reading_progress.chapter_index),
+                        paragraph_index = COALESCE(excluded.paragraph_index, reading_progress.paragraph_index),
+                        device_name = excluded.device_name,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        book_key,
+                        clean_title,
+                        clean_author,
+                        norm_key,
+                        clean_md5,
+                        pct,
+                        xpointer or "",
+                        chapter_index,
+                        paragraph_index,
+                        device_name or "Ukendt enhed",
+                        now,
+                    ),
+                )
+        return {
+            "book_key": book_key,
+            "title": clean_title,
+            "author": clean_author,
+            "partial_md5": clean_md5,
+            "percentage": pct,
+            "xpointer": xpointer or "",
+            "chapter_index": chapter_index,
+            "paragraph_index": paragraph_index,
+            "device_name": device_name or "Ukendt enhed",
+            "updated_at": now,
+        }
+
+    def find_reading_progress(
+        self,
+        partial_md5: str = "",
+        title: str = "",
+        author: str = "",
+    ) -> Optional[dict]:
+        """Find the most recent reading progress by partial_md5 or normalized title/author."""
+        clean_md5 = (partial_md5 or "").strip().lower()
+        norm_full = self.normalize_book_key(title, author)
+        norm_title = self.normalize_book_key(title, "")
+
+        candidates: list[dict] = []
+        if clean_md5:
+            rows = self.cache_conn.execute(
+                "SELECT * FROM reading_progress WHERE book_key = ? OR partial_md5 = ? ORDER BY updated_at DESC",
+                (clean_md5, clean_md5),
+            ).fetchall()
+            candidates.extend(dict(r) for r in rows)
+
+        if norm_full:
+            rows = self.cache_conn.execute(
+                "SELECT * FROM reading_progress WHERE normalized_key = ? OR book_key = ? ORDER BY updated_at DESC",
+                (norm_full, norm_full),
+            ).fetchall()
+            candidates.extend(dict(r) for r in rows)
+        elif norm_title:
+            rows = self.cache_conn.execute(
+                "SELECT * FROM reading_progress WHERE normalized_key = ? OR normalized_key LIKE ? ORDER BY updated_at DESC",
+                (norm_title, f"{norm_title}::%"),
+            ).fetchall()
+            candidates.extend(dict(r) for r in rows)
+
+        if not candidates:
+            return None
+        candidates.sort(key=lambda r: (r.get("updated_at", 0), r.get("percentage", 0.0)), reverse=True)
+        return candidates[0]
+
+    def list_reading_progress(self, limit: int = 100) -> list[dict]:
+        """List recent reading progress entries across all synced books."""
+        rows = self.cache_conn.execute(
+            "SELECT * FROM reading_progress ORDER BY updated_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def sync_reader_udklip(
+        self,
+        device_name: str,
+        book_title: Optional[str] = None,
+        book_author: Optional[str] = None,
+        annotations: Optional[list[dict]] = None,
+        vocab_words: Optional[list[dict]] = None,
+    ) -> dict:
+        """Upsert synced highlights/annotations and vocabulary builder words from KOReader."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        highlights_saved = 0
+        vocab_saved = 0
+        b_title = (book_title or "").strip()
+        b_author = (book_author or "").strip()
+
+        with self._write_lock:
+            with self.cache_conn as conn:
+                for ann in annotations or []:
+                    if not isinstance(ann, dict):
+                        continue
+                    quote = (ann.get("text") or ann.get("quote_text") or "").strip()
+                    note = (ann.get("note") or "").strip()
+                    if not quote and not note:
+                        continue
+                    chapter = str(ann.get("chapter") or "").strip()
+                    page = str(ann.get("pageno") or ann.get("page") or "").strip()
+                    created = str(ann.get("datetime") or ann.get("created_at") or now_iso)
+                    dedup = hashlib.sha256(
+                        f"{b_title}|{chapter}|{quote}|{note}".encode("utf-8")
+                    ).hexdigest()
+                    cur = conn.execute(
+                        """
+                        INSERT INTO reader_highlights (
+                            book_title, book_author, chapter, page, quote_text, note, device_name, created_at, dedup_hash
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(dedup_hash) DO UPDATE SET
+                            note = CASE WHEN excluded.note != '' THEN excluded.note ELSE reader_highlights.note END,
+                            device_name = excluded.device_name
+                        """,
+                        (b_title, b_author, chapter, page, quote, note, device_name, created, dedup),
+                    )
+                    if cur.rowcount > 0:
+                        highlights_saved += 1
+
+                for vw in vocab_words or []:
+                    if not isinstance(vw, dict):
+                        continue
+                    word = (vw.get("word") or "").strip()
+                    if not word:
+                        continue
+                    context = (vw.get("context") or "").strip()
+                    v_book = (vw.get("book_title") or b_title).strip()
+                    created_at = int(vw.get("created_at") or 0)
+                    dedup = hashlib.sha256(
+                        f"{word.lower()}|{v_book}|{context}".encode("utf-8")
+                    ).hexdigest()
+                    cur = conn.execute(
+                        """
+                        INSERT INTO reader_vocab (
+                            word, context, book_title, device_name, created_at, dedup_hash
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(dedup_hash) DO NOTHING
+                        """,
+                        (word, context, v_book, device_name, created_at, dedup),
+                    )
+                    if cur.rowcount > 0:
+                        vocab_saved += 1
+
+        return {"highlights_saved": highlights_saved, "vocab_saved": vocab_saved}
+
+    def list_reader_highlights(self, limit: int = 200) -> list[dict]:
+        """List synced reader highlights/annotations sorted newest first."""
+        rows = self.cache_conn.execute(
+            "SELECT id, book_title, book_author, chapter, page, quote_text, note, device_name, created_at "
+            "FROM reader_highlights ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_reader_vocab(self, limit: int = 300) -> list[dict]:
+        """List synced vocabulary builder words sorted newest first."""
+        rows = self.cache_conn.execute(
+            "SELECT id, word, context, book_title, device_name, created_at "
+            "FROM reader_vocab ORDER BY created_at DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_article(
+        self,
+        md5: str,
+        title: str,
+        author: str,
+        source_url: str,
+        filename: str,
+        size_bytes: int,
+        language: str = "da",
+    ) -> dict:
+        """Register a Web-to-EPUB saved article."""
+        cleaned_md5 = md5.strip().lower()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._write_lock:
+            with self.cache_conn as conn:
+                conn.execute(
+                    """
+                    INSERT INTO saved_articles (
+                        md5, title, author, source_url, filename, size_bytes, language, is_read, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+                    ON CONFLICT(md5) DO UPDATE SET
+                        title = excluded.title,
+                        author = excluded.author,
+                        source_url = excluded.source_url,
+                        filename = excluded.filename,
+                        size_bytes = excluded.size_bytes,
+                        language = excluded.language
+                    """,
+                    (
+                        cleaned_md5,
+                        title.strip() or "Web-artikel",
+                        author.strip() or "Web-artikel",
+                        source_url.strip(),
+                        filename.strip(),
+                        int(size_bytes),
+                        language.strip().lower() or "da",
+                        now_iso,
+                    ),
+                )
+        return {
+            "md5": cleaned_md5,
+            "title": title.strip() or "Web-artikel",
+            "author": author.strip() or "Web-artikel",
+            "source_url": source_url.strip(),
+            "filename": filename.strip(),
+            "size_bytes": int(size_bytes),
+            "language": language.strip().lower() or "da",
+            "is_read": 0,
+            "created_at": now_iso,
+        }
+
+    def list_articles(self, unread_only: bool = False, limit: int = 100) -> list[dict]:
+        """List saved Web-to-EPUB articles sorted newest first."""
+        where = "WHERE is_read = 0 " if unread_only else ""
+        rows = self.cache_conn.execute(
+            f"SELECT md5, title, author, source_url, filename, size_bytes, language, is_read, created_at "
+            f"FROM saved_articles {where}ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_article(self, md5: str) -> Optional[dict]:
+        """Fetch a single saved article by MD5."""
+        row = self.cache_conn.execute(
+            "SELECT md5, title, author, source_url, filename, size_bytes, language, is_read, created_at "
+            "FROM saved_articles WHERE md5 = ?",
+            (md5.strip().lower(),),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def mark_article_read(self, md5: str, is_read: bool = True) -> bool:
+        """Mark a saved article as read or unread."""
+        with self._write_lock:
+            with self.cache_conn as conn:
+                cur = conn.execute(
+                    "UPDATE saved_articles SET is_read = ? WHERE md5 = ?",
+                    (1 if is_read else 0, md5.strip().lower()),
+                )
+                return cur.rowcount > 0
+
+    def delete_article(self, md5: str) -> bool:
+        """Delete a saved article record from SQLite."""
+        with self._write_lock:
+            with self.cache_conn as conn:
+                cur = conn.execute("DELETE FROM saved_articles WHERE md5 = ?", (md5.strip().lower(),))
+                return cur.rowcount > 0
+
 
 

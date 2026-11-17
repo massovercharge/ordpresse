@@ -65,7 +65,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -83,9 +83,22 @@ async def enforce_two_zone_boundary_and_auth(request: Request, call_next):
     - Layer 2 (LAN Zone): Requires admin password login via session cookie for management UI/APIs.
     """
     path = request.url.path
+    clean_path = path.rstrip("/")
     is_opds_or_lookup = (
-        path.rstrip("/") in ("/api/v1/koreader/lookup", "/api/v1/koreader/laundry", "/opds", "/api/v1/opds")
+        clean_path in (
+            "/api/v1/koreader/lookup",
+            "/api/v1/koreader/laundry",
+            "/api/v1/koreader/sync/progress",
+            "/api/v1/koreader/udklip/sync",
+            "/api/v1/koreader/articles",
+            "/opds",
+            "/api/v1/opds",
+            "/opds/articles",
+            "/api/v1/opds/articles",
+        )
+        or path.startswith("/api/v1/koreader/articles/")
         or path.startswith("/opds/download/")
+        or path.startswith("/opds/articles/download/")
     )
 
     # Layer 1: Strict External Zone Boundary

@@ -4,15 +4,15 @@ import io
 import re
 import zipfile
 
-PLUGIN_VERSION = "1.5.0"
-PLUGIN_RELEASE_NOTES = "Ny v1.5.0: 1-klik installation af Ordpresse OPDS-bogkatalog i KOReader og fuld understøttelse af web-uploadede vaskede bøger."
+PLUGIN_VERSION = "1.6.0"
+PLUGIN_RELEASE_NOTES = "Ny v1.6.0: Fuld Pakke- & Patch-Manager direkte på e-ink ([||] Deaktiver, [>] Aktiver, [×] Afinstaller), KOReader User Patches (patches/), samt 1-kliks Læse-Synk, Højdepunkter/Glosebog, Web-til-EPUB og Project: Title."
 
 META_LUA = """local _ = require("gettext")
 return {
     name = "ordpresse",
     fullname = _("Den Danske Ordpresse (Online Opslag & Butik)"),
-    description = _("Slå danske og historiske 1700-1900-tals ord op via din private Ordpresse-server og administrer plugins/ressourcer."),
-    version = "1.5.0",
+    description = _("Slå danske og historiske 1700-1900-tals ord op via din private Ordpresse-server og administrer plugins, patches og ressourcer."),
+    version = "1.6.0",
 }
 """
 
@@ -39,7 +39,7 @@ if not ok_cfg or type(config) ~= "table" then
 end
 
 local Bridge = {
-    version = "1.5.0",
+    version = "1.6.0",
     config = config,
 }
 
@@ -256,7 +256,7 @@ local http = require("socket.http")
 local url = require("socket.url")
 local _ = require("gettext")
 
-local PLUGIN_VERSION = "1.5.0"
+local PLUGIN_VERSION = "1.6.0"
 local ok_util, util = pcall(require, "util")
 local ok_ffiutil, ffiUtil = pcall(require, "ffi/util")
 local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
@@ -456,7 +456,7 @@ function Ordpresse:registerHooks()
         pcall(function()
             self.ui.highlight:addToHighlightDialog("09_ordpresse_online", function(this)
                 return {
-                    text = _("⚡ Slå op i Ordpresse (Online)"),
+                    text = _("[Ord] Slå op i Ordpresse (Online)"),
                     enabled = true,
                     callback = function()
                         local word = ""
@@ -482,7 +482,7 @@ function Ordpresse:registerHooks()
             self.ui.dictionary:addToDictButtons({
                 id = "ordpresse_online",
                 menu_text = _("Ordpresse Online"),
-                text = _("⚡ Ordpresse Online"),
+                text = _("[Ord] Ordpresse Online"),
                 insert_first = true,
                 font_bold = true,
                 callback = function(dict_popup)
@@ -512,7 +512,7 @@ function Ordpresse:onDictButtonsReady(dict_popup, buttons)
     table.insert(buttons, 1, {
         {
             id = "ordpresse_online",
-            text = _("⚡ Ordpresse Online"),
+            text = _("[Ord] Ordpresse Online"),
             font_bold = true,
             callback = function()
                 local word = dict_popup.word or dict_popup.lookupword or ""
@@ -524,14 +524,14 @@ end
 
 function Ordpresse:addToMainMenu(menu_items)
     menu_items.ordpresse_online = {
-        text = _("⚡ Ordpresse Online Opslag"),
+        text = _("[Ord] Ordpresse Online Opslag"),
         sorting_hint = "more_tools",
         callback = function()
             self:showManualLookupDialog()
         end,
     }
     menu_items.ordpresse_opds = {
-        text = _("[📡] Ordpresse: Forbind OPDS Bogkatalog"),
+        text = _("[OPDS] Ordpresse: Forbind OPDS Bogkatalog"),
         sorting_hint = "more_tools",
         callback = function()
             local ok, msg = self:setupOpdsCatalog()
@@ -849,7 +849,7 @@ function Ordpresse:performLookup(raw_word)
     end
 
     local loading = InfoMessage:new{
-        text = _("⚡ Slår '") .. word .. _("' op i Ordpresse..."),
+        text = _("[Ord] Slår '") .. word .. _("' op i Ordpresse..."),
     }
     UIManager:show(loading)
 
@@ -1061,10 +1061,12 @@ end
 local function findPackageDest(item)
     local data_dir = (ok_ds and DataStorage and DataStorage.getDataDir) and DataStorage:getDataDir() or "./"
     local cat = item.category or "utility"
-    local target_type = item.target_type or (cat == "resources" and "font" or "plugin")
+    local target_type = item.target_type or item.pkg_type or (cat == "patch" and "patch" or (cat == "resources" and "font" or "plugin"))
     local rel_dir = item.target_dir
     if not rel_dir or rel_dir == "" then
-        if target_type == "font" then
+        if target_type == "patch" then
+            rel_dir = "patches"
+        elseif target_type == "font" then
             rel_dir = "fonts"
         elseif target_type == "hyph" then
             rel_dir = "data/hyph"
@@ -1072,9 +1074,10 @@ local function findPackageDest(item)
             rel_dir = "plugins"
         end
     end
-    local safe_name = (item.koplugin_name or item.id):gsub("[^%w%._%-]", "_")
+    local safe_name = (item.target_name or item.koplugin_name or item.id):gsub("[^%w%._%-]", "_")
     local base_dir = data_dir .. "/" .. rel_dir
     local dest_dir = base_dir .. "/" .. safe_name
+    local disabled_path = dest_dir .. ".disabled"
     local staging_dir = base_dir .. "/." .. safe_name .. ".tmp"
     local backup_dir = base_dir .. "/." .. safe_name .. ".bak"
     return {
@@ -1084,23 +1087,86 @@ local function findPackageDest(item)
         base_dir = base_dir,
         safe_name = safe_name,
         dest_dir = dest_dir,
+        disabled_path = disabled_path,
         staging_dir = staging_dir,
         backup_dir = backup_dir,
     }
 end
 
+local function readInstalledVersion(target_type, target_path)
+    if target_type == "patch" then
+        local pf = io.open(target_path, "r")
+        if pf then
+            local head = pf:read(512) or ""
+            pf:close()
+            local ver = head:match("@version%s+([%w%.%-_]+)")
+            if ver and ver ~= "" then
+                return ver
+            end
+        end
+        return nil
+    end
+
+    -- 1. Tjek .version fil først (bruges af fonts, hyph og nyinstallerede plugins)
+    local vf = io.open(target_path .. "/.version", "r")
+    if vf then
+        local line = vf:read("*l")
+        vf:close()
+        if line and line ~= "" then
+            return line:gsub("^%s+", ""):gsub("%s+$", "")
+        end
+    end
+
+    -- 2. Hvis plugin, læs _meta.lua
+    if target_type == "plugin" then
+        local mf = io.open(target_path .. "/_meta.lua", "r")
+        if mf then
+            local mcontent = mf:read("*a")
+            mf:close()
+            if mcontent then
+                local ver = mcontent:match('version%s*=%s*"(.-)"') or mcontent:match("version%s*=%s*'(.-)'")
+                if ver and ver ~= "" then
+                    return ver
+                end
+            end
+        end
+    end
+    return nil
+end
+
 local function inspectInstalledPackage(item)
     local paths = findPackageDest(item)
     local is_installed = false
+    local is_disabled = false
     local installed_version = nil
     local has_backup = false
 
-    if item.id == "opds-catalog" or item.target_type == "opds_setting" or item.koplugin_name == "ordpresse_opds.koplugin" then
+    if ok_lfs and lfs and lfs.attributes then
+        if lfs.attributes(paths.backup_dir, "mode") ~= nil then
+            has_backup = true
+        end
+
+        local expected_mode = (paths.target_type == "patch") and "file" or "directory"
+        local dest_mode = lfs.attributes(paths.dest_dir, "mode")
+        local disabled_mode = lfs.attributes(paths.disabled_path, "mode")
+
+        if dest_mode == expected_mode or (paths.target_type ~= "patch" and dest_mode ~= nil) then
+            is_installed = true
+            is_disabled = false
+            installed_version = readInstalledVersion(paths.target_type, paths.dest_dir)
+        elseif disabled_mode == expected_mode or (paths.target_type ~= "patch" and disabled_mode ~= nil) then
+            is_installed = true
+            is_disabled = true
+            installed_version = readInstalledVersion(paths.target_type, paths.disabled_path)
+        end
+    end
+
+    if not is_installed and (item.id == "opds-catalog" or item.target_type == "opds_setting" or item.koplugin_name == "ordpresse_opds.koplugin") then
         local is_configured = false
 
         -- 1. Tjek opds.lua via LuaSettings
-        local ok_ds, DataStorage = pcall(require, "datastorage")
-        local settings_dir = (ok_ds and DataStorage and DataStorage.getSettingsDir) and DataStorage:getSettingsDir() or "./settings"
+        local ok_ds_local, DataStorageLocal = pcall(require, "datastorage")
+        local settings_dir = (ok_ds_local and DataStorageLocal and DataStorageLocal.getSettingsDir) and DataStorageLocal:getSettingsDir() or "./settings"
         local ok_ls, LuaSettings = pcall(require, "luasettings")
         if ok_ls and LuaSettings then
             local opds_file = settings_dir .. "/opds.lua"
@@ -1129,62 +1195,23 @@ local function inspectInstalledPackage(item)
             end
         end
 
-        -- 3. Tjek om ordpresse_opds plugin-mappe findes
-        if not is_configured and ok_lfs and lfs and lfs.attributes then
-            if lfs.attributes(paths.dest_dir .. "/_meta.lua", "mode") ~= nil then
-                is_configured = true
-            end
-        end
-
         if is_configured then
             return {
                 is_installed = true,
+                is_disabled = false,
                 installed_version = item.version,
-                has_backup = false,
+                has_backup = has_backup,
                 status = "installed",
                 paths = paths,
             }
         end
     end
 
-    if ok_lfs and lfs and lfs.attributes then
-        if lfs.attributes(paths.backup_dir, "mode") ~= nil then
-            has_backup = true
-        end
-
-        local dest_mode = lfs.attributes(paths.dest_dir, "mode")
-        if dest_mode ~= nil then
-            is_installed = true
-            -- 1. Tjek .version fil først (bruges af fonts og hyph ressourcer)
-            local vf = io.open(paths.dest_dir .. "/.version", "r")
-            if vf then
-                local line = vf:read("*l")
-                vf:close()
-                if line and line ~= "" then
-                    installed_version = line:gsub("^%s+", ""):gsub("%s+$", "")
-                end
-            end
-
-            -- 2. Hvis plugin, læs _meta.lua
-            if not installed_version and paths.target_type == "plugin" then
-                local mf = io.open(paths.dest_dir .. "/_meta.lua", "r")
-                if mf then
-                    local mcontent = mf:read("*a")
-                    mf:close()
-                    if mcontent then
-                        local ver = mcontent:match('version%s*=%s*"(.-)"') or mcontent:match("version%s*=%s*'(.-)'")
-                        if ver and ver ~= "" then
-                            installed_version = ver
-                        end
-                    end
-                end
-            end
-        end
-    end
-
     local status = "not_installed"
     if is_installed then
-        if installed_version and installed_version ~= "" and item.version and item.version ~= "" then
+        if is_disabled then
+            status = "disabled"
+        elseif installed_version and installed_version ~= "" and item.version and item.version ~= "" then
             if installed_version == item.version then
                 status = "installed"
             else
@@ -1197,6 +1224,7 @@ local function inspectInstalledPackage(item)
 
     return {
         is_installed = is_installed,
+        is_disabled = is_disabled,
         installed_version = installed_version,
         has_backup = has_backup,
         status = status,
@@ -1276,7 +1304,8 @@ function Ordpresse:showPluginCatalog(catalog)
         end
         for _, p in ipairs(catalog) do
             local mark = p._status == "update_available" and "[↻] [Opdater]"
-                or (p._status == "installed" and "[✓] [Installeret]" or "[+] [Ny]")
+                or (p._status == "disabled" and "[||] [Sat på pause]"
+                or (p._status == "installed" and "[✓] [Installeret]" or "[+] [Ny]"))
             table.insert(lines, mark .. " " .. p.name .. " (v" .. p.version .. ")")
             table.insert(lines, "  " .. p.description)
             table.insert(lines, "")
@@ -1312,6 +1341,9 @@ function Ordpresse:showPluginCatalog(catalog)
             prefix = "[↻] "
             local from_ver = p._installed_version and ("v" .. p._installed_version .. " → ") or ""
             suffix = "  (" .. from_ver .. "v" .. p.version .. ")"
+        elseif p._status == "disabled" then
+            prefix = "[||] "
+            suffix = "  (Pause · v" .. (p._installed_version or p.version) .. ")"
         elseif p._status == "installed" then
             prefix = "[✓] "
             suffix = "  (v" .. (p._installed_version or p.version) .. ")"
@@ -1338,7 +1370,7 @@ function Ordpresse:showPluginCatalog(catalog)
     })
 
     self._store_dialog = ButtonDialog:new{
-        title = _("Ordpresse Butik (Plugins & Ressourcer)"),
+        title = _("Ordpresse Butik (Plugins, Patches & Ressourcer)"),
         buttons = buttons,
     }
     UIManager:show(self._store_dialog)
@@ -1348,46 +1380,48 @@ function Ordpresse:showPluginDetail(plugin)
     closeWidgetSafe(self._store_dialog)
     self._store_dialog = nil
 
-    if not plugin._info then
-        plugin._info = inspectInstalledPackage(plugin)
-        plugin._status = plugin._info.status
-        plugin._installed_version = plugin._info.installed_version
-        plugin._has_backup = plugin._info.has_backup
-        plugin._paths = plugin._info.paths
-    end
+    -- Gen-inspektér altid frisk tilstand fra filsystemet
+    plugin._info = inspectInstalledPackage(plugin)
+    plugin._status = plugin._info.status
+    plugin._installed_version = plugin._info.installed_version
+    plugin._has_backup = plugin._info.has_backup
+    plugin._paths = plugin._info.paths
 
     local category_label = (plugin.category or "utility"):upper()
     if category_label == "RESOURCES" then
         category_label = "RESSOURCER (TYPOGRAFI)"
+    elseif category_label == "PATCH" then
+        category_label = "USER PATCH (patches/)"
     end
 
     local target_desc = (plugin._paths and plugin._paths.rel_dir) or "plugins"
+    local is_lifecycle_manageable = (plugin._paths and (plugin._paths.target_type == "plugin" or plugin._paths.target_type == "patch"))
+
+    local status_line
+    if plugin._status == "update_available" then
+        status_line = "[↻] Opdatering tilgængelig! (Installeret: v" .. tostring(plugin._installed_version) .. ")"
+    elseif plugin._status == "disabled" then
+        status_line = "[||] Installeret, men sat på pause (v" .. tostring(plugin._installed_version or plugin.version) .. ")"
+    elseif plugin._status == "installed" then
+        status_line = "[✓] Installeret & Aktiv (v" .. tostring(plugin._installed_version or plugin.version) .. ")"
+    else
+        status_line = "[+] Ikke installeret"
+    end
 
     local detail_lines = {
         plugin.name,
-        "",
-        plugin.description,
-        "",
+        string.rep("─", 22),
+        "Status: " .. status_line,
         "Kategori: " .. category_label,
         "Forfatter: " .. (plugin.author or "ukendt"),
-        "Katalog-version: v" .. (plugin.version or "?"),
-        "Placering på enhed: " .. target_desc .. "/" .. (plugin._paths and plugin._paths.safe_name or plugin.koplugin_name),
-        "Licens: " .. (plugin.license or "?"),
+        "Placering: " .. target_desc .. "/" .. (plugin._paths and plugin._paths.safe_name or plugin.koplugin_name),
         "Størrelse: ~" .. tostring(plugin.size_estimate_kb or "?") .. " KB",
+        "",
+        plugin.description,
     }
 
-    if plugin._status == "update_available" then
-        table.insert(detail_lines, "")
-        table.insert(detail_lines, "Status: [↻] Opdatering tilgængelig! (Installeret: v" .. tostring(plugin._installed_version) .. ")")
-    elseif plugin._status == "installed" then
-        table.insert(detail_lines, "")
-        table.insert(detail_lines, "Status: [✓] Installeret (v" .. tostring(plugin._installed_version or plugin.version) .. ")")
-    else
-        table.insert(detail_lines, "")
-        table.insert(detail_lines, "Status: [+] Ikke installeret")
-    end
-
     if plugin._has_backup then
+        table.insert(detail_lines, "")
         table.insert(detail_lines, "Sikkerhedskopi: [<<] Forrige version gemt og klar til rollback.")
     end
 
@@ -1396,33 +1430,124 @@ function Ordpresse:showPluginDetail(plugin)
         table.insert(detail_lines, "[i] " .. plugin.install_note)
     end
 
-    local action_text = _("[+] Installer")
-    if plugin._status == "update_available" then
-        action_text = _("[↻] Opdater til v") .. tostring(plugin.version)
-    elseif plugin._status == "installed" then
-        action_text = _("[✓] Geninstaller v") .. tostring(plugin.version)
-    end
+    local detail_text = table.concat(detail_lines, "\\n")
+    local ok_bd, ButtonDialog = pcall(require, "ui/widget/buttondialog")
+    if ok_bd and ButtonDialog then
+        local pkg_dialog
+        local action_buttons = {}
 
-    local other_buttons = nil
-    if plugin._has_backup then
-        other_buttons = {
-            {
+        if plugin._status == "not_installed" then
+            table.insert(action_buttons, {
+                {
+                    text = string.format(_("[+] Installer (~%d KB)"), tonumber(plugin.size_estimate_kb) or 15),
+                    is_enter_default = true,
+                    callback = function()
+                        closeWidgetSafe(pkg_dialog)
+                        UIManager:nextTick(function()
+                            self:installPlugin(plugin)
+                        end)
+                    end,
+                },
+            })
+        else
+            local update_text = (plugin._status == "update_available")
+                and (_("[↻] Opdater til v") .. tostring(plugin.version))
+                or (_("[↻] Geninstaller v") .. tostring(plugin.version))
+
+            if is_lifecycle_manageable and plugin.id ~= "ordpresse" then
+                local toggle_text = (plugin._status == "disabled") and _("[>] Aktiver") or _("[||] Deaktiver")
+                table.insert(action_buttons, {
+                    {
+                        text = toggle_text,
+                        callback = function()
+                            closeWidgetSafe(pkg_dialog)
+                            self:togglePackageEnable(plugin)
+                        end,
+                    },
+                    {
+                        text = update_text,
+                        callback = function()
+                            closeWidgetSafe(pkg_dialog)
+                            UIManager:nextTick(function()
+                                self:installPlugin(plugin)
+                            end)
+                        end,
+                    },
+                })
+            else
+                table.insert(action_buttons, {
+                    {
+                        text = update_text,
+                        callback = function()
+                            closeWidgetSafe(pkg_dialog)
+                            UIManager:nextTick(function()
+                                self:installPlugin(plugin)
+                            end)
+                        end,
+                    },
+                })
+            end
+
+            if plugin.can_uninstall ~= false and plugin.id ~= "ordpresse" then
+                table.insert(action_buttons, {
+                    {
+                        text = _("[×] Afinstaller fra enhed"),
+                        callback = function()
+                            closeWidgetSafe(pkg_dialog)
+                            self:uninstallPackage(plugin)
+                        end,
+                    },
+                })
+            end
+        end
+
+        if plugin._has_backup then
+            table.insert(action_buttons, {
                 {
                     text = _("[<<] Gendan forrige (Rollback)"),
                     callback = function()
+                        closeWidgetSafe(pkg_dialog)
                         self:confirmRollback(plugin)
                     end,
-                }
-            }
+                },
+            })
+        end
+
+        table.insert(action_buttons, {
+            {
+                text = _("Tilbage til butik"),
+                callback = function()
+                    closeWidgetSafe(pkg_dialog)
+                    if self._last_catalog then
+                        UIManager:nextTick(function()
+                            self:showPluginCatalog(self._last_catalog)
+                        end)
+                    end
+                end,
+            },
+        })
+
+        pkg_dialog = ButtonDialog:new{
+            title = detail_text,
+            buttons = action_buttons,
+            width_factor = 0.92,
         }
+        UIManager:show(pkg_dialog)
+        return
+    end
+
+    -- Fallback til ConfirmBox hvis ButtonDialog mangler
+    local action_text = _("[+] Installer")
+    if plugin._status == "update_available" then
+        action_text = _("[↻] Opdater til v") .. tostring(plugin.version)
+    elseif plugin._status == "installed" or plugin._status == "disabled" then
+        action_text = _("[✓] Geninstaller v") .. tostring(plugin.version)
     end
 
     UIManager:show(ConfirmBox:new{
-        text = table.concat(detail_lines, "\\n"),
+        text = detail_text,
         ok_text = action_text,
         cancel_text = _("Tilbage"),
-        other_buttons = other_buttons,
-        other_buttons_first = true,
         ok_callback = function()
             UIManager:nextTick(function()
                 self:installPlugin(plugin)
@@ -1433,6 +1558,115 @@ function Ordpresse:showPluginDetail(plugin)
                 UIManager:nextTick(function()
                     self:showPluginCatalog(self._last_catalog)
                 end)
+            end
+        end,
+    })
+end
+
+-- ===================================================================
+-- [Butik] Livscyklus: [||] Deaktiver, [>] Aktiver & [×] Afinstaller
+-- ===================================================================
+
+function Ordpresse:togglePackageEnable(plugin)
+    if type(plugin) ~= "table" or plugin.id == "ordpresse" then
+        UIManager:show(InfoMessage:new{ text = _("Kerne-pluginet 'Den Danske Ordpresse' kan ikke sættes på pause.") })
+        return
+    end
+
+    local info = inspectInstalledPackage(plugin)
+    local paths = info.paths
+    if not info.is_installed then return end
+
+    if info.status == "disabled" then
+        local ok, err = os.rename(paths.disabled_path, paths.dest_dir)
+        if not ok then
+            local mv_ret = os.execute("mv " .. shellEscapeArg(paths.disabled_path) .. " " .. shellEscapeArg(paths.dest_dir))
+            ok = (mv_ret == 0 or mv_ret == true)
+        end
+        if ok then
+            UIManager:show(ConfirmBox:new{
+                text = _("[>] '") .. tostring(plugin.name or plugin.id) .. _("' er nu aktiveret igen.") .. "\\n\\n"
+                    .. _("Genstart KOReader for at indlæse pakken.") .. "\\n"
+                    .. _("Vil du genstarte KOReader nu?"),
+                ok_text = _("Genstart nu"),
+                cancel_text = _("Senere"),
+                ok_callback = function()
+                    self:triggerRestart()
+                end,
+            })
+        else
+            UIManager:show(InfoMessage:new{ text = _("Kunne ikke aktivere pakken: ") .. tostring(err or "fejl") })
+        end
+    else
+        removePath(paths.disabled_path)
+        local ok, err = os.rename(paths.dest_dir, paths.disabled_path)
+        if not ok then
+            local mv_ret = os.execute("mv " .. shellEscapeArg(paths.dest_dir) .. " " .. shellEscapeArg(paths.disabled_path))
+            ok = (mv_ret == 0 or mv_ret == true)
+        end
+        if ok then
+            UIManager:show(ConfirmBox:new{
+                text = _("[||] '") .. tostring(plugin.name or plugin.id) .. _("' er nu sat på pause.") .. "\\n\\n"
+                    .. _("Genstart KOReader for at anvende ændringen.") .. "\\n"
+                    .. _("Vil du genstarte KOReader nu?"),
+                ok_text = _("Genstart nu"),
+                cancel_text = _("Senere"),
+                ok_callback = function()
+                    self:triggerRestart()
+                end,
+            })
+        else
+            UIManager:show(InfoMessage:new{ text = _("Kunne ikke deaktivere pakken: ") .. tostring(err or "fejl") })
+        end
+    end
+end
+
+function Ordpresse:uninstallPackage(plugin)
+    if type(plugin) ~= "table" or plugin.can_uninstall == false or plugin.id == "ordpresse" then
+        UIManager:show(InfoMessage:new{
+            text = _("Kerne-pluginet 'Den Danske Ordpresse' kan ikke afinstalleres herfra."),
+        })
+        return
+    end
+
+    local info = inspectInstalledPackage(plugin)
+    if not info.is_installed then return end
+    local paths = info.paths
+    local current_path = (info.status == "disabled") and paths.disabled_path or paths.dest_dir
+
+    UIManager:show(ConfirmBox:new{
+        text = _("Vil du afinstallere '") .. tostring(plugin.name or plugin.id) .. _("'?") .. "\\n\\n"
+            .. _("Pakken fjernes fra enheden, men kan altid hentes igen fra butikken."),
+        ok_text = _("[×] Afinstaller"),
+        cancel_text = _("Annuller"),
+        ok_callback = function()
+            local ok = false
+            if paths.target_type == "patch" then
+                ok = os.remove(current_path) ~= nil
+                pcall(os.remove, paths.dest_dir)
+                pcall(os.remove, paths.disabled_path)
+                pcall(os.remove, paths.backup_dir)
+            else
+                ok = removePath(current_path)
+                removePath(paths.dest_dir)
+                removePath(paths.disabled_path)
+                removePath(paths.backup_dir)
+            end
+
+            if ok then
+                UIManager:show(ConfirmBox:new{
+                    text = _("[×] '") .. tostring(plugin.name or plugin.id) .. _("' er afinstalleret.") .. "\\n\\n"
+                        .. _("Vil du genstarte KOReader nu?"),
+                    ok_text = _("Genstart nu"),
+                    cancel_text = _("Senere"),
+                    ok_callback = function()
+                        self:triggerRestart()
+                    end,
+                })
+            else
+                UIManager:show(InfoMessage:new{
+                    text = _("Kunne ikke fjerne filerne for ") .. tostring(plugin.name or plugin.id),
+                })
             end
         end,
     })
@@ -1497,7 +1731,9 @@ function Ordpresse:installPlugin(plugin, on_finish_callback)
             return
         end
 
-        if not body or #body < 100 then
+        local target_type = plugin.target_type or plugin.pkg_type or (plugin.category == "patch" and "patch" or (plugin.category == "resources" and "font" or "plugin"))
+        local min_size = (target_type == "patch") and 32 or 100
+        if not body or #body < min_size then
             if on_finish_callback then on_finish_callback(false) end
             UIManager:show(InfoMessage:new{
                 text = _("Modtog tom eller ugyldig pakke-fil."),
@@ -1514,6 +1750,66 @@ function Ordpresse:installPlugin(plugin, on_finish_callback)
         end
 
         local data_dir = DataStorage:getDataDir()
+        local safe_koplugin = (plugin.target_name or plugin.koplugin_name or plugin.id):gsub("[^%w%._%-]", "_")
+
+        -- Særlig hurtigsti til KOReader User Patches (enkeltstående .lua-fil i patches/)
+        if target_type == "patch" or plugin.target_dir == "patches" then
+            local syntax_ok, syntax_err = validateLuaSyntax(body)
+            if not syntax_ok then
+                if on_finish_callback then on_finish_callback(false) end
+                UIManager:show(InfoMessage:new{
+                    text = _("Ugyldig Lua-syntaks i patch: ") .. tostring(syntax_err),
+                })
+                return
+            end
+
+            local patches_dir = data_dir .. "/patches"
+            if not ensureDir(patches_dir) then
+                if on_finish_callback then on_finish_callback(false) end
+                UIManager:show(InfoMessage:new{ text = _("Kunne ikke oprette patches-mappen.") })
+                return
+            end
+
+            local final_patch = patches_dir .. "/" .. safe_koplugin
+            local disabled_patch = final_patch .. ".disabled"
+            local backup_patch = patches_dir .. "/." .. safe_koplugin .. ".bak"
+
+            if ok_lfs and lfs and lfs.attributes and lfs.attributes(final_patch, "mode") == "file" then
+                pcall(os.remove, backup_patch)
+                pcall(os.rename, final_patch, backup_patch)
+            end
+            pcall(os.remove, disabled_patch)
+
+            local w_ok, w_err = writeFileAtomic(final_patch, body)
+            if not w_ok then
+                if ok_lfs and lfs and lfs.attributes and lfs.attributes(backup_patch, "mode") == "file" then
+                    pcall(os.rename, backup_patch, final_patch)
+                end
+                if on_finish_callback then on_finish_callback(false) end
+                UIManager:show(InfoMessage:new{
+                    text = _("Kunne ikke gemme patch-fil: ") .. tostring(w_err),
+                })
+                return
+            end
+
+            if on_finish_callback then
+                on_finish_callback(true)
+                return
+            end
+
+            UIManager:show(ConfirmBox:new{
+                text = _("[✓] Patchen '") .. tostring(plugin.name or plugin.id) .. _("' (v") .. tostring(plugin.version or "1.6.0") .. _(") er installeret i patches/!") .. "\\n\\n"
+                    .. _("KOReader skal genstartes for at aktivere patchen.") .. "\\n"
+                    .. _("Vil du genstarte KOReader nu?"),
+                ok_text = _("Genstart nu"),
+                cancel_text = _("Senere"),
+                ok_callback = function()
+                    self:triggerRestart()
+                end,
+            })
+            return
+        end
+
         local tmp_dir = data_dir .. "/cache"
         if not ensureDir(tmp_dir) then
             if on_finish_callback then on_finish_callback(false) end
@@ -1524,8 +1820,6 @@ function Ordpresse:installPlugin(plugin, on_finish_callback)
         end
 
         -- Bestem målmappe afhængigt af type (plugins, fonts, data/hyph)
-        local target_type = plugin.target_type or (plugin.category == "resources" and "font" or "plugin")
-        local safe_koplugin = (plugin.koplugin_name or plugin.id):gsub("[^%w%._%-]", "_")
         local plugins_dir = data_dir .. "/plugins"
         local staging_dir = plugins_dir .. "/." .. safe_koplugin .. ".tmp"
         local target_dir = plugins_dir .. "/" .. safe_koplugin
@@ -1806,6 +2100,9 @@ function Ordpresse:installPlugin(plugin, on_finish_callback)
             })
             return
         end
+
+        -- Fjern evt. gammel .disabled kopi efter vellykket installation
+        removePath(target_dir .. ".disabled")
 
         -- Skriv .version fil til versionsinspektion
         writeFileSafe(target_dir .. "/.version", tostring(plugin.version or "1.0"))

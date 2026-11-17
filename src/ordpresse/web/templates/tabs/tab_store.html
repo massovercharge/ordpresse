@@ -49,6 +49,9 @@
                         {% if plugin.category == 'resources' %}
                         <span
                             class="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono uppercase">RESSOURCE</span>
+                        {% elif plugin.category == 'patch' %}
+                        <span
+                            class="text-[10px] bg-purple-500/15 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full font-mono uppercase">USER PATCH</span>
                         {% else %}
                         <span
                             class="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-mono">{{
@@ -475,6 +478,78 @@
                             </tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section: v1.6.0 Læs Senere (Web-til-EPUB) & Synkroniserede Citater/Gloser -->
+    <div id="articles-and-udklip-section"
+        class="bg-slate-900/80 rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-xl space-y-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-4">
+            <div class="flex items-center gap-3">
+                <div
+                    class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-sm font-mono font-bold">
+                    v1.6
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-white tracking-tight">
+                        Læs Senere (Web-til-EPUB) &amp; Synkroniserede Udklip
+                    </h3>
+                    <p class="text-xs text-slate-400">
+                        Gem lange web-artikler som vaskede E-Ink EPUB-filer til din Kindle (<code class="text-amber-300 font-mono">/opds/articles</code>), og gennemse citater &amp; gloser fra KOReader.
+                    </p>
+                </div>
+            </div>
+            <button type="button" id="refresh-v16-btn"
+                class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all cursor-pointer">
+                ↻ Opdater
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Web-til-EPUB Form & Liste -->
+            <div class="bg-slate-950/60 p-5 rounded-xl border border-slate-800 space-y-4">
+                <h4 class="text-xs font-semibold text-amber-300 uppercase tracking-wider">
+                    Gem Web-Artikel til Kindle ('Læs Senere')
+                </h4>
+                <div class="space-y-2.5">
+                    <input type="url" id="article-url-input"
+                        placeholder="https://... (eller efterlad tom ved indsat tekst bag login)"
+                        class="w-full px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="text" id="article-title-input" placeholder="Valgfri titel..."
+                            class="px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                        <input type="text" id="article-author-input" placeholder="Valgfri forfatter/medie..."
+                            class="px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                    </div>
+                    <textarea id="article-raw-input" rows="3"
+                        placeholder="Valgfri rå tekst eller HTML (til artikler bag betalingsmur som Weekendavisen/Zetland)..."
+                        class="w-full px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500"></textarea>
+                    <div class="flex items-center justify-between gap-2">
+                        <span id="article-save-status" class="text-[11px] text-slate-400"></span>
+                        <button type="button" id="article-save-btn"
+                            class="px-4 py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-semibold transition-all cursor-pointer">
+                            Konverter &amp; Gem EPUB
+                        </button>
+                    </div>
+                </div>
+
+                <div id="saved-articles-list" class="divide-y divide-slate-800/70 max-h-60 overflow-y-auto text-xs text-slate-300">
+                    <div class="py-3 text-slate-500 italic">Indlæser gemte artikler...</div>
+                </div>
+            </div>
+
+            <!-- Synkroniserede Citater & Gloser -->
+            <div class="bg-slate-950/60 p-5 rounded-xl border border-slate-800 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h4 class="text-xs font-semibold text-cyan-300 uppercase tracking-wider">
+                        Højdepunkter &amp; Glosebog fra KOReader
+                    </h4>
+                    <span id="udklip-count-badge" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">0</span>
+                </div>
+                <div id="udklip-highlights-list" class="divide-y divide-slate-800/70 max-h-80 overflow-y-auto text-xs text-slate-300">
+                    <div class="py-3 text-slate-500 italic">Indlæser citater og gloser...</div>
                 </div>
             </div>
         </div>

@@ -22,7 +22,7 @@ end
 
 function OrdpresseOpds:addToMainMenu(menu_items)
     menu_items.ordpresse_opds_sync = {
-        text = _("[📡] Ordpresse: Forbind OPDS Bogkatalog"),
+        text = _("[OPDS] Ordpresse: Forbind OPDS Bogkatalog"),
         sorting_hint = "more_tools",
         callback = function()
             local ok, msg = self:syncOpds(true)

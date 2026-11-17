@@ -4,17 +4,25 @@ import logging
 from pathlib import Path
 import re
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel, Field
 
 from ordpresse.db import Database
 from ordpresse.services.epub_laundry import LaundryOptions
 from ordpresse.services.opds_service import canonical_filename, get_books_dir
-from ordpresse.web.auth import verify_api_key
+from ordpresse.web.auth import extract_request_api_key, verify_api_key
 from ordpresse.web.lookup_service import perform_koreader_lookup
-from ordpresse.web.plugin_store import build_annas_fetch_zip, get_catalog_json, get_plugin_by_id, get_plugin_zip
+from ordpresse.web.plugin_store import (
+    build_annas_fetch_zip,
+    fetch_and_flatten_external_plugin,
+    get_catalog_json,
+    get_patch_bytes,
+    get_plugin_by_id,
+    get_plugin_zip,
+)
 from ordpresse.web.state import laundry_service, mirror_prober
 
 logger = logging.getLogger(__name__)
@@ -204,7 +212,24 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
         if not plugin:
             raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' ikke fundet i kataloget.")
 
-        # 1. Tjek om pakken distribueres lokalt fra vendor/ (fx annas-fetch, hyph-da, font-chareink)
+        # 0. KOReader User Patch (.lua enkeltfil)
+        if plugin.target_type == "patch":
+            patch_bytes = get_patch_bytes(plugin_id)
+            if not patch_bytes:
+                raise HTTPException(status_code=404, detail=f"Patch-filen for '{plugin_id}' blev ikke fundet.")
+            return Response(
+                content=patch_bytes,
+                media_type="text/plain; charset=utf-8",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{plugin.koplugin_name}"',
+                    "X-Plugin-Id": plugin.id,
+                    "X-Plugin-Version": plugin.version,
+                    "X-Koplugin-Name": plugin.koplugin_name,
+                    "X-Package-Type": "patch",
+                },
+            )
+
+        # 1. Tjek om pakken distribueres lokalt fra vendor/ (fx annas-fetch, hyph-da, font-chareink, ordpresse-*)
         local_zip = get_plugin_zip(plugin_id)
         if local_zip:
             return Response(
@@ -215,33 +240,29 @@ async def koreader_lookup_endpoint(request: Request, q: str = "", action: Option
                     "X-Plugin-Id": plugin.id,
                     "X-Plugin-Version": plugin.version,
                     "X-Koplugin-Name": plugin.koplugin_name,
+                    "X-Package-Type": plugin.target_type,
                 },
             )
 
         if not plugin.zipball_url:
             raise HTTPException(status_code=404, detail=f"Pakken '{plugin_id}' mangler download-kilde.")
 
-        # Proxy-download fra GitHub zipball og stream til KOReader-enheden
-        import httpx
+        # 2. Hent, flad ud (main.lua i roden af <koplugin_name>/) og cache ekstern GitHub-release (fx project-title)
         try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
-                github_resp = await client.get(
-                    plugin.zipball_url,
-                    headers={"Accept": "application/vnd.github+json", "User-Agent": "Ordpresse-PluginStore/1.0"},
-                )
-                github_resp.raise_for_status()
+            flattened_zip = await fetch_and_flatten_external_plugin(plugin)
         except Exception as e:
-            logger.error(f"Plugin store: Fejl ved download af {plugin_id} fra GitHub: {e}")
+            logger.error(f"Plugin store: Fejl ved download/udfladning af {plugin_id} fra GitHub: {e}")
             raise HTTPException(status_code=502, detail=f"Kunne ikke hente plugin fra GitHub: {e}")
 
         return Response(
-            content=github_resp.content,
+            content=flattened_zip,
             media_type="application/zip",
             headers={
                 "Content-Disposition": f'attachment; filename="{plugin.koplugin_name}.zip"',
                 "X-Plugin-Id": plugin.id,
                 "X-Plugin-Version": plugin.version,
                 "X-Koplugin-Name": plugin.koplugin_name,
+                "X-Package-Type": plugin.target_type,
             },
         )
 
@@ -393,4 +414,121 @@ async def run_epub_laundry_endpoint(
             "X-Ordpresse-Time-Ms": str(result.processing_ms),
         },
     )
+
+
+# -------------------------------------------------------------------
+# v1.6.0: Læseposition-Synk (ordpresse-kosync), Udklip & Artikler
+# -------------------------------------------------------------------
+
+
+class ProgressPushPayload(BaseModel):
+    partial_md5: str = ""
+    title: str = ""
+    author: str = ""
+    percentage: float = 0.0
+    xpointer: str = ""
+    chapter_index: Optional[int] = None
+    paragraph_index: Optional[int] = None
+
+
+class UdklipSyncPayload(BaseModel):
+    book_title: Optional[str] = None
+    book_author: Optional[str] = None
+    annotations: list[dict[str, Any]] = Field(default_factory=list)
+    vocab_words: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@router.put("/api/v1/koreader/sync/progress")
+async def push_reading_progress_endpoint(payload: ProgressPushPayload, request: Request):
+    """Modtager aktuel læseposition ved sideskift/dvale fra KOReader eller CrossPoint."""
+    db = Database()
+    api_key = extract_request_api_key(request)
+    device = verify_api_key(api_key, db)
+
+    if not payload.partial_md5.strip() and not payload.title.strip():
+        raise HTTPException(status_code=400, detail="Mangler partial_md5 eller bogtitel.")
+
+    rec = db.upsert_reading_progress(
+        partial_md5=payload.partial_md5,
+        title=payload.title,
+        author=payload.author,
+        percentage=payload.percentage,
+        xpointer=payload.xpointer,
+        chapter_index=payload.chapter_index,
+        paragraph_index=payload.paragraph_index,
+        device_name=device.get("device_name", "KOReader"),
+    )
+    return {"status": "ok", "timestamp": rec["updated_at"], "progress": rec}
+
+
+@router.get("/api/v1/koreader/sync/progress")
+async def pull_reading_progress_endpoint(
+    request: Request,
+    md5: str = "",
+    title: str = "",
+    author: str = "",
+):
+    """Henter seneste læseposition på tværs af brugerens enheder (MD5 eller titel+forfatter)."""
+    db = Database()
+    api_key = extract_request_api_key(request)
+    verify_api_key(api_key, db)
+
+    row = db.find_reading_progress(partial_md5=md5, title=title, author=author)
+    if not row:
+        return {"found": False}
+    return {
+        "found": True,
+        "percentage": row["percentage"],
+        "xpointer": row["xpointer"],
+        "chapter_index": row["chapter_index"],
+        "paragraph_index": row["paragraph_index"],
+        "device_name": row["device_name"],
+        "updated_at": row["updated_at"],
+    }
+
+
+@router.post("/api/v1/koreader/udklip/sync")
+async def sync_udklip_endpoint(payload: UdklipSyncPayload, request: Request):
+    """Modtager markeringer, noter og Vocabulary Builder-ord fra ordpresse-udklip.koplugin."""
+    db = Database()
+    api_key = extract_request_api_key(request)
+    device = verify_api_key(api_key, db)
+
+    stats = db.sync_reader_udklip(
+        device_name=device.get("device_name", "KOReader"),
+        book_title=payload.book_title,
+        book_author=payload.book_author,
+        annotations=payload.annotations,
+        vocab_words=payload.vocab_words,
+    )
+    return {
+        "status": "ok",
+        "device_name": device.get("device_name", "KOReader"),
+        **stats,
+    }
+
+
+@router.get("/api/v1/koreader/articles")
+async def list_koreader_articles_endpoint(request: Request, unread_only: bool = True):
+    """Returnerer listen over gemte Web-til-EPUB artikler til ordpresse-avisen.koplugin."""
+    db = Database()
+    api_key = extract_request_api_key(request)
+    verify_api_key(api_key, db)
+
+    articles = db.list_articles(unread_only=unread_only)
+    return {"status": "ok", "articles": articles}
+
+
+@router.post("/api/v1/koreader/articles/{md5}/read")
+async def mark_koreader_article_read_endpoint(md5: str, request: Request):
+    """Markerer en gemt artikel som læst fra KOReader."""
+    db = Database()
+    api_key = extract_request_api_key(request)
+    verify_api_key(api_key, db)
+
+    updated = db.mark_article_read(md5, is_read=True)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Artiklen blev ikke fundet.")
+    return {"status": "ok", "md5": md5.strip().lower(), "is_read": True}
+
 
